@@ -11,6 +11,7 @@ Covers:
 """
 
 import pytest
+from pathlib import Path
 from lazyverilogpy.formatter import (
     FTT,
     SpacingDecision,
@@ -666,3 +667,55 @@ class TestRegression:
         case_item = next((l for l in lines if "2'b00" in l), None)
         assert case_item is not None
         assert case_item[0] == " ", "case items should be indented"
+
+    def test_rtl(self):
+
+        BASE_DIR = Path(__file__).resolve().parent
+
+        rtl_path = BASE_DIR / "rtl"
+        rtl_formatted_path = BASE_DIR / "rtl" / "formatted"
+
+        found = False  # 👈 track iterations
+
+        for path in rtl_path.rglob("*"):
+            if path.suffix not in {".sv", ".v"}:
+                continue
+
+            # Skip files inside ./rtl/formatted itself
+            if rtl_formatted_path in path.parents:
+                continue
+
+            found = True  # 👈 mark that we actually tested something
+
+            # Original file
+            with open(path, "r", encoding="utf-8") as f:
+                src = f.read()
+
+            # Corresponding formatted file
+            rel_path = path.relative_to(rtl_path)
+            expected_path = rtl_formatted_path / rel_path
+
+            assert expected_path.exists(), f"Missing formatted file: {expected_path}"
+
+            with open(expected_path, "r", encoding="utf-8") as f:
+                expected = f.read()
+
+            # Run formatter
+            result = fmt(src)
+            result2 = fmt(result)
+
+            # Compare
+            assert result == expected, (
+                f"Formatting mismatch:\n"
+                f"File: {path}\n"
+                f"Expected: {expected_path}"
+            )
+            assert result == result2, (
+                f"Formatting not idempotent:\n"
+                f"File: {path}\n"
+                f"Format x1:\n{result}\n"
+                f"Format x2:\n{result2}"
+            )
+
+        # 👇 Fail if nothing was tested
+        assert found, "No RTL files (.sv/.v) found to test"
