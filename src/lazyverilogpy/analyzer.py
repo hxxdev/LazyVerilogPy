@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import re
+import logging
 from dataclasses import dataclass, field
+from lsprotocol import types
 from typing import Optional
 
 import pyslang
 
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.DEBUG)
 
 @dataclass
 class SourcePos:
@@ -57,6 +61,52 @@ def _offset_to_pos(text: str, offset: int) -> SourcePos:
     character = len(before) - (before.rfind("\n") + 1)
     return SourcePos(line=line, character=character)
 
+def _pos_to_offset(text: str, line: int, character: int) -> int:
+    lines = text.splitlines(keepends=True)
+
+    if line >= len(lines):
+        return len(text)
+
+    offset = sum(len(lines[i]) for i in range(line))
+    return offset + character
+
+def _apply_change(old_text: str, change: types.TextDocumentContentChangeEvent) -> str:
+    """
+    Apply an LSP TextDocumentContentChangeEvent to old_text.
+
+    Handles both:
+    - full document replacement
+    - incremental (range-based) edits
+    """
+
+    # --- Full document replacement ---
+    logger.debug("Change type: %s", type(change))
+    if not hasattr(change, "range") or change.range is None:
+        return change.text
+
+    start = change.range.start
+    end = change.range.end
+
+    # --- Fast path: no-op replacement ---
+    if start.line == end.line and start.character == end.character and not change.text:
+        return old_text
+
+    # --- Convert positions to offsets ---
+    start_offset = _pos_to_offset(old_text, start.line, start.character)
+    end_offset = _pos_to_offset(old_text, end.line, end.character)
+
+    # --- Safety guards (important for robustness) ---
+    text_len = len(old_text)
+    start_offset = max(0, min(start_offset, text_len))
+    end_offset = max(0, min(end_offset, text_len))
+
+    if start_offset > end_offset:
+        start_offset, end_offset = end_offset, start_offset
+
+    # --- Apply patch ---
+    return old_text[:start_offset] + change.text + old_text[end_offset:]
+
+
 
 def _slang_loc_to_source_pos(loc, tree) -> Optional[SourcePos]:
     """
@@ -99,12 +149,13 @@ class Analyzer:
         self._parse(state)
         self._docs[uri] = state
 
-    def change(self, uri: str, text: str) -> None:
+    def change(self, uri: str, change: types.TextDocumentContentChangeEvent) -> None:
         state = self._docs.get(uri)
         if state is None:
-            self.open(uri, text)
+            self.open(uri, change.text)
             return
-        state.text = text
+        logger.debug("State Type: %s", type(state))
+        state.text = _apply_change(state.text, change)
         state._offset_map.clear()
         self._parse(state)
 

@@ -16,10 +16,13 @@ place to add or customise those features later.
 from __future__ import annotations
 
 import re
+import logging
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Optional
 
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.DEBUG)
 
 # ---------------------------------------------------------------------------
 # FormatTokenType — mirrors verilog/formatting/verilog-token.h
@@ -132,6 +135,17 @@ _TYPE_KEYWORDS = frozenset([
 _INDENT_OPEN = frozenset([
     "module", "macromodule", "interface", "program", "package", "class",
     "function", "task", "begin", "fork",
+    "case", "casex", "casez", "caseinside",
+    "generate", "covergroup", "property", "sequence",
+    "checker", "clocking", "config", "primitive", "specify",
+])
+
+# Subset of _INDENT_OPEN whose keyword body starts immediately (pending_nl set
+# right after the keyword itself).  Header keywords like "module", "function",
+# "class", "task" etc. do NOT belong here — their body starts after the ";"
+# that terminates the header line, so pending_nl comes from that semicolon.
+_BLOCK_OPEN = frozenset([
+    "begin", "fork",
     "case", "casex", "casez", "caseinside",
     "generate", "covergroup", "property", "sequence",
     "checker", "clocking", "config", "primitive", "specify",
@@ -274,6 +288,12 @@ def _classify(raw: str, text: str, prev_ftt: Optional[FTT]) -> FTT:
             return FTT.unary_operator
         if text in _ALWAYS_BINARY:
             return FTT.binary_operator
+        # '#' is a delay/event-control operator, not a true binary op.
+        # Keeping it as binary_operator causes rule 9 to add a spurious space
+        # before '(' (e.g. "my_mod # (8)").  Rule 20 handles '#' spacing via
+        # text comparison, so FTT.unknown is correct here.
+        if text == "#":
+            return FTT.unknown
         # Context-sensitive: +  -  &  |  ^  <  >  =  ?
         # Unary when preceded by: operator, open_group, or start-of-expression
         if prev_ftt in (None, FTT.binary_operator, FTT.unary_operator, FTT.open_group):
@@ -578,27 +598,36 @@ def format_source(source: str, options: Optional[FormatOptions] = None) -> str:
             out.append(indent_unit * indent_level)
             at_bol = False
         out.append(text)
+    for t in tokens:
+        logger.debug("Token ftt: %s", t.ftt)
+        logger.debug("Token text: %s", t.text)
+        logger.debug("Token lo: %s", t.lo)
+        logger.debug("Token pos: %s", t.pos)
+        logger.debug("\n")
+
 
     i = 0
     while i < len(tokens):
         tok = tokens[i]
 
-        # ── Whitespace token ──────────────────────────────────────────────
-        if tok.ftt == FTT.unknown and _TOKEN_RE.match(tok.text) and tok.text[0] in " \t\r\n":
-            nl = tok.text.count("\n")
-            if nl > 1:
-                extra = min(nl - 1, opts.blank_lines_between_items)
-                blank_pending = max(blank_pending, extra)
-            i += 1
-            continue
-
         # ── Format-disabled region: pass through verbatim ─────────────────
+        # Must be checked BEFORE the whitespace handler so that spaces and
+        # newlines inside a disabled region are preserved exactly as written.
         if _in_disabled(tok.pos, disabled):
             _flush_newline()
             out.append(tok.text)
             at_bol = tok.text.endswith("\n")
             i += 1
             # Don't update prev — disabled regions don't affect spacing
+            continue
+
+        # ── Whitespace token ──────────────────────────────────────────────
+        if tok.ftt == FTT.unknown and tok.text and tok.text[0] in " \t\r\n":
+            nl = tok.text.count("\n")
+            if nl > 1:
+                extra = min(nl - 1, opts.blank_lines_between_items)
+                blank_pending = max(blank_pending, extra)
+            i += 1
             continue
 
         # ── Skip pure-whitespace unknown tokens (not disabled) ────────────
@@ -664,7 +693,12 @@ def format_source(source: str, options: Optional[FormatOptions] = None) -> str:
         if tok.ftt == FTT.keyword:
             if tok.lo in _INDENT_OPEN:
                 indent_level += 1
-                pending_nl = True
+                # Header keywords (module, function, class, task, …) do NOT
+                # force an immediate newline — their body starts after the ";"
+                # that closes the header.  Only block-openers (begin, case, …)
+                # set pending_nl right away.
+                if tok.lo in _BLOCK_OPEN:
+                    pending_nl = True
             elif tok.lo in _INDENT_CLOSE:
                 # Newline after end*, but use pending so end-else can cancel it
                 pending_nl = True

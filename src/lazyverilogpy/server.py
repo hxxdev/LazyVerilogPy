@@ -43,7 +43,7 @@ def did_open(ls: LanguageServer, params: types.DidOpenTextDocumentParams) -> Non
 def did_change(ls: LanguageServer, params: types.DidChangeTextDocumentParams) -> None:
     # Full sync — the client sends the complete new text each time
     for change in params.content_changes:
-        analyzer.change(params.text_document.uri, change.text)
+        analyzer.change(params.text_document.uri, change)
     _publish_diagnostics(ls, params.text_document.uri)
 
 
@@ -116,12 +116,15 @@ def formatting(
             return None
 
         formatted = format_source(state.text, _fmt_options)
+        logger.debug("formatted: %s", formatted)
         if formatted == state.text:
             return []  # no changes
 
-        lines = state.text.splitlines()
+        lines = state.text.split("\n")
         end_line = max(len(lines) - 1, 0)
         end_char = len(lines[end_line]) if lines else 0
+        logger.debug("formatted: %d", end_line)
+        logger.debug("formatted: %s", end_char)
 
         return [
             types.TextEdit(
