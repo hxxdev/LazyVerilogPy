@@ -10,6 +10,7 @@ Covers:
   - Idempotency: format(format(x)) == format(x)
 """
 
+import re
 import pytest
 from pathlib import Path
 from lazyverilogpy.formatter import (
@@ -715,6 +716,23 @@ class TestRegression:
                 f"File: {path}\n"
                 f"Format x1:\n{result}\n"
                 f"Format x2:\n{result2}"
+            )
+
+            def _tok_key(t: _Tok):
+                return (t.ftt, t.lo)  # or t.text depending on your needs
+
+            def _filtered_tokens(s: str):
+                return [
+                    _tok_key(t)
+                    for t in _tokenize(s)
+                    if t.ftt != FTT.unknown
+                ]
+            print("SRC TOKENS:", _filtered_tokens(src))
+            print("RESULT TOKENS:", _filtered_tokens(result))
+
+            assert _filtered_tokens(src) == _filtered_tokens(result), (
+                f"Semantic change (token mismatch):\n"
+                f"File: {path}"
             )
 
         # 👇 Fail if nothing was tested
