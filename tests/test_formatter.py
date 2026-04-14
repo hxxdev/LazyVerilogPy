@@ -72,6 +72,26 @@ def _unk(text: str) -> _Tok:
     return _make(FTT.unknown, text)
 
 
+def _semi() -> _Tok:
+    return _make(FTT.semicolon, ";")
+
+
+def _comma_tok() -> _Tok:
+    return _make(FTT.comma, ",")
+
+
+def _colon_tok() -> _Tok:
+    return _make(FTT.colon, ":")
+
+
+def _hash_tok() -> _Tok:
+    return _make(FTT.hash, "#")
+
+
+def _at_tok() -> _Tok:
+    return _make(FTT.at, "@")
+
+
 def spaces(left: _Tok, right: _Tok, **kw) -> int:
     opts = FormatOptions(**kw)
     return _spaces_required(left, right, opts, False)
@@ -196,22 +216,22 @@ class TestSpacesRequired:
         assert spaces(_hier("::"), _id("TYPE")) == 0
 
     def test_0_before_comma(self):
-        assert spaces(_id("x"), _unk(",")) == 0
+        assert spaces(_id("x"), _comma_tok()) == 0
 
     def test_1_after_comma(self):
-        assert spaces(_unk(","), _id("x")) == 1
+        assert spaces(_comma_tok(), _id("x")) == 1
 
     def test_0_before_semicolon(self):
-        assert spaces(_id("x"), _unk(";")) == 0
+        assert spaces(_id("x"), _semi()) == 0
 
     def test_1_after_semicolon(self):
-        assert spaces(_unk(";"), _id("x")) == 1
+        assert spaces(_semi(), _id("x")) == 1
 
     def test_0_after_at(self):
-        assert spaces(_unk("@"), _open("(")) == 0
+        assert spaces(_at_tok(), _open("(")) == 0
 
     def test_1_before_at(self):
-        assert spaces(_kw("always_ff"), _unk("@")) == 1
+        assert spaces(_kw("always_ff"), _at_tok()) == 1
 
     def test_1_around_binary_op(self):
         assert spaces(_id("a"), _op("==")) == 1
@@ -238,18 +258,18 @@ class TestSpacesRequired:
         assert spaces(_kw("if"), _open("(")) == 1
 
     def test_0_after_hash(self):
-        assert spaces(_unk("#"), _num("5")) == 0
+        assert spaces(_hash_tok(), _num("5")) == 0
 
     def test_1_before_hash(self):
-        assert spaces(_id("foo"), _unk("#")) == 1
+        assert spaces(_id("foo"), _hash_tok()) == 1
 
     def test_0_colon_in_dim(self):
         opts = FormatOptions()
-        assert _spaces_required(_num("7"), _unk(":"), opts, True) == 0
+        assert _spaces_required(_num("7"), _colon_tok(), opts, True) == 0
 
     def test_0_before_colon_in_case(self):
         # identifier before ':' — treated as case label
-        assert spaces(_id("state_a"), _unk(":")) == 0
+        assert spaces(_id("state_a"), _colon_tok()) == 0
 
     def test_0_before_lbracket_after_index(self):
         # a[i] — no space
@@ -272,7 +292,7 @@ class TestSpacesRequired:
         assert spaces(_close(")"), _id("begin")) == 1
 
     def test_0_after_close_paren_before_colon(self):
-        assert spaces(_close(")"), _unk(":")) == 0
+        assert spaces(_close(")"), _colon_tok()) == 0
 
     def test_1_after_close_bracket(self):
         assert spaces(_close("]"), _id("x")) == 1
@@ -289,7 +309,7 @@ class TestSpacesRequired:
 
     def test_0_hash_paren(self):
         # "#(" parameter list
-        assert spaces(_unk("#"), _open("(")) == 0
+        assert spaces(_hash_tok(), _open("(")) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -329,7 +349,7 @@ class TestBreakDecision:
         assert decision(_close(")"), _kw("begin")) == SpacingDecision.kMustAppend
 
     def test_hash_must_append(self):
-        assert decision(_unk("#"), _num("5")) == SpacingDecision.kMustAppend
+        assert decision(_hash_tok(), _num("5")) == SpacingDecision.kMustAppend
 
     def test_preserve_in_dim(self):
         opts = FormatOptions()
@@ -718,17 +738,12 @@ class TestRegression:
                 f"Format x2:\n{result2}"
             )
 
-            def _tok_key(t: _Tok):
-                return (t.ftt, t.lo)  # or t.text depending on your needs
-
             def _filtered_tokens(s: str):
                 return [
-                    _tok_key(t)
+                    (t.ftt, t.text)
                     for t in _tokenize(s)
-                    if t.ftt != FTT.unknown
+                    if t.ftt not in (FTT.unknown, FTT.whitespace)
                 ]
-            print("SRC TOKENS:", _filtered_tokens(src))
-            print("RESULT TOKENS:", _filtered_tokens(result))
 
             assert _filtered_tokens(src) == _filtered_tokens(result), (
                 f"Semantic change (token mismatch):\n"

@@ -34,6 +34,7 @@ class FTT(Enum):
     Source: enum FormatTokenType in verilog/formatting/verilog-token.h
     """
     unknown = auto()
+    whitespace = auto()        # spaces, tabs, newlines
     identifier = auto()
     keyword = auto()
     numeric_literal = auto()   # plain digits or full based literal (4'b1010)
@@ -45,6 +46,11 @@ class FTT(Enum):
     hierarchy = auto()         # .  ::
     comment_block = auto()     # /* … */
     eol_comment = auto()       # // …
+    semicolon = auto()         # ;
+    comma = auto()             # ,
+    colon = auto()             # :
+    hash = auto()              # #  (delay / parameter-list operator)
+    at = auto()                # @  (event-control operator)
 
 
 # ---------------------------------------------------------------------------
@@ -288,12 +294,10 @@ def _classify(raw: str, text: str, prev_ftt: Optional[FTT]) -> FTT:
             return FTT.unary_operator
         if text in _ALWAYS_BINARY:
             return FTT.binary_operator
-        # '#' is a delay/event-control operator, not a true binary op.
-        # Keeping it as binary_operator causes rule 9 to add a spurious space
-        # before '(' (e.g. "my_mod # (8)").  Rule 20 handles '#' spacing via
-        # text comparison, so FTT.unknown is correct here.
         if text == "#":
-            return FTT.unknown
+            return FTT.hash
+        if text == "@":
+            return FTT.at
         # Context-sensitive: +  -  &  |  ^  <  >  =  ?
         # Unary when preceded by: operator, open_group, or start-of-expression
         if prev_ftt in (None, FTT.binary_operator, FTT.unary_operator, FTT.open_group):
@@ -303,22 +307,29 @@ def _classify(raw: str, text: str, prev_ftt: Optional[FTT]) -> FTT:
     if raw == "punct":
         if text == ".":
             return FTT.hierarchy
+        if text == ";":
+            return FTT.semicolon
+        if text == ",":
+            return FTT.comma
+        if text == ":":
+            return FTT.colon
     return FTT.unknown
 
 
 def _tokenize(source: str) -> list[_Tok]:
-    """Return classified non-whitespace tokens, with whitespace as FTT.unknown."""
+    """Return all tokens; whitespace is FTT.whitespace, others via _classify."""
     tokens: list[_Tok] = []
     prev_ftt: Optional[FTT] = None
     for m in _TOKEN_RE.finditer(source):
         raw = m.lastgroup
         text = m.group()
         if raw == "ws":
-            tokens.append(_Tok(FTT.unknown, text, m.start()))
+            tokens.append(_Tok(FTT.whitespace, text, m.start()))
             continue
         ftt = _classify(raw, text, prev_ftt)
         tokens.append(_Tok(ftt, text, m.start()))
-        if ftt != FTT.unknown:
+        # Only meaningful token types inform the next unary/binary decision.
+        if ftt not in (FTT.unknown, FTT.whitespace):
             prev_ftt = ftt
     return tokens
 
@@ -385,21 +396,21 @@ def _spaces_required(
         return 0
 
     # 5. Comma rules (line 180)
-    if rx == ",":
+    if rf == FTT.comma:
         return 0
-    if lx == ",":
+    if lf == FTT.comma:
         return 1
 
     # 6. Semicolon rules (line 183)
-    if rx == ";":
-        return 1 if lx == ":" else 0   # "default: ;" gets a space
-    if lx == ";":
+    if rf == FTT.semicolon:
+        return 1 if lf == FTT.colon else 0   # "default: ;" gets a space
+    if lf == FTT.semicolon:
         return 1
 
     # 7. @ rules (line 211)
-    if lx == "@":
+    if lf == FTT.at:
         return 0
-    if rx == "@":
+    if rf == FTT.at:
         return 1
 
     # 8. Unary op + '{' → 0 (line 219)
@@ -424,17 +435,17 @@ def _spaces_required(
 
     # 12. '(' rules (line 290)
     if rx == "(":
-        if lx == "#":           return 0   # "#(" fused
-        if lx == ")":           return 1   # ") (" param/port separator
-        if lf == FTT.identifier: return 0  # function/task call: no space
+        if lf == FTT.hash:       return 0   # "#(" fused
+        if lx == ")":            return 1   # ") (" param/port separator
+        if lf == FTT.identifier: return 0   # function/task call: no space
         if lf == FTT.keyword:
             return 1   # all keywords (flow-control and others) get a space
         return 0
 
     # 13. ':' rules (line 324)
-    if lx == ":":
+    if lf == FTT.colon:
         return 0 if in_dim else 1          # symmetrize inside []; 1 otherwise
-    if rx == ":":
+    if rf == FTT.colon:
         if ll == "default":    return 0    # "default:"
         if in_dim:             return 0    # bit-slice / range
         if lf in (FTT.identifier, FTT.numeric_literal, FTT.close_group):
@@ -472,8 +483,8 @@ def _spaces_required(
         return 0
 
     # 20. '#' rules (line 496)
-    if lx == "#":  return 0
-    if rx == "#":  return 1
+    if lf == FTT.hash:  return 0
+    if rf == FTT.hash:  return 1
 
     # 21. Before keyword → 1 (line 513)
     if rf == FTT.keyword:
@@ -481,7 +492,7 @@ def _spaces_required(
 
     # 22. After ')' → 1 mostly (line 519)
     if lx == ")":
-        return 0 if rx == ":" else 1
+        return 0 if rf == FTT.colon else 1
 
     # 23. After ']' → 1 (line 535)
     if lx == "]":
@@ -507,7 +518,8 @@ def _break_decision(
 
     # Inside declared dimensions → kPreserve (except the brackets themselves)
     # Source: lines 737-746
-    if in_dim and lx not in ("[", "]", ":") and rx not in ("[", "]", ":"):
+    if in_dim and lf != FTT.colon and lx not in ("[", "]") \
+               and rf != FTT.colon and rx not in ("[", "]"):
         return SpacingDecision.kPreserve
 
     # After eol comment → kMustWrap (line 776)
@@ -541,7 +553,7 @@ def _break_decision(
         return SpacingDecision.kMustAppend
 
     # '#' on left → kMustAppend (line 895)
-    if lx == "#":
+    if lf == FTT.hash:
         return SpacingDecision.kMustAppend
 
     return SpacingDecision.kUndecided
@@ -631,16 +643,11 @@ def format_source(source: str, options: Optional[FormatOptions] = None) -> str:
             continue
 
         # ── Whitespace token ──────────────────────────────────────────────
-        if tok.ftt == FTT.unknown and tok.text and tok.text[0] in " \t\r\n":
+        if tok.ftt == FTT.whitespace:
             nl = tok.text.count("\n")
             if nl > 1:
                 extra = min(nl - 1, opts.blank_lines_between_items)
                 blank_pending = max(blank_pending, extra)
-            i += 1
-            continue
-
-        # ── Skip pure-whitespace unknown tokens (not disabled) ────────────
-        if tok.ftt == FTT.unknown and not tok.text.strip():
             i += 1
             continue
 
@@ -711,7 +718,7 @@ def format_source(source: str, options: Optional[FormatOptions] = None) -> str:
             elif tok.lo in _INDENT_CLOSE:
                 # Newline after end*, but use pending so end-else can cancel it
                 pending_nl = True
-        elif tok.text == ";":
+        elif tok.ftt == FTT.semicolon:
             pending_nl = True
 
         prev = tok
