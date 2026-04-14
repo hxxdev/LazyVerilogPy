@@ -674,7 +674,7 @@ class TestRegression:
         BASE_DIR = Path(__file__).resolve().parent
 
         rtl_path = BASE_DIR / "rtl"
-        rtl_formatted_path = BASE_DIR / "rtl" / "formatted"
+        rtl_formatted_path = BASE_DIR / "formatted"
 
         found = False  # 👈 track iterations
 

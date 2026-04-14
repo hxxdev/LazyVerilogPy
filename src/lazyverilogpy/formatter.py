@@ -587,9 +587,18 @@ def format_source(source: str, options: Optional[FormatOptions] = None) -> str:
             out.append("\n")
             at_bol = True
             pending_nl = False
-        for _ in range(blank_pending):
-            out.append("\n")
-        blank_pending = 0
+        if blank_pending > 0:
+            # If we are mid-line, emit a newline to end the current line first
+            # before adding the blank lines.  Without this, the single '\n'
+            # from the loop below would be consumed as the line-ender and the
+            # blank line would be invisible on the second format pass.
+            if not at_bol:
+                out.append("\n")
+                at_bol = True
+            for _ in range(blank_pending):
+                out.append("\n")
+                at_bol = True
+            blank_pending = 0
 
     def _emit(text: str) -> None:
         """Emit *text*, prepending indentation when at the start of a line."""
