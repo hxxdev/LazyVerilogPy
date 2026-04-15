@@ -8,10 +8,10 @@ endfunction
 //- @C defines/binding C
 //- @D defines/binding D
 function void g1(int C, int D);
-  //- @f1 ref F1
-  //- @A ref A
-  //- @B ref B
-  //- @C ref C
-  //- @D ref D
-  f1(.A(C), .B(D));
+    //- @f1 ref F1
+    //- @A ref A
+    //- @B ref B
+    //- @C ref C
+    //- @D ref D
+    f1(.A(C), .B(D));
 endfunction

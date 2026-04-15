@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 import logging
+from pathlib import Path
 from typing import Optional
 import pyslang
 
@@ -15,16 +16,108 @@ from .definition import provide_definition
 from .formatter import FormatOptions, format_source
 from .hover import provide_hover
 
+try:
+    import tomllib  # Python 3.11+
+except ModuleNotFoundError:
+    try:
+        import tomli as tomllib  # type: ignore[no-redef]
+    except ModuleNotFoundError:
+        tomllib = None  # type: ignore[assignment]
+
 logger = logging.getLogger(__name__)
 
 SERVER_NAME = "lazyverilogpy"
 SERVER_VERSION = "0.1.0"
 
+CONFIG_FILENAME = "lazyverilog.toml"
+
 server = LanguageServer(SERVER_NAME, SERVER_VERSION)
 analyzer = Analyzer()
 
-# Default formatting options — overridden by workspace configuration
+# Default formatting options — overridden by config file or workspace configuration
 _fmt_options = FormatOptions()
+
+
+# ---------------------------------------------------------------------------
+# TOML config discovery
+# ---------------------------------------------------------------------------
+
+
+def _find_config_toml(start: Path) -> Optional[Path]:
+    """Walk *start* toward the filesystem root looking for ``lazyverilog.toml``.
+
+    Returns the first match found, or ``None`` if no config file exists in
+    any ancestor directory.
+    """
+    current = start.resolve()
+    while True:
+        candidate = current / CONFIG_FILENAME
+        if candidate.is_file():
+            return candidate
+        parent = current.parent
+        if parent == current:
+            # Reached filesystem root with no match.
+            return None
+        current = parent
+
+
+def _load_fmt_options_from_toml(path: Path) -> FormatOptions:
+    """Parse *path* and return a :class:`FormatOptions` built from it.
+
+    Expected TOML layout::
+
+        [formatter]
+        indent_size = 4
+        use_tabs = false
+        keyword_case = "lower"
+        max_line_length = 120
+        wrap_spaces = 4
+        wrap_end_else_clauses = false
+        compact_indexing_and_selections = true
+        blank_lines_between_items = 1
+        default_indent_level_inside_module_block = 1
+        align_assign_operators = false
+    """
+    if tomllib is None:
+        logger.warning(
+            "No TOML library available (tomllib/tomli). "
+            "Install 'tomli' on Python < 3.11 to use %s.",
+            CONFIG_FILENAME,
+        )
+        return FormatOptions()
+
+    with path.open("rb") as fh:
+        data = tomllib.load(fh)
+
+    cfg = data.get("formatter", {})
+    opts = FormatOptions.from_dict(cfg)
+    logger.info("Loaded format options from %s", path)
+    return opts
+
+
+def _reload_config(start: Path) -> None:
+    """Search for a config file starting at *start* and update ``_fmt_options``."""
+    global _fmt_options
+    path = _find_config_toml(start)
+    if path is not None:
+        try:
+            _fmt_options = _load_fmt_options_from_toml(path)
+        except Exception as exc:
+            logger.warning("Failed to load %s: %s", path, exc)
+    else:
+        logger.debug("No %s found above %s; using current options.", CONFIG_FILENAME, start)
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _uri_to_path(uri: str) -> Path:
+    """Convert a ``file://`` URI to a :class:`Path`."""
+    from urllib.parse import urlparse, unquote
+    parsed = urlparse(uri)
+    return Path(unquote(parsed.path))
 
 
 # ---------------------------------------------------------------------------
@@ -32,9 +125,24 @@ _fmt_options = FormatOptions()
 # ---------------------------------------------------------------------------
 
 
+@server.feature(types.INITIALIZED)
+def initialized(ls: LanguageServer, params: types.InitializedParams) -> None:
+    """Load config from the workspace root as soon as the client is ready."""
+    root_uri = ls.workspace.root_uri
+    if root_uri:
+        _reload_config(_uri_to_path(root_uri))
+    else:
+        logger.debug("No workspace root — skipping initial config load.")
+
+
 @server.feature(types.TEXT_DOCUMENT_DID_OPEN)
 def did_open(ls: LanguageServer, params: types.DidOpenTextDocumentParams) -> None:
     doc = params.text_document
+    # Re-run config discovery from the document's own directory so that files
+    # outside the workspace root (e.g. opened via absolute path) still pick up
+    # the nearest lazyverilog.toml.
+    doc_dir = _uri_to_path(doc.uri).parent
+    _reload_config(doc_dir)
     analyzer.open(doc.uri, doc.text)
     _publish_diagnostics(ls, doc.uri)
 

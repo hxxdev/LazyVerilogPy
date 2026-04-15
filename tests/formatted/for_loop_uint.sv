@@ -3,9 +3,9 @@ typedef int uint;
 
 //- @my_module defines/binding _
 module my_module();
-  //- @y defines/binding Y
-  int y = 0;
-  initial begin
+//- @y defines/binding Y
+int y = 0;
+initial begin
     //- @uint ref Uint
     //- @#0x defines/binding X
     //- @#1x ref X
@@ -13,8 +13,8 @@ module my_module();
     for (uint x = 1;
     x < 5;
     x++) begin
-      //- @y ref Y
-      y++;
+        //- @y ref Y
+        y++;
     end
-  end
+end
 endmodule

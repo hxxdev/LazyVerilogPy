@@ -24,6 +24,43 @@ sys.path.insert(0, str(SRC_DIR))
 from lazyverilogpy.formatter import FormatOptions, format_source  # noqa: E402
 
 EXTENSIONS = {".sv", ".v", ".svh", ".vh"}
+CONFIG_FILENAME = "lazyverilog.toml"
+
+
+def _load_opts_from_toml(repo_root: Path) -> FormatOptions:
+    """Load FormatOptions from lazyverilog.toml, walking up from repo_root.
+
+    Falls back to default FormatOptions() if no config file is found or if
+    no toml library is available.
+    """
+    try:
+        import tomllib  # Python 3.11+
+    except ModuleNotFoundError:
+        try:
+            import tomli as tomllib  # type: ignore[no-redef]
+        except ModuleNotFoundError:
+            tomllib = None  # type: ignore[assignment]
+
+    current = repo_root.resolve()
+    while True:
+        candidate = current / CONFIG_FILENAME
+        if candidate.is_file():
+            if tomllib is None:
+                print(f"  WARNING: found {candidate} but no toml library available; using defaults")
+                return FormatOptions()
+            with candidate.open("rb") as fh:
+                data = tomllib.load(fh)
+            cfg = data.get("formatter", {})
+            opts = FormatOptions.from_dict(cfg)
+            print(f"  config   {candidate}")
+            return opts
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+
+    print(f"  config   (none found — using defaults)")
+    return FormatOptions()
 
 
 def main() -> None:
@@ -38,7 +75,7 @@ def main() -> None:
         print(f"No RTL files found in {RTL_DIR}", file=sys.stderr)
         sys.exit(1)
 
-    opts = FormatOptions()
+    opts = _load_opts_from_toml(REPO_ROOT)
     ok = err = 0
 
     for src in sources:

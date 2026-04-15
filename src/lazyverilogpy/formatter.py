@@ -219,6 +219,29 @@ class FormatOptions:
     keyword_case: str = "preserve"       # "preserve" | "lower" | "upper"
     blank_lines_between_items: int = 1   # max consecutive blank lines preserved
 
+    default_indent_level_inside_module_block: int = 1
+    """Indent levels added for content inside module…endmodule (0 = no extra indent)."""
+
+    align_assign_operators: bool = False
+    """Align = and <= assignment operators vertically in consecutive assignment lines."""
+
+    tab_align_assign_operators: bool = False
+    """Round the alignment column up to the nearest multiple of ``indent_size``.
+
+    Only has effect when ``align_assign_operators`` is ``True``.
+    With ``indent_size=4`` the ``=`` lands at column 4, 8, 12, … instead of
+    exactly at the longest LHS column.
+    """
+
+    align_assign_gap: int = 1
+    """Spaces between the longest LHS and its assignment operator after alignment.
+
+    Only has effect when ``align_assign_operators`` is ``True``.
+    All shorter lines get extra padding so their operators stay aligned; the
+    longest line always has exactly ``align_assign_gap`` spaces before its
+    operator.  Default is ``1`` (the previous hard-coded behaviour).
+    """
+
     @classmethod
     def from_dict(cls, d: dict) -> "FormatOptions":
         obj = cls()
@@ -560,6 +583,86 @@ def _break_decision(
 
 
 # ---------------------------------------------------------------------------
+# Assign-operator alignment pass
+# ---------------------------------------------------------------------------
+
+_BLOCKING_ASSIGN_RE = re.compile(r' = ')
+_NONBLOCKING_ASSIGN_RE = re.compile(r' <= ')
+_BLOCK_COMMENT_RE = re.compile(r'/\*.*?\*/', re.DOTALL)
+
+
+def _find_assign_op(line: str) -> "tuple[int, str] | None":
+    """Return (start position of the space before the op, op_text) or None.
+
+    Only searches the code portion of the line (before any // comment and
+    with /* … */ block comments blanked out so their content is ignored).
+    """
+    comment_pos = line.find('//')
+    code = line if comment_pos < 0 else line[:comment_pos]
+    # Replace block comment bodies with spaces to preserve column positions
+    # while preventing their content from being mistaken for operators.
+    code = _BLOCK_COMMENT_RE.sub(lambda m: ' ' * len(m.group()), code)
+
+    m1 = _BLOCKING_ASSIGN_RE.search(code)
+    m2 = _NONBLOCKING_ASSIGN_RE.search(code)
+    if m1 and m2:
+        return (m2.start(), '<=') if m2.start() < m1.start() else (m1.start(), '=')
+    if m2:
+        return (m2.start(), '<=')
+    if m1:
+        return (m1.start(), '=')
+    return None
+
+
+def _align_assign_pass(text: str, opts: "FormatOptions") -> str:
+    """Align = and <= operators in runs of consecutive assignment lines."""
+    lines = text.split('\n')
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        info = _find_assign_op(lines[i])
+        if info is None:
+            out.append(lines[i])
+            i += 1
+            continue
+
+        # Build a run of consecutive assignment lines.
+        run: list[tuple[str, int, str]] = [(lines[i], info[0], info[1])]
+        j = i + 1
+        while j < len(lines):
+            info2 = _find_assign_op(lines[j])
+            if info2 is not None:
+                run.append((lines[j], info2[0], info2[1]))
+                j += 1
+            else:
+                break
+
+        if len(run) >= 2:
+            import math
+            # Column where spaces-before-op begin for the longest LHS.
+            max_lhs_end = max(pos for _, pos, _ in run)
+            # Step 1: establish the gap (spaces between longest LHS and its op).
+            effective_gap = opts.align_assign_gap
+            # Step 2: if tab-snap is on, round the gap up to the next multiple
+            # of indent_size so the spacing stays on the indentation grid.
+            if opts.tab_align_assign_operators and opts.indent_size > 0:
+                effective_gap = math.ceil(effective_gap / opts.indent_size) * opts.indent_size
+            # Target column for every op in the run.
+            op_col = max_lhs_end + effective_gap
+            for line, pos, op in run:
+                lhs = line[:pos]                    # up to (not incl.) space before op
+                rhs_start = pos + 1 + len(op) + 1  # skip: space + op + space
+                rhs = line[rhs_start:]
+                out.append(lhs + ' ' * (op_col - pos) + op + ' ' + rhs)
+        else:
+            out.append(run[0][0])
+
+        i = j
+
+    return '\n'.join(out)
+
+
+# ---------------------------------------------------------------------------
 # Main formatter
 # ---------------------------------------------------------------------------
 
@@ -585,6 +688,7 @@ def format_source(source: str, options: Optional[FormatOptions] = None) -> str:
 
     out: list[str] = []
     indent_level = 0
+    indent_stack: list[int] = []   # per-block indent delta, pushed on open, popped on close
     at_bol = True          # at beginning of line
     dim_depth = 0          # depth inside [ ] for compact_indexing
     pending_nl = False     # deferred newline (allows end-else lookahead)
@@ -690,8 +794,8 @@ def format_source(source: str, options: Optional[FormatOptions] = None) -> str:
         # ── Indent-close: decrement before emitting ───────────────────────
         # Source: tree-unwrapper end* handling
         if tok.ftt == FTT.keyword and tok.lo in _INDENT_CLOSE:
-            if indent_level > 0:
-                indent_level -= 1
+            delta = indent_stack.pop() if indent_stack else 1
+            indent_level = max(0, indent_level - delta)
 
         # ── Emit token ───────────────────────────────────────────────────
         if tok.ftt == FTT.keyword:
@@ -704,19 +808,21 @@ def format_source(source: str, options: Optional[FormatOptions] = None) -> str:
             dim_depth += 1
         elif tok.text == "]" and dim_depth > 0:
             dim_depth -= 1
+        elif tok.ftt == FTT.semicolon:
+            dim_depth = 0  # ; ends any statement, so we can't still be inside […]
 
         # ── Post-emit actions ─────────────────────────────────────────────
         if tok.ftt == FTT.keyword:
             if tok.lo in _INDENT_OPEN:
-                indent_level += 1
-                # Header keywords (module, function, class, task, …) do NOT
-                # force an immediate newline — their body starts after the ";"
-                # that closes the header.  Only block-openers (begin, case, …)
-                # set pending_nl right away.
+                if tok.lo in {"module", "macromodule"}:
+                    delta = opts.default_indent_level_inside_module_block
+                else:
+                    delta = 1
+                indent_level += delta
+                indent_stack.append(delta)
                 if tok.lo in _BLOCK_OPEN:
                     pending_nl = True
             elif tok.lo in _INDENT_CLOSE:
-                # Newline after end*, but use pending so end-else can cancel it
                 pending_nl = True
         elif tok.ftt == FTT.semicolon:
             pending_nl = True
@@ -729,4 +835,7 @@ def format_source(source: str, options: Optional[FormatOptions] = None) -> str:
         out.append("\n")
 
     result = "".join(out)
-    return result.rstrip("\n") + "\n"
+    result = result.rstrip("\n") + "\n"
+    if opts.align_assign_operators:
+        result = _align_assign_pass(result, opts)
+    return result

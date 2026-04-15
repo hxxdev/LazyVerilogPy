@@ -2,14 +2,14 @@
 
 module m();
 
-  wire a;
+wire a;
 
-  always_comb begin
+always_comb begin
     $display(a);
-  end
+end
 
-  t t1();
+t t1();
 
-  m1 m2();
+m1 m2();
 
 endmodule

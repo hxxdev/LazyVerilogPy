@@ -1,5 +1,5 @@
 module main;
-  initial begin
+initial begin
     $display("Something: %d", `SOMETHING);
-  end
+end
 endmodule

@@ -1,27 +1,27 @@
 //- @mem_intf defines/binding MemIntf
 interface mem_intf;
-  //- @clk defines/binding CLK
-  logic clk;
+    //- @clk defines/binding CLK
+    logic clk;
 endinterface
 
 //- @testcase defines/binding TestCase
 //- TestCase.node/kind record
 //- TestCase.subkind program
 program testcase(  //- @intf defines/binding Intf
-  interface intf);
-    //- @#1env defines/binding Env
-    environment env;
-    initial begin
-      //- @env ref Env
-      //- @intf ref Intf
-      env = new (intf);
-    end
-    //- @testcase ref TestCase
-  endprogram
-  : testcase
+    interface intf);
+        //- @#1env defines/binding Env
+        environment env;
+        initial begin
+            //- @env ref Env
+            //- @intf ref Intf
+            env = new (intf);
+        end
+        //- @testcase ref TestCase
+    endprogram
+    : testcase
 
-  //- @tbench_top defines/binding _
-  module tbench_top;
+    //- @tbench_top defines/binding _
+    module tbench_top;
     //- @mem_intf ref MemIntf
     //- @#1intf defines/binding Intf1
     mem_intf intf();
@@ -37,11 +37,11 @@ program testcase(  //- @intf defines/binding Intf
     //- @#1test defines/binding _
     //- @intf ref Intf1
     testcase test(intf);
-  endmodule
+    endmodule
 
-  //- @memory defines/binding Memory
-  module memory(  //- @clk ref Clk2
+    //- @memory defines/binding Memory
+    module memory(  //- @clk ref Clk2
     clk);
     //- @clk defines/binding Clk2
     input clk;
-  endmodule
+    endmodule

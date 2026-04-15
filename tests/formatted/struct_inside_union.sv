@@ -44,14 +44,14 @@ union_type2 my_union2;
 
 //- @my_module defines/binding _
 module my_module(  //- @my_mult defines/binding MyMult
-  output my_mult,  //- @out1 defines/binding Out1
-  out1,  //- @out2 defines/binding Out2
-  out2,  //- @clk defines/binding Clk
-  input clk,  //- @in1 defines/binding In1
-  input in1);
+output my_mult,  //- @out1 defines/binding Out1
+out1,  //- @out2 defines/binding Out2
+out2,  //- @clk defines/binding Clk
+input clk,  //- @in1 defines/binding In1
+input in1);
 
-  //- @clk ref Clk
-  always @(posedge clk) begin
+//- @clk ref Clk
+always @(posedge clk) begin
     //- @my_mult ref MyMult
     //- @#0my_union ref MyUnion
     //- @#0op_modes ref OpModes
@@ -60,10 +60,10 @@ module my_module(  //- @my_mult defines/binding MyMult
     //- @#1op_modes ref OpModes
     //- @op5 ref Op5
     my_mult <= my_union.op_modes.op2 * my_union.op_modes.op5;
-  end
+end
 
-  //- @clk ref Clk
-  always @(posedge clk) begin
+//- @clk ref Clk
+always @(posedge clk) begin
     //- @my_union2 ref MyUnion2
     //- @b1 ref B1
     //- @in1 ref In1
@@ -78,5 +78,5 @@ module my_module(  //- @my_mult defines/binding MyMult
     //- @b2 ref B2
     //- @a2 ref A2
     out2 <= my_union2.b2.a2;
-  end
+end
 endmodule

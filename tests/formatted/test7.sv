@@ -1,3 +1,3 @@
 module m;
-  int i = $foo;
+int i = $foo;
 endmodule

@@ -11,6 +11,7 @@ Covers:
 """
 
 import re
+import sys
 import pytest
 from pathlib import Path
 from lazyverilogpy.formatter import (
@@ -30,6 +31,31 @@ from lazyverilogpy.formatter import (
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _load_rtl_opts() -> FormatOptions:
+    """Load FormatOptions from the repo-root lazyverilog.toml (if present)."""
+    try:
+        import tomllib  # Python 3.11+
+    except ModuleNotFoundError:
+        try:
+            import tomli as tomllib  # type: ignore[no-redef]
+        except ModuleNotFoundError:
+            return FormatOptions()
+
+    repo_root = Path(__file__).resolve().parent.parent
+    current = repo_root
+    while True:
+        candidate = current / "lazyverilog.toml"
+        if candidate.is_file():
+            with candidate.open("rb") as fh:
+                data = tomllib.load(fh)
+            return FormatOptions.from_dict(data.get("formatter", {}))
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+    return FormatOptions()
+
 
 def fmt(source: str, **kw) -> str:
     return format_source(source, FormatOptions(**kw))
@@ -721,9 +747,10 @@ class TestRegression:
             with open(expected_path, "r", encoding="utf-8") as f:
                 expected = f.read()
 
-            # Run formatter
-            result = fmt(src)
-            result2 = fmt(result)
+            # Run formatter with same options as gen_answers.py (lazyverilog.toml)
+            opts = _load_rtl_opts()
+            result = format_source(src, opts)
+            result2 = format_source(result, opts)
 
             # Compare
             assert result == expected, (
@@ -740,7 +767,9 @@ class TestRegression:
 
             def _filtered_tokens(s: str):
                 return [
-                    (t.ftt, t.text)
+                    # Use lowercase text for keywords so that keyword_case
+                    # transforms ("lower"/"upper") don't count as semantic changes.
+                    (t.ftt, t.lo if t.ftt == FTT.keyword else t.text)
                     for t in _tokenize(s)
                     if t.ftt not in (FTT.unknown, FTT.whitespace)
                 ]
@@ -752,3 +781,69 @@ class TestRegression:
 
         # 👇 Fail if nothing was tested
         assert found, "No RTL files (.sv/.v) found to test"
+
+
+class TestDefaultIndentLevelInsideModuleBlock:
+    def test_zero_indent(self):
+        src = "module foo;\nassign x = a + b;\nendmodule\n"
+        result = fmt(src, default_indent_level_inside_module_block=0)
+        assign_line = next(l for l in result.splitlines() if 'assign' in l)
+        assert not assign_line.startswith(' '), f"Expected no indent, got: {assign_line!r}"
+
+    def test_default_one_indent(self):
+        src = "module foo;\nassign x = a + b;\nendmodule\n"
+        result = fmt(src, default_indent_level_inside_module_block=1)
+        assign_line = next(l for l in result.splitlines() if 'assign' in l)
+        assert assign_line.startswith('  '), f"Expected 2-space indent, got: {assign_line!r}"
+
+    def test_two_level_indent(self):
+        src = "module foo;\nassign x = a + b;\nendmodule\n"
+        result = fmt(src, default_indent_level_inside_module_block=2)
+        assign_line = next(l for l in result.splitlines() if 'assign' in l)
+        assert assign_line.startswith('    '), f"Expected 4-space indent, got: {assign_line!r}"
+
+    def test_nested_begin_still_indents(self):
+        # with module-indent=0, begin/end blocks still add their own level
+        src = "module foo;\nalways_comb begin\nx = 1;\nend\nendmodule\n"
+        result = fmt(src, default_indent_level_inside_module_block=0)
+        x_line = next(l for l in result.splitlines() if 'x = 1' in l)
+        assert x_line.startswith('  '), f"Expected begin-block indent, got: {x_line!r}"
+
+    def test_default_value(self):
+        assert FormatOptions().default_indent_level_inside_module_block == 1
+
+
+class TestAlignAssignOperators:
+    def test_blocking_assigns_aligned(self):
+        src = "module foo;\nassign a = 1;\nassign bc = 2;\nendmodule\n"
+        result = fmt(src, align_assign_operators=True)
+        lines = [l for l in result.splitlines() if 'assign' in l]
+        cols = [l.index('=') for l in lines]
+        assert len(set(cols)) == 1, f"= not aligned: {lines}"
+
+    def test_nonblocking_aligned(self):
+        src = (
+            "module foo;\n"
+            "always_ff @(posedge clk) begin\n"
+            "a <= 1;\n"
+            "bc <= 2;\n"
+            "end\n"
+            "endmodule\n"
+        )
+        result = fmt(src, align_assign_operators=True)
+        nb_lines = [l for l in result.splitlines() if '<=' in l]
+        cols = [l.index('<=') for l in nb_lines]
+        assert len(set(cols)) == 1, f"<= not aligned: {nb_lines}"
+
+    def test_single_assign_unchanged(self):
+        src = "module foo;\nassign x = 1;\nendmodule\n"
+        assert fmt(src, align_assign_operators=True) == fmt(src, align_assign_operators=False)
+
+    def test_default_false(self):
+        assert FormatOptions().align_assign_operators is False
+
+    def test_idempotent(self):
+        src = "module foo;\nassign a = 1;\nassign bc = 2;\nendmodule\n"
+        once = fmt(src, align_assign_operators=True)
+        twice = fmt(once, align_assign_operators=True)
+        assert once == twice, f"Not idempotent:\n1st: {once}\n2nd: {twice}"

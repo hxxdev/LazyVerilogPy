@@ -2,23 +2,23 @@
 // SPDX-License-Identifier: Apache-2.0
 
 package my_pkg;
-  //- @my_task defines/binding MyTask
-  //- MyTask.node/kind function
-  task automatic my_task(input int a, b, output int c);
-    c = a + b;
-  endtask
+    //- @my_task defines/binding MyTask
+    //- MyTask.node/kind function
+    task automatic my_task(input int a, b, output int c);
+        c = a + b;
+    endtask
 endpackage
 
 class task_class;
-  //- @my_task defines/binding ClassTask
-  //- ClassTask.node/kind function
-  task my_task(input int a, b, output int c);
-    c = a + b;
-  endtask
+    //- @my_task defines/binding ClassTask
+    //- ClassTask.node/kind function
+    task my_task(input int a, b, output int c);
+        c = a + b;
+    endtask
 endclass
 
 module task_scoping;
-  initial begin
+initial begin
     int result;
 
     //- @tc_instance defines/binding TcInstance
@@ -29,5 +29,5 @@ module task_scoping;
 
     //- @my_task ref/call MyTask
     my_pkg::my_task(1, 2, result);
-  end
+end
 endmodule
