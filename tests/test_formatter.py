@@ -57,6 +57,11 @@ def _load_rtl_opts() -> FormatOptions:
     return FormatOptions()
 
 
+@pytest.fixture(scope="session")
+def rtl_opts() -> FormatOptions:
+    return _load_rtl_opts()
+
+
 def fmt(source: str, **kw) -> str:
     return format_source(source, FormatOptions(**kw))
 
@@ -590,6 +595,75 @@ class TestFormatOptions:
 
 
 # ---------------------------------------------------------------------------
+# Content preservation: source and formatted output match ignoring whitespace
+# ---------------------------------------------------------------------------
+
+class TestContentPreservation:
+    """Formatting must not add, remove, or alter any non-whitespace characters.
+
+    keyword_case="preserve" is used throughout so that keyword normalisation
+    (lower/upper) does not appear as a content change — that is tested
+    separately in TestFormatSource.
+    """
+
+    _OPTS = FormatOptions(keyword_case="preserve")
+
+    @pytest.mark.parametrize("source", [
+        "module foo;\nendmodule\n",
+        "module foo;\nassign x = 1;\nendmodule\n",
+        "assign {a,b,c}=x;\n",
+        "always_ff @(posedge clk)begin\nq<=d;\nend\n",
+        "assign x=my_pkg::MY_CONST;\n",
+        "function void f(); x=1; endfunction\n",
+        (
+            "module counter (\n"
+            "  input  logic clk,\n"
+            "  input  logic rst,\n"
+            "  output logic [7:0] count\n"
+            ");\n"
+            "  always_ff @(posedge clk or posedge rst) begin\n"
+            "    if (rst) begin\n"
+            "      count <= 8'h00;\n"
+            "    end else begin\n"
+            "      count <= count + 1;\n"
+            "    end\n"
+            "  end\n"
+            "endmodule\n"
+        ),
+    ])
+    def test_same_content_ignoring_whitespace(self, source):
+        result = format_source(source, self._OPTS)
+        src_stripped = re.sub(r'\s+', '', source)
+        res_stripped = re.sub(r'\s+', '', result)
+        assert src_stripped == res_stripped, (
+            f"Formatter changed non-whitespace content.\n"
+            f"Source (stripped):    {src_stripped!r}\n"
+            f"Formatted (stripped): {res_stripped!r}"
+        )
+
+    def test_rtl_files_same_content_ignoring_whitespace(self):
+        BASE_DIR = Path(__file__).resolve().parent
+        rtl_path = BASE_DIR / "rtl"
+        rtl_formatted_path = BASE_DIR / "formatted"
+        found = False
+        for path in rtl_path.rglob("*"):
+            if path.suffix not in {".sv", ".v"}:
+                continue
+            if rtl_formatted_path in path.parents:
+                continue
+            found = True
+            with open(path, "r", encoding="utf-8") as f:
+                src = f.read()
+            result = format_source(src, self._OPTS)
+            src_stripped = re.sub(r'\s+', '', src)
+            res_stripped = re.sub(r'\s+', '', result)
+            assert src_stripped == res_stripped, (
+                f"Formatter changed non-whitespace content in {path}"
+            )
+        assert found, "No RTL files (.sv/.v) found to test"
+
+
+# ---------------------------------------------------------------------------
 # Idempotency
 # ---------------------------------------------------------------------------
 
@@ -715,72 +789,118 @@ class TestRegression:
         assert case_item is not None
         assert case_item[0] == " ", "case items should be indented"
 
-    def test_rtl(self):
+    def _collect_rtl_files():
+        base = Path(__file__).resolve().parent
+        rtl_path = base / "rtl"
+        formatted_path = base / "formatted"
 
-        BASE_DIR = Path(__file__).resolve().parent
-
-        rtl_path = BASE_DIR / "rtl"
-        rtl_formatted_path = BASE_DIR / "formatted"
-
-        found = False  # 👈 track iterations
-
+        files = []
         for path in rtl_path.rglob("*"):
-            if path.suffix not in {".sv", ".v"}:
-                continue
+            if path.suffix in {".sv", ".v"} and formatted_path not in path.parents:
+                files.append(path)
 
-            # Skip files inside ./rtl/formatted itself
-            if rtl_formatted_path in path.parents:
-                continue
+        return files
 
-            found = True  # 👈 mark that we actually tested something
+    # def test_rtl(self):
+    #
+    #     BASE_DIR = Path(__file__).resolve().parent
+    #
+    #     rtl_path = BASE_DIR / "rtl"
+    #     rtl_formatted_path = BASE_DIR / "formatted"
+    #
+    #     found = False  # 👈 track iterations
+    #
+    #     for path in rtl_path.rglob("*"):
+    #         if path.suffix not in {".sv", ".v"}:
+    #             continue
+    #
+    #         # Skip files inside ./rtl/formatted itself
+    #         if rtl_formatted_path in path.parents:
+    #             continue
+    #
+    #         found = True  # 👈 mark that we actually tested something
+    #
+    #         # Original file
+    #         with open(path, "r", encoding="utf-8") as f:
+    #             src = f.read()
+    #
+    #         # Corresponding formatted file
+    #         rel_path = path.relative_to(rtl_path)
+    #         expected_path = rtl_formatted_path / rel_path
+    #
+    #         assert expected_path.exists(), f"Missing formatted file: {expected_path}"
+    #
+    #         with open(expected_path, "r", encoding="utf-8") as f:
+    #             expected = f.read()
+    #
+    #         # Run formatter with same options as gen_answers.py (lazyverilog.toml)
+    #         opts = _load_rtl_opts()
+    #         result = format_source(src, opts)
+    #         result2 = format_source(result, opts)
+    #
+    #         # Compare
+    #         assert result == expected, (
+    #             f"Formatting mismatch:\n"
+    #             f"File: {path}\n"
+    #             f"Expected: {expected_path}"
+    #         )
+    #         assert result == result2, (
+    #             f"Formatting not idempotent:\n"
+    #             f"File: {path}\n"
+    #             f"Format x1:\n{result}\n"
+    #             f"Format x2:\n{result2}"
+    #         )
+    #
+    #         def _filtered_tokens(s: str):
+    #             return [
+    #                 # Use lowercase text for keywords so that keyword_case
+    #                 # transforms ("lower"/"upper") don't count as semantic changes.
+    #                 (t.ftt, t.lo if t.ftt == FTT.keyword else t.text)
+    #                 for t in _tokenize(s)
+    #                 if t.ftt not in (FTT.unknown, FTT.whitespace)
+    #             ]
+    #
+    #         assert _filtered_tokens(src) == _filtered_tokens(result), (
+    #             f"Semantic change (token mismatch):\n"
+    #             f"File: {path}"
+    #         )
+    #
+    #     # 👇 Fail if nothing was tested
+    #     assert found, "No RTL files (.sv/.v) found to test"
+    #
 
-            # Original file
-            with open(path, "r", encoding="utf-8") as f:
-                src = f.read()
+    @pytest.mark.parametrize("path", _collect_rtl_files())
+    def test_rtl(self, path):
+        opts = _load_rtl_opts()
+        base = Path(__file__).resolve().parent
+        rtl_path = base / "rtl"
+        formatted_path = base / "formatted"
 
-            # Corresponding formatted file
-            rel_path = path.relative_to(rtl_path)
-            expected_path = rtl_formatted_path / rel_path
+        src = path.read_text(encoding="utf-8")
 
-            assert expected_path.exists(), f"Missing formatted file: {expected_path}"
+        rel = path.relative_to(rtl_path)
+        expected_path = formatted_path / rel
 
-            with open(expected_path, "r", encoding="utf-8") as f:
-                expected = f.read()
+        assert expected_path.exists()
 
-            # Run formatter with same options as gen_answers.py (lazyverilog.toml)
-            opts = _load_rtl_opts()
-            result = format_source(src, opts)
-            result2 = format_source(result, opts)
+        expected = expected_path.read_text(encoding="utf-8")
 
-            # Compare
-            assert result == expected, (
-                f"Formatting mismatch:\n"
-                f"File: {path}\n"
-                f"Expected: {expected_path}"
-            )
-            assert result == result2, (
-                f"Formatting not idempotent:\n"
-                f"File: {path}\n"
-                f"Format x1:\n{result}\n"
-                f"Format x2:\n{result2}"
-            )
+        formatted = format_source(src, opts)
+        formatted2 = format_source(formatted, opts)
 
-            def _filtered_tokens(s: str):
-                return [
-                    # Use lowercase text for keywords so that keyword_case
-                    # transforms ("lower"/"upper") don't count as semantic changes.
-                    (t.ftt, t.lo if t.ftt == FTT.keyword else t.text)
-                    for t in _tokenize(s)
-                    if t.ftt not in (FTT.unknown, FTT.whitespace)
-                ]
+        def _filtered_tokens(s: str):
+            return [
+                # Use lowercase text for keywords so that keyword_case
+                # transforms ("lower"/"upper") don't count as semantic changes.
+                (t.ftt, t.lo if t.ftt == FTT.keyword else t.text)
+                for t in _tokenize(s)
+                if t.ftt not in (FTT.unknown, FTT.whitespace)
+            ]
+        assert formatted == expected
+        assert formatted == formatted2
+        assert _filtered_tokens(src) == _filtered_tokens(formatted)
 
-            assert _filtered_tokens(src) == _filtered_tokens(result), (
-                f"Semantic change (token mismatch):\n"
-                f"File: {path}"
-            )
 
-        # 👇 Fail if nothing was tested
-        assert found, "No RTL files (.sv/.v) found to test"
 
 
 class TestDefaultIndentLevelInsideModuleBlock:
