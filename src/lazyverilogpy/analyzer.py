@@ -110,30 +110,6 @@ def _apply_change(old_text: str, change: types.TextDocumentContentChangeEvent) -
 
 
 
-def _slang_loc_to_source_pos(loc, tree) -> Optional[SourcePos]:
-    """
-    Convert a pyslang SourceLocation to a SourcePos.
-    pyslang exposes .line() and .column() (1-based) on a SourceLocation
-    when given the SourceManager from the tree.
-    """
-    try:
-        sm = tree.sourceManager()
-        line = sm.getLineNumber(loc) - 1      # convert to 0-based
-        character = sm.getColumnNumber(loc) - 1
-        return SourcePos(line=line, character=character)
-    except Exception:
-        return None
-
-
-def _slang_range_to_source_range(sr, tree, uri: str) -> Optional[SourceRange]:
-    try:
-        start = _slang_loc_to_source_pos(sr.start, tree)
-        end = _slang_loc_to_source_pos(sr.end, tree)
-        if start is None or end is None:
-            return None
-        return SourceRange(start=start, end=end, uri=uri)
-    except Exception:
-        return None
 
 
 class Analyzer:
@@ -281,44 +257,58 @@ class Analyzer:
         return word, (start, end)
 
     def _find_symbol(self, state: DocumentState, name: str, uri: str) -> Optional[SymbolInfo]:
-        """Walk the compilation's symbol hierarchy looking for *name*."""
+        """Find a symbol named *name* by visiting the full compiled instance hierarchy.
+
+        Uses pyslang's ``visit()`` API for a depth-first walk that correctly
+        crosses file boundaries when extra files are loaded via the filelist.
+        """
         compilation = state.compilation
-        if compilation is None:
+        tree = state.tree
+        if compilation is None or tree is None:
             return None
 
+        candidates: list = []
+
+        def _collect(sym) -> bool:
+            try:
+                if sym.name == name:
+                    candidates.append(sym)
+            except Exception:
+                pass
+            return True  # continue visiting
+
         try:
-            return self._search_scope(compilation.getRoot(), name, state.tree, uri)
+            compilation.getRoot().visit(_collect)
         except Exception:
             return None
 
-    def _search_scope(self, scope, name: str, tree, uri: str) -> Optional[SymbolInfo]:
-        """Recursively search a scope (and its children) for a symbol named *name*."""
-        try:
-            members = list(scope.members)
-        except Exception:
+        if not candidates:
             return None
 
-        for sym in members:
-            try:
-                sym_name = sym.name
-            except Exception:
-                continue
+        # Prefer definitions over usages when multiple candidates share a name.
+        # Lower number = higher priority.
+        _KIND_PRIORITY: dict[str, int] = {
+            "SymbolKind.Port": 0,
+            "SymbolKind.InstanceBody": 1,   # module body = where module is declared
+            "SymbolKind.Subroutine": 2,     # function / task definition
+            "SymbolKind.Package": 3,
+            "SymbolKind.Variable": 4,
+            "SymbolKind.Net": 5,
+            "SymbolKind.FormalArgument": 6,
+            "SymbolKind.Instance": 99,      # instantiation site, not definition
+        }
 
-            if sym_name == name:
-                return self._build_info(sym, tree, uri)
+        best = min(candidates, key=lambda s: _KIND_PRIORITY.get(str(s.kind), 50))
+        return self._build_info(best, tree, state.uri)
 
-            # Recurse into scopes (modules, interfaces, packages …)
-            try:
-                result = self._search_scope(sym, name, tree, uri)
-                if result:
-                    return result
-            except Exception:
-                continue
+    def _build_info(self, sym, tree, current_uri: str) -> SymbolInfo:
+        """Build a :class:`SymbolInfo` from a pyslang symbol.
 
-        return None
-
-    @staticmethod
-    def _build_info(sym, tree, uri: str) -> SymbolInfo:
+        Uses ``sym.location`` (a point) together with the shared
+        :class:`SourceManager` to determine which file the symbol lives in and
+        converts that to the appropriate LSP URI.
+        """
+        sm = tree.sourceManager
         kind = str(sym.kind) if hasattr(sym, "kind") else "symbol"
 
         type_str = ""
@@ -330,8 +320,24 @@ class Analyzer:
 
         def_range: Optional[SourceRange] = None
         try:
-            sr = sym.sourceRange
-            def_range = _slang_range_to_source_range(sr, tree, uri)
+            loc = sym.location
+            fname = sm.getFileName(loc)
+            line = max(sm.getLineNumber(loc) - 1, 0)
+            col = max(sm.getColumnNumber(loc) - 1, 0)
+
+            if fname == "buffer.sv":
+                def_uri = current_uri
+            else:
+                resolved = Path(fname).resolve()
+                # Prefer the live editor URI if the file is currently open.
+                def_uri = self._path_to_uri.get(resolved) or resolved.as_uri()
+
+            sym_len = len(sym.name) if sym.name else 1
+            def_range = SourceRange(
+                start=SourcePos(line=line, character=col),
+                end=SourcePos(line=line, character=col + sym_len),
+                uri=def_uri,
+            )
         except Exception:
             pass
 
