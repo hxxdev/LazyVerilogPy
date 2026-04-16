@@ -1,13 +1,16 @@
-  [formatter]
-  indent_size = 4
-  use_tabs = false
-  keyword_case = "lower"          # "lower" | "upper" | "preserve"
-  max_line_length = 120
-  wrap_spaces = 4
-  wrap_end_else_clauses = false
-  compact_indexing_and_selections = true
-  blank_lines_between_items = 1
-  default_indent_level_inside_module_block = 0
-  align_assign_operators = true
-  tab_align_assign_operators = true
-  # align_assign_gap = 20
+[codebase]
+vcode = "tests/rtl/vcode.f"
+
+[formatter]
+indent_size = 4
+use_tabs = false
+keyword_case = "lower"          # "lower" | "upper" | "preserve"
+max_line_length = 120
+wrap_spaces = 4
+wrap_end_else_clauses = false
+compact_indexing_and_selections = true
+blank_lines_between_items = 1
+default_indent_level_inside_module_block = 0
+align_assign_operators = true
+tab_align_assign_operators = true
+# align_assign_gap = 20

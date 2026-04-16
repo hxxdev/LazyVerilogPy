@@ -77,6 +77,9 @@ def _load_fmt_options_from_toml(path: Path) -> FormatOptions:
         blank_lines_between_items = 1
         default_indent_level_inside_module_block = 1
         align_assign_operators = false
+
+        [codebase]
+        vcode = "rtl/files.f"
     """
     if tomllib is None:
         logger.warning(
@@ -95,6 +98,65 @@ def _load_fmt_options_from_toml(path: Path) -> FormatOptions:
     return opts
 
 
+def _parse_filelist(f_path: Path) -> list[Path]:
+    """Parse a ``.f`` file and return a list of resolved :class:`Path` objects.
+
+    Each non-blank, non-comment line is treated as a file path.  Relative paths
+    are resolved relative to the directory that contains the ``.f`` file.
+    Lines beginning with ``#`` or ``//`` are skipped as comments.
+    Lines beginning with ``-`` (compiler flags) are also skipped.
+    """
+    base_dir = f_path.parent
+    paths: list[Path] = []
+    try:
+        for raw in f_path.read_text(encoding="utf-8").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or line.startswith("//") or line.startswith("-"):
+                continue
+            candidate = Path(line)
+            if not candidate.is_absolute():
+                candidate = base_dir / candidate
+            paths.append(candidate.resolve())
+    except Exception as exc:
+        logger.warning("Failed to read filelist %s: %s", f_path, exc)
+    return paths
+
+
+def _load_filelist_from_toml(path: Path) -> list[Path]:
+    """Return the list of extra files declared in *path*'s ``[files]`` section.
+
+    Returns an empty list when no ``[files]`` section or ``filelist`` key exists,
+    or when the referenced ``.f`` file cannot be found.
+    """
+    if tomllib is None:
+        return []
+
+    try:
+        with path.open("rb") as fh:
+            data = tomllib.load(fh)
+    except Exception as exc:
+        logger.warning("Failed to read %s for filelist: %s", path, exc)
+        return []
+
+    files_cfg = data.get("codebase", {})
+    filelist_val = files_cfg.get("vcode")
+    if not filelist_val:
+        return []
+
+    f_path = Path(filelist_val)
+    if not f_path.is_absolute():
+        f_path = path.parent / f_path
+    f_path = f_path.resolve()
+
+    if not f_path.is_file():
+        logger.warning("Filelist not found: %s", f_path)
+        return []
+
+    paths = _parse_filelist(f_path)
+    logger.info("Loaded %d file(s) from filelist %s", len(paths), f_path)
+    return paths
+
+
 def _reload_config(start: Path) -> None:
     """Search for a config file starting at *start* and update ``_fmt_options``."""
     global _fmt_options
@@ -104,6 +166,11 @@ def _reload_config(start: Path) -> None:
             _fmt_options = _load_fmt_options_from_toml(path)
         except Exception as exc:
             logger.warning("Failed to load %s: %s", path, exc)
+        try:
+            extra_files = _load_filelist_from_toml(path)
+            analyzer.set_extra_files(extra_files)
+        except Exception as exc:
+            logger.warning("Failed to load filelist from %s: %s", path, exc)
     else:
         logger.debug("No %s found above %s; using current options.", CONFIG_FILENAME, start)
 
@@ -272,12 +339,15 @@ def _publish_diagnostics(ls: LanguageServer, uri: str) -> None:
 
             for d in state.compilation.getAllDiagnostics():
                 try:
-                    # client.clear()
-                    # engine.issue(d)
-                    # message = client.getString()
+                    loc = d.location
+                    # Only report diagnostics that originate from the current
+                    # document's in-memory buffer ("buffer.sv").  Diagnostics
+                    # from extra filelist files would otherwise bleed through.
+                    if sm.getFileName(loc) != "buffer.sv":
+                        continue
+
                     message = engine.formatMessage(d)
 
-                    loc = d.location
                     line = max(sm.getLineNumber(loc) - 1, 0)
                     col = max(sm.getColumnNumber(loc) - 1, 0)
                     severity = _map_severity(d.isError())

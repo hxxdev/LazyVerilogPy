@@ -7,13 +7,13 @@ input wire read_write, chip_en;
 reg [7:0 mem[0:255];
 
 always @(address or data_in or read_write or chip_en) if (read_write == 1 && chip_en == 1) begin
-    mem[address]                                        = data_in;
-    mem[address]  /* test tset <= */                    = data_in;
+    mem[address]                        = data_in;
+    mem[address]  /* test tset <= */    = data_in;
     /*test comment block = */
 end
 
-always @(read_write or chip_en or address) if (read_write == 0 && chip_en) data_out                    = mem[address];
-else data_out                                                                                          = 0;
+always @(read_write or chip_en or address) if (read_write == 0 && chip_en) data_out    = mem[address];
+else data_out                                                                          = 0;
 
 always @(posedge  /* FIXME*/) begin
 end

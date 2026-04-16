@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
+from urllib.parse import urlparse, unquote
 from lsprotocol import types
 from typing import Optional
 
@@ -139,6 +141,13 @@ class Analyzer:
 
     def __init__(self) -> None:
         self._docs: dict[str, DocumentState] = {}
+        self._extra_files: list = []       # list[Path] of additional SV files from .f filelist
+        self._path_to_uri: dict[Path, str] = {}  # resolved path → open document URI
+
+    @staticmethod
+    def _uri_to_path(uri: str) -> Path:
+        """Convert a ``file://`` URI to a resolved :class:`Path`."""
+        return Path(unquote(urlparse(uri).path)).resolve()
 
     # ------------------------------------------------------------------
     # Document lifecycle
@@ -148,6 +157,10 @@ class Analyzer:
         state = DocumentState(uri=uri, text=text)
         self._parse(state)
         self._docs[uri] = state
+        try:
+            self._path_to_uri[self._uri_to_path(uri)] = uri
+        except Exception:
+            pass
 
     def change(self, uri: str, change: types.TextDocumentContentChangeEvent) -> None:
         state = self._docs.get(uri)
@@ -158,8 +171,17 @@ class Analyzer:
         state.text = _apply_change(state.text, change)
         state._offset_map.clear()
         self._parse(state)
+        # Re-parse other open documents so they pick up the new content of this file
+        # (relevant when this file is part of another document's extra-files compilation).
+        for other_uri, other_state in self._docs.items():
+            if other_uri != uri:
+                self._parse(other_state)
 
     def close(self, uri: str) -> None:
+        try:
+            self._path_to_uri.pop(self._uri_to_path(uri), None)
+        except Exception:
+            pass
         self._docs.pop(uri, None)
 
     def get_state(self, uri: str) -> Optional[DocumentState]:
@@ -169,11 +191,48 @@ class Analyzer:
     # Parsing
     # ------------------------------------------------------------------
 
+    def set_extra_files(self, paths: list) -> None:
+        """Set additional SV/V files (from a .f filelist) to include in every compilation.
+
+        Re-parses all currently open documents so the new set takes effect immediately.
+        """
+        self._extra_files = list(paths)
+        for state in self._docs.values():
+            self._parse(state)
+
     def _parse(self, state: DocumentState) -> None:
+        # Resolve current document's path so we can skip it in the extra-files list.
+        current_path: Optional[Path] = None
+        try:
+            current_path = self._uri_to_path(state.uri)
+        except Exception:
+            pass
+
         try:
             state.tree = pyslang.SyntaxTree.fromText(state.text, "buffer.sv")
             compilation = pyslang.Compilation()
             compilation.addSyntaxTree(state.tree)
+            for path in self._extra_files:
+                try:
+                    # Skip if this extra file IS the current document — avoids redefinition.
+                    if current_path is not None and path == current_path:
+                        continue
+                    # Use the in-memory text if the file is currently open in the editor,
+                    # so the compilation reflects unsaved edits in other buffers.
+                    open_uri = self._path_to_uri.get(path)
+                    if open_uri is not None:
+                        open_state = self._docs.get(open_uri)
+                        if open_state is not None:
+                            extra_tree = pyslang.SyntaxTree.fromText(
+                                open_state.text, str(path)
+                            )
+                        else:
+                            extra_tree = pyslang.SyntaxTree.fromFile(str(path))
+                    else:
+                        extra_tree = pyslang.SyntaxTree.fromFile(str(path))
+                    compilation.addSyntaxTree(extra_tree)
+                except Exception as exc:
+                    logger.warning("Failed to add extra file %s: %s", path, exc)
             state.compilation = compilation
         except Exception:
             state.tree = None
