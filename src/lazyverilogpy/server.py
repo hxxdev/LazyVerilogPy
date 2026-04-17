@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sys
 import logging
 from pathlib import Path
 from typing import Optional
@@ -291,15 +290,12 @@ def formatting(
             return None
 
         formatted = format_source(state.text, _fmt_options)
-        logger.debug("formatted: %s", formatted)
         if formatted == state.text:
             return []  # no changes
 
         lines = state.text.split("\n")
         end_line = max(len(lines) - 1, 0)
         end_char = len(lines[end_line]) if lines else 0
-        logger.debug("formatted: %d", end_line)
-        logger.debug("formatted: %s", end_char)
 
         return [
             types.TextEdit(
@@ -323,7 +319,6 @@ def formatting(
 def _publish_diagnostics(ls: LanguageServer, uri: str) -> None:
     state = analyzer.get_state(uri)
     if state is None or state.compilation is None:
-        # ls.publish_diagnostics(uri, [])
         ls.text_document_publish_diagnostics(
             types.PublishDiagnosticsParams(uri=uri, diagnostics=[])
         )
@@ -334,9 +329,6 @@ def _publish_diagnostics(ls: LanguageServer, uri: str) -> None:
         if state.tree is not None:
             sm = state.tree.sourceManager
             engine = pyslang.DiagnosticEngine(sm)
-            # client = pyslang.TextDiagnosticClient()
-            # engine.addClient(client)
-
             for d in state.compilation.getAllDiagnostics():
                 try:
                     loc = d.location
@@ -370,7 +362,6 @@ def _publish_diagnostics(ls: LanguageServer, uri: str) -> None:
     except Exception as exc:
         logger.debug("diagnostics collection error: %s", exc)
 
-    # ls.publish_diagnostics(uri, diags)
     ls.text_document_publish_diagnostics(
         types.PublishDiagnosticsParams(uri=uri, diagnostics=diags)
     )

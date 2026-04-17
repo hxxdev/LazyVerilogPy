@@ -13,7 +13,6 @@ from typing import Optional
 import pyslang
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.DEBUG)
 
 @dataclass
 class SourcePos:
@@ -47,15 +46,6 @@ class DocumentState:
     _offset_map: dict[int, SymbolInfo] = field(default_factory=dict, repr=False)
 
 
-def _text_offset(text: str, line: int, character: int) -> int:
-    """Convert (line, character) 0-based LSP position to a byte offset."""
-    lines = text.splitlines(keepends=True)
-    offset = sum(len(lines[i]) for i in range(min(line, len(lines))))
-    if line < len(lines):
-        offset += min(character, len(lines[line].rstrip("\n\r")))
-    return offset
-
-
 def _offset_to_pos(text: str, offset: int) -> SourcePos:
     """Convert a byte offset to a 0-based (line, character) position."""
     before = text[:offset]
@@ -81,8 +71,6 @@ def _apply_change(old_text: str, change: types.TextDocumentContentChangeEvent) -
     - incremental (range-based) edits
     """
 
-    # --- Full document replacement ---
-    logger.debug("Change type: %s", type(change))
     if not hasattr(change, "range") or change.range is None:
         return change.text
 
@@ -143,7 +131,6 @@ class Analyzer:
         if state is None:
             self.open(uri, change.text)
             return
-        logger.debug("State Type: %s", type(state))
         state.text = _apply_change(state.text, change)
         state._offset_map.clear()
         self._parse(state)

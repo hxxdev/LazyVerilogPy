@@ -15,6 +15,7 @@ place to add or customise those features later.
 
 from __future__ import annotations
 
+import math
 import re
 import logging
 from dataclasses import dataclass
@@ -22,7 +23,6 @@ from enum import Enum, auto
 from typing import Optional
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.DEBUG)
 
 # ---------------------------------------------------------------------------
 # FormatTokenType — mirrors verilog/formatting/verilog-token.h
@@ -638,7 +638,6 @@ def _align_assign_pass(text: str, opts: "FormatOptions") -> str:
                 break
 
         if len(run) >= 2:
-            import math
             # Column where spaces-before-op begin for the longest LHS.
             max_lhs_end = max(pos for _, pos, _ in run)
             # Step 1: establish the gap (spaces between longest LHS and its op).
@@ -723,14 +722,6 @@ def format_source(source: str, options: Optional[FormatOptions] = None) -> str:
             out.append(indent_unit * indent_level)
             at_bol = False
         out.append(text)
-    for t in tokens:
-        logger.debug("Token ftt: %s", t.ftt)
-        logger.debug("Token text: %s", t.text)
-        logger.debug("Token lo: %s", t.lo)
-        logger.debug("Token pos: %s", t.pos)
-        logger.debug("\n")
-
-
     i = 0
     while i < len(tokens):
         tok = tokens[i]
