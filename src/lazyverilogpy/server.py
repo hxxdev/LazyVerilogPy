@@ -121,26 +121,26 @@ def _parse_filelist(f_path: Path) -> list[Path]:
     return paths
 
 
-def _load_filelist_from_toml(path: Path) -> list[Path]:
+def _load_filelist_from_toml(path: Path) -> tuple[list[Path], str | None]:
     """Return the list of extra files declared in *path*'s ``[files]`` section.
 
-    Returns an empty list when no ``[files]`` section or ``filelist`` key exists,
-    or when the referenced ``.f`` file cannot be found.
+    Returns a tuple of (file_list, warning_message).  The warning is a string
+    when the referenced ``.f`` file cannot be found, or ``None`` otherwise.
     """
     if tomllib is None:
-        return []
+        return [], None
 
     try:
         with path.open("rb") as fh:
             data = tomllib.load(fh)
     except Exception as exc:
         logger.warning("Failed to read %s for filelist: %s", path, exc)
-        return []
+        return [], None
 
     files_cfg = data.get("codebase", {})
     filelist_val = files_cfg.get("vcode")
     if not filelist_val:
-        return []
+        return [], None
 
     f_path = Path(filelist_val)
     if not f_path.is_absolute():
@@ -148,15 +148,16 @@ def _load_filelist_from_toml(path: Path) -> list[Path]:
     f_path = f_path.resolve()
 
     if not f_path.is_file():
+        warn_msg = f"[LazyVerilogPy] filelist not found: {f_path}"
         logger.warning("Filelist not found: %s", f_path)
-        return []
+        return [], warn_msg
 
     paths = _parse_filelist(f_path)
     logger.info("Loaded %d file(s) from filelist %s", len(paths), f_path)
-    return paths
+    return paths, None
 
 
-def _reload_config(start: Path) -> None:
+def _reload_config(start: Path, ls: LanguageServer | None = None) -> None:
     """Search for a config file starting at *start* and update ``_fmt_options``."""
     global _fmt_options
     path = _find_config_toml(start)
@@ -166,8 +167,10 @@ def _reload_config(start: Path) -> None:
         except Exception as exc:
             logger.warning("Failed to load %s: %s", path, exc)
         try:
-            extra_files = _load_filelist_from_toml(path)
+            extra_files, warn_msg = _load_filelist_from_toml(path)
             analyzer.set_extra_files(extra_files)
+            if warn_msg is not None and ls is not None:
+                ls.show_message(warn_msg, types.MessageType.Warning)
         except Exception as exc:
             logger.warning("Failed to load filelist from %s: %s", path, exc)
     else:
@@ -196,7 +199,7 @@ def initialized(ls: LanguageServer, params: types.InitializedParams) -> None:
     """Load config from the workspace root as soon as the client is ready."""
     root_uri = ls.workspace.root_uri
     if root_uri:
-        _reload_config(_uri_to_path(root_uri))
+        _reload_config(_uri_to_path(root_uri), ls)
     else:
         logger.debug("No workspace root — skipping initial config load.")
 
@@ -208,7 +211,7 @@ def did_open(ls: LanguageServer, params: types.DidOpenTextDocumentParams) -> Non
     # outside the workspace root (e.g. opened via absolute path) still pick up
     # the nearest lazyverilog.toml.
     doc_dir = _uri_to_path(doc.uri).parent
-    _reload_config(doc_dir)
+    _reload_config(doc_dir, ls)
     analyzer.open(doc.uri, doc.text)
     _publish_diagnostics(ls, doc.uri)
 
@@ -384,6 +387,59 @@ def _format_autoinst(result: dict, source_text: str) -> str:
     footer = f"{base_indent});"
 
     return header + "\n" + "\n".join(port_lines) + "\n" + footer
+
+
+# ---------------------------------------------------------------------------
+# Auto-arg (workspace/executeCommand)
+# ---------------------------------------------------------------------------
+
+AUTOARG_COMMAND = "lazyverilogpy.autoArg"
+
+
+@server.command(AUTOARG_COMMAND)
+def execute_autoarg(
+    ls: LanguageServer, *args
+) -> Optional[types.WorkspaceEdit]:
+    try:
+        if len(args) < 3:
+            return None
+        uri, line, character = str(args[0]), int(args[1]), int(args[2])
+
+        result = analyzer.autoarg(uri, line, character)
+        if result is None:
+            return None
+
+        state = analyzer.get_state(uri)
+        if state is None:
+            return None
+
+        new_text = _format_autoarg(result)
+
+        edit = types.TextEdit(
+            range=types.Range(
+                start=types.Position(line=result["open_line"], character=result["open_col"]),
+                end=types.Position(line=result["end_line"], character=result["end_col"]),
+            ),
+            new_text=new_text,
+        )
+        return types.WorkspaceEdit(
+            changes={uri: [edit]},
+        )
+    except Exception as exc:
+        logger.error("autoArg error: %s", exc, exc_info=True)
+        return None
+
+
+def _format_autoarg(result: dict) -> str:
+    """Build the formatted port-list text from *result*."""
+    port_names = result["port_names"]
+    lines: list[str] = []
+    for i, name in enumerate(port_names):
+        comma = "," if i < len(port_names) - 1 else ""
+        lines.append(f"  {name}{comma}")
+    # Last port followed by ");" on the same line
+    lines[-1] = lines[-1] + ");"
+    return "(\n" + "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------

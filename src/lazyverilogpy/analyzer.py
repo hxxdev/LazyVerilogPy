@@ -107,6 +107,7 @@ class Analyzer:
         self._docs: dict[str, DocumentState] = {}
         self._extra_files: list = []       # list[Path] of additional SV files from .f filelist
         self._path_to_uri: dict[Path, str] = {}  # resolved path → open document URI
+        self._extra_mtimes: dict = {}      # Path → float mtime at last disk read
 
     @staticmethod
     def _uri_to_path(uri: str) -> Path:
@@ -160,8 +161,29 @@ class Analyzer:
         Re-parses all currently open documents so the new set takes effect immediately.
         """
         self._extra_files = list(paths)
+        self._extra_mtimes.clear()
         for state in self._docs.values():
             self._parse(state)
+
+    def refresh_if_stale(self, uri: str) -> None:
+        """Re-parse *uri*'s state if any disk-based extra file changed since last parse.
+
+        Called before commands (autoinst, autoarg) so results reflect the latest
+        on-disk content of files that are not currently open in the editor.
+        """
+        state = self._docs.get(uri)
+        if state is None:
+            return
+        for path in self._extra_files:
+            if self._path_to_uri.get(path) is not None:
+                continue  # open in editor — changes arrive via did_change
+            try:
+                mtime = path.stat().st_mtime
+            except Exception:
+                continue
+            if mtime != self._extra_mtimes.get(path):
+                self._parse(state)
+                return
 
     def _parse(self, state: DocumentState) -> None:
         # Resolve current document's path so we can skip it in the extra-files list.
@@ -191,8 +213,16 @@ class Analyzer:
                             )
                         else:
                             extra_tree = pyslang.SyntaxTree.fromFile(str(path))
+                            try:
+                                self._extra_mtimes[path] = path.stat().st_mtime
+                            except Exception:
+                                pass
                     else:
                         extra_tree = pyslang.SyntaxTree.fromFile(str(path))
+                        try:
+                            self._extra_mtimes[path] = path.stat().st_mtime
+                        except Exception:
+                            pass
                     compilation.addSyntaxTree(extra_tree)
                 except Exception as exc:
                     logger.warning("Failed to add extra file %s: %s", path, exc)
@@ -545,16 +575,19 @@ class Analyzer:
         ``line_start``, and ``line_end``, or ``None`` when no Instance symbol is
         found at the given position.
         """
+        self.refresh_if_stale(uri)
         state = self._docs.get(uri)
         if state is None or state.compilation is None:
             return None
 
-        # Find the symbol under the cursor.
-        word, _ = self._word_at(state.text, line, col)
-        if not word:
-            return None
-
-        sym = self._find_instance_symbol(state, word)
+        # Find the Instance symbol on the cursor line (works regardless of
+        # whether the cursor is on the module type or the instance name).
+        sym = self._find_instance_at_line(state, line)
+        if sym is None:
+            # Fallback: search by word under cursor (instance name only)
+            word, _ = self._word_at(state.text, line, col)
+            if word:
+                sym = self._find_instance_symbol(state, word)
         if sym is None:
             return None
 
@@ -587,6 +620,174 @@ class Analyzer:
             "line_start": line_start,
             "line_end": line_end,
         }
+
+    # ------------------------------------------------------------------
+    # Auto-arg
+    # ------------------------------------------------------------------
+
+    def autoarg(self, uri: str, line: int, col: int) -> Optional[dict]:
+        """Return auto-arg data for the module whose declaration encloses *(line, col)*.
+
+        Finds the enclosing ``module ... endmodule`` block by text scanning,
+        extracts port names from ``input``/``output``/``inout`` declarations in the
+        body, and returns the range of the existing port-list header for replacement.
+
+        Returns a dict with keys ``port_names``, ``module_name``, ``open_line``,
+        ``open_col``, ``end_line``, and ``end_col``, or ``None`` on failure.
+        """
+        self.refresh_if_stale(uri)
+        state = self._docs.get(uri)
+        if state is None:
+            return None
+
+        doc_lines = state.text.splitlines()
+
+        # Scan backward from cursor to find the nearest 'module' keyword line.
+        _MODULE_RE = re.compile(r"^\s*module\b", re.IGNORECASE)
+        mod_line = -1
+        for i in range(line, -1, -1):
+            if _MODULE_RE.match(doc_lines[i]):
+                mod_line = i
+                break
+
+        if mod_line == -1:
+            return None
+
+        # Scan forward from cursor to find 'endmodule'.
+        _ENDMOD_RE = re.compile(r"\bendmodule\b", re.IGNORECASE)
+        end_mod_line = -1
+        for i in range(line, len(doc_lines)):
+            if _ENDMOD_RE.search(doc_lines[i]):
+                end_mod_line = i
+                break
+
+        if end_mod_line == -1:
+            return None
+
+        # Extract module name.
+        _MOD_NAME_RE = re.compile(r"^\s*module\s+(\w+)", re.IGNORECASE)
+        m = _MOD_NAME_RE.match(doc_lines[mod_line])
+        if not m:
+            return None
+        module_name = m.group(1)
+
+        # Scan port declarations from the body (input/output/inout).
+        port_names = self._scan_port_names(state.text, mod_line)
+        if not port_names:
+            return None
+
+        # Find the '(' that opens the port list in the module header.
+        open_line = -1
+        open_col = -1
+        for i in range(mod_line, end_mod_line + 1):
+            idx = doc_lines[i].find("(")
+            if idx != -1:
+                open_line = i
+                open_col = idx
+                break
+
+        if open_line == -1:
+            return None
+
+        # Track paren depth to find the matching ')'.
+        depth = 0
+        close_line = -1
+        close_col = -1
+        for i in range(open_line, len(doc_lines)):
+            start_col = open_col if i == open_line else 0
+            for j in range(start_col, len(doc_lines[i])):
+                ch = doc_lines[i][j]
+                if ch == "(":
+                    depth += 1
+                elif ch == ")":
+                    depth -= 1
+                    if depth == 0:
+                        close_line = i
+                        close_col = j
+                        break
+            if close_line != -1:
+                break
+
+        if close_line == -1:
+            return None
+
+        # Include the ';' that follows ')' in the replaced range so _format_autoarg
+        # can append ");" and the result is a complete, valid header.
+        end_line = close_line
+        end_col = close_col + 1  # default: just past ')'
+        semi_idx = doc_lines[close_line].find(";", close_col)
+        if semi_idx != -1:
+            end_col = semi_idx + 1
+        elif close_line + 1 < len(doc_lines):
+            semi_idx = doc_lines[close_line + 1].find(";")
+            if semi_idx != -1:
+                end_line = close_line + 1
+                end_col = semi_idx + 1
+
+        return {
+            "port_names": port_names,
+            "module_name": module_name,
+            "open_line": open_line,
+            "open_col": open_col,
+            "end_line": end_line,
+            "end_col": end_col,
+        }
+
+    @staticmethod
+    def _scan_port_names(text: str, mod_line: int) -> list[str]:
+        """Text-based fallback: extract port names from input/output/inout declarations.
+
+        Used for non-ANSI modules whose header has an empty port list ``()``.
+        Scans from *mod_line* to the first ``endmodule`` and returns signal names
+        in declaration order, preserving duplicates-free order.
+        """
+        _PORT_RE = re.compile(
+            r"^\s*(?:input|output|inout)\b"          # direction keyword
+            r"(?:\s+(?:wire|reg|logic|tri"
+            r"|signed|unsigned|var))*"               # optional type keywords
+            r"(?:\s*\[[^\]]*\])?"                    # optional packed width
+            r"\s*([\w]+(?:\s*,\s*[\w]+)*)",          # one or more names
+            re.IGNORECASE,
+        )
+        lines = text.splitlines()
+        seen: set[str] = set()
+        names: list[str] = []
+        for raw in lines[mod_line:]:
+            if re.match(r"\s*endmodule\b", raw, re.IGNORECASE):
+                break
+            m = _PORT_RE.match(raw)
+            if m:
+                for name in re.split(r"\s*,\s*", m.group(1).strip()):
+                    name = name.strip()
+                    if name and name not in seen:
+                        seen.add(name)
+                        names.append(name)
+        return names
+
+    def _find_instance_at_line(self, state: DocumentState, target_line: int):
+        """Find an Instance symbol (not InstanceBody) declared on *target_line* (0-indexed)."""
+        compilation = state.compilation
+        if compilation is None:
+            return None
+        sm = state.tree.sourceManager
+        candidates = []
+
+        def _collect(sym) -> bool:
+            try:
+                k = str(sym.kind)
+                if "Instance" in k and "InstanceBody" not in k:
+                    sym_line = sm.getLineNumber(sym.location) - 1
+                    if sym_line == target_line:
+                        candidates.append(sym)
+            except Exception:
+                pass
+            return True
+
+        try:
+            compilation.getRoot().visit(_collect)
+        except Exception:
+            return None
+        return candidates[0] if candidates else None
 
     def _find_instance_symbol(self, state: DocumentState, name: str):
         """Find an Instance symbol named *name* in the compilation."""
