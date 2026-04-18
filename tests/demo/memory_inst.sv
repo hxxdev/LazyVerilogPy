@@ -1,6 +1,12 @@
-#include < params.svh >
+#include " params.svh "
 
-function sum(input int a, input fifo_entry_t b, input int c);
+`define WIDTH 32
+
+module example;
+logic [`WIDTH-1:0] data;
+endmodule
+
+function logic [3:0] sum(input int a, input fifo_entry_t b, input int c);
     return a + b;
 endfunction
 
