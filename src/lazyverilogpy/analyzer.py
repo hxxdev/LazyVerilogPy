@@ -533,3 +533,105 @@ class Analyzer:
             definition_range=def_range,
             doc=doc,
         )
+
+    # ------------------------------------------------------------------
+    # Auto-instantiation
+    # ------------------------------------------------------------------
+
+    def autoinst(self, uri: str, line: int, col: int) -> Optional[dict]:
+        """Return auto-instantiation data for the Instance symbol at *(line, col)*.
+
+        Returns a dict with keys ``module_name``, ``instance_name``, ``ports``,
+        ``line_start``, and ``line_end``, or ``None`` when no Instance symbol is
+        found at the given position.
+        """
+        state = self._docs.get(uri)
+        if state is None or state.compilation is None:
+            return None
+
+        # Find the symbol under the cursor.
+        word, _ = self._word_at(state.text, line, col)
+        if not word:
+            return None
+
+        sym = self._find_instance_symbol(state, word)
+        if sym is None:
+            return None
+
+        # Navigate to the InstanceBody to enumerate ports.
+        try:
+            body = sym.body
+        except Exception:
+            return None
+
+        ports: list[dict] = []
+        try:
+            for port in body.portList:
+                try:
+                    ports.append({"name": port.name})
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
+        if not ports:
+            return None
+
+        # Determine the line range of the existing instantiation statement.
+        line_start, line_end = self._inst_line_range(state.text, sym, state.tree)
+
+        return {
+            "module_name": body.name,
+            "instance_name": sym.name,
+            "ports": ports,
+            "line_start": line_start,
+            "line_end": line_end,
+        }
+
+    def _find_instance_symbol(self, state: DocumentState, name: str):
+        """Find an Instance symbol named *name* in the compilation."""
+        compilation = state.compilation
+        if compilation is None:
+            return None
+
+        candidates = []
+
+        def _collect(sym) -> bool:
+            try:
+                if sym.name == name and "Instance" in str(sym.kind) and "InstanceBody" not in str(sym.kind):
+                    candidates.append(sym)
+            except Exception:
+                pass
+            return True
+
+        try:
+            compilation.getRoot().visit(_collect)
+        except Exception:
+            return None
+
+        return candidates[0] if candidates else None
+
+    @staticmethod
+    def _inst_line_range(text: str, sym, tree) -> tuple[int, int]:
+        """Return the 0-based (line_start, line_end) range of an instantiation.
+
+        *line_start* is derived from ``sym.location``.  *line_end* is found by
+        scanning forward from that point to the first ``;``.
+        """
+        sm = tree.sourceManager
+        try:
+            loc = sym.location
+            line_start = max(sm.getLineNumber(loc) - 1, 0)
+        except Exception:
+            line_start = 0
+
+        lines = text.splitlines()
+        line_end = line_start
+        for i in range(line_start, len(lines)):
+            if ";" in lines[i]:
+                line_end = i
+                break
+        else:
+            line_end = len(lines) - 1
+
+        return line_start, line_end

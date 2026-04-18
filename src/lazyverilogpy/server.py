@@ -312,6 +312,121 @@ def formatting(
 
 
 # ---------------------------------------------------------------------------
+# Auto-instantiation (workspace/executeCommand)
+# ---------------------------------------------------------------------------
+
+AUTOINST_COMMAND = "lazyverilogpy.autoInst"
+
+
+@server.feature(
+    types.WORKSPACE_EXECUTE_COMMAND,
+    types.ExecuteCommandOptions(commands=[AUTOINST_COMMAND]),
+)
+def execute_command(
+    ls: LanguageServer, params: types.ExecuteCommandParams
+) -> Optional[types.WorkspaceEdit]:
+    if params.command != AUTOINST_COMMAND:
+        return None
+    try:
+        args = params.arguments or []
+        if len(args) < 3:
+            return None
+        uri, line, character = str(args[0]), int(args[1]), int(args[2])
+
+        result = analyzer.autoinst(uri, line, character)
+        if result is None:
+            return None
+
+        state = analyzer.get_state(uri)
+        if state is None:
+            return None
+
+        new_text = _format_autoinst(result, state.text)
+
+        lines = state.text.splitlines()
+        line_end = result["line_end"]
+        end_char = len(lines[line_end]) if line_end < len(lines) else 0
+
+        edit = types.TextEdit(
+            range=types.Range(
+                start=types.Position(line=result["line_start"], character=0),
+                end=types.Position(line=line_end, character=end_char),
+            ),
+            new_text=new_text,
+        )
+        return types.WorkspaceEdit(
+            changes={uri: [edit]},
+        )
+    except Exception as exc:
+        logger.error("autoInst error: %s", exc, exc_info=True)
+        return None
+
+
+def _format_autoinst(result: dict, source_text: str) -> str:
+    """Build the formatted instantiation text from *result*."""
+    module_name = result["module_name"]
+    instance_name = result["instance_name"]
+    ports = result["ports"]
+
+    # Detect indentation from the original line.
+    lines = source_text.splitlines()
+    line_start = result["line_start"]
+    orig_line = lines[line_start] if line_start < len(lines) else ""
+    base_indent = orig_line[: len(orig_line) - len(orig_line.lstrip())]
+    port_indent = base_indent + "    "
+
+    # Find longest port name for alignment.
+    max_name_len = max(len(p["name"]) for p in ports) if ports else 0
+
+    port_lines: list[str] = []
+    for i, port in enumerate(ports):
+        name = port["name"]
+        padded = name.ljust(max_name_len)
+        comma = "," if i < len(ports) - 1 else ""
+        port_lines.append(f"{port_indent}.{padded} ({name}){comma}")
+
+    header = f"{base_indent}{module_name} {instance_name} ("
+    footer = f"{base_indent});"
+
+    return header + "\n" + "\n".join(port_lines) + "\n" + footer
+
+
+# ---------------------------------------------------------------------------
+# Code actions
+# ---------------------------------------------------------------------------
+
+
+@server.feature(types.TEXT_DOCUMENT_CODE_ACTION)
+def code_action(
+    ls: LanguageServer, params: types.CodeActionParams
+) -> Optional[list[types.CodeAction]]:
+    """Offer an 'Auto-instantiate module' action when cursor is on an Instance."""
+    try:
+        uri = params.text_document.uri
+        line = params.range.start.line
+        character = params.range.start.character
+
+        result = analyzer.autoinst(uri, line, character)
+        if result is None:
+            return None
+
+        return [
+            types.CodeAction(
+                title="Auto-instantiate module",
+                kind=types.CodeActionKind.RefactorRewrite,
+                command=types.Command(
+                    title="Auto-instantiate module",
+                    command=AUTOINST_COMMAND,
+                    arguments=[uri, line, character],
+                ),
+            )
+        ]
+    except Exception as exc:
+        logger.error("code_action error: %s", exc, exc_info=True)
+        return None
+
+
+# ---------------------------------------------------------------------------
 # Diagnostics helper
 # ---------------------------------------------------------------------------
 
