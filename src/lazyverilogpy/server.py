@@ -318,17 +318,12 @@ def formatting(
 AUTOINST_COMMAND = "lazyverilogpy.autoInst"
 
 
-@server.feature(
-    types.WORKSPACE_EXECUTE_COMMAND,
-    types.ExecuteCommandOptions(commands=[AUTOINST_COMMAND]),
-)
-def execute_command(
-    ls: LanguageServer, params: types.ExecuteCommandParams
+@server.command(AUTOINST_COMMAND)
+def execute_autoinst(
+    ls: LanguageServer, *args
 ) -> Optional[types.WorkspaceEdit]:
-    if params.command != AUTOINST_COMMAND:
-        return None
     try:
-        args = params.arguments or []
+        # pygls unpacks arguments list directly into *args: (uri, line, character)
         if len(args) < 3:
             return None
         uri, line, character = str(args[0]), int(args[1]), int(args[2])
