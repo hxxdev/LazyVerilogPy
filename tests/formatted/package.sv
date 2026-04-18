@@ -60,19 +60,19 @@ endpackage
 //- MyModule.subkind module
 //- MyModule.complete definition
 module my_module(input x);
-//- @#0my_pkg1 ref/imports MyPkg1
-//- @#1my_pkg1 ref/imports MyPkg1
-//- @my_class1 ref MyClass1
-//- @my_function2 ref MyFunction2
-import my_pkg1::my_class1, my_pkg1::my_function2;
+    //- @#0my_pkg1 ref/imports MyPkg1
+    //- @#1my_pkg1 ref/imports MyPkg1
+    //- @my_class1 ref MyClass1
+    //- @my_function2 ref MyFunction2
+    import my_pkg1::my_class1, my_pkg1::my_function2;
 
-//- @my_pkg2 ref/imports MyPkg2
-//- @my_class_in_pkg2 ref MyClassPkg2
-import my_pkg2::my_class_in_pkg2;
+    //- @my_pkg2 ref/imports MyPkg2
+    //- @my_class_in_pkg2 ref MyClassPkg2
+    import my_pkg2::my_class_in_pkg2;
 
-//- @my_function2 ref MyFunction2
-//- @my_function2 ref/call MyFunction2
-initial $display(my_function2());
+    //- @my_function2 ref MyFunction2
+    //- @my_function2 ref/call MyFunction2
+    initial $display(my_function2());
 endmodule
 
 //- @second_module defines/binding MyModule1
@@ -80,22 +80,22 @@ endmodule
 //- MyModule1.subkind module
 //- MyModule1.complete definition
 module second_module;
-//- @my_pkg1 ref/imports MyPkg1
-import my_pkg1::*;
-//- @my_pkg3 ref/imports MyPkg3
-import my_pkg3::*;
+    //- @my_pkg1 ref/imports MyPkg1
+    import my_pkg1::*;
+    //- @my_pkg3 ref/imports MyPkg3
+    import my_pkg3::*;
 
-//- @my_module ref MyModule
-//- @instance1 defines/binding MyModuleInstance
-//- MyModuleInstance.node/kind variable
-//- MyModuleInstance.complete definition
-//- MyModuleInstance childof MyModule1
-//- @w1 ref W1Def
-my_module instance1(w1);
+    //- @my_module ref MyModule
+    //- @instance1 defines/binding MyModuleInstance
+    //- MyModuleInstance.node/kind variable
+    //- MyModuleInstance.complete definition
+    //- MyModuleInstance childof MyModule1
+    //- @w1 ref W1Def
+    my_module instance1(w1);
 
-//- @my_function3 ref MyFunction3
-//- @my_function3 ref/call MyFunction3
-initial $display(my_function3());
+    //- @my_function3 ref MyFunction3
+    //- @my_function3 ref/call MyFunction3
+    initial $display(my_function3());
 endmodule
 
 //- @my_pkg3 defines/binding MyPkg3

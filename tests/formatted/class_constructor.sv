@@ -56,22 +56,22 @@ endfunction
 //- MyModule.complete definition
 module my_module;
 
-//- @num defines/binding Num
-//- Num.node/kind variable
-//- Num.complete definition
-//- Num childof MyModule
-int num = 1;
+    //- @num defines/binding Num
+    //- Num.node/kind variable
+    //- Num.complete definition
+    //- Num childof MyModule
+    int num = 1;
 
-//- @my_class3 ref MyClass3
-//- @handle1 defines/binding Handle1
-//- Handle1.node/kind variable
-//- Handle1.complete definition
-//- Handle1 childof MyModule
-//- @#0num ref Num
-//- @#1num ref Num
-//- @#2num ref Num
-//- @my_function ref MyFunctionOut
-//- @my_function ref/call MyFunctionOut
-static my_class3 handle1 = new (num, my_function(num, num));
+    //- @my_class3 ref MyClass3
+    //- @handle1 defines/binding Handle1
+    //- Handle1.node/kind variable
+    //- Handle1.complete definition
+    //- Handle1 childof MyModule
+    //- @#0num ref Num
+    //- @#1num ref Num
+    //- @#2num ref Num
+    //- @my_function ref MyFunctionOut
+    //- @my_function ref/call MyFunctionOut
+    static my_class3 handle1 = new (num, my_function(num, num));
 
 endmodule

@@ -67,37 +67,37 @@ package my_pkg;
 endpackage
 
 module my_module;
-import my_pkg::*;
-initial begin
-    //- @my_class1 ref MyClass1
-    //- @handle1 defines/binding Handle1
-    static my_class1 handle1 = new ();
+    import my_pkg::*;
+    initial begin
+        //- @my_class1 ref MyClass1
+        //- @handle1 defines/binding Handle1
+        static my_class1 handle1 = new ();
 
-    //- @my_class2 ref MyClass2
-    //- @handle2 defines/binding Handle2
-    static my_class2 handle2 = new ();
+        //- @my_class2 ref MyClass2
+        //- @handle2 defines/binding Handle2
+        static my_class2 handle2 = new ();
 
-    //- @handle1 ref Handle1
-    //- @my_var ref MyVar
-    handle1.my_var = 10;
+        //- @handle1 ref Handle1
+        //- @my_var ref MyVar
+        handle1.my_var = 10;
 
-    //- @handle1 ref Handle1
-    //- @my_function ref MyFunction
-    //- @my_function ref/call MyFunction
-    $display(handle1.my_function());
+        //- @handle1 ref Handle1
+        //- @my_function ref MyFunction
+        //- @my_function ref/call MyFunction
+        $display(handle1.my_function());
 
-    //- @handle1 ref Handle1
-    //- @my_task ref/call MyTask
-    handle1.my_task(2);
+        //- @handle1 ref Handle1
+        //- @my_task ref/call MyTask
+        handle1.my_task(2);
 
-    //- @handle2 ref Handle2
-    //- @my_function ref MyFunctionOverride
-    //- @my_function ref/call MyFunctionOverride
-    $display(handle2.my_function());
+        //- @handle2 ref Handle2
+        //- @my_function ref MyFunctionOverride
+        //- @my_function ref/call MyFunctionOverride
+        $display(handle2.my_function());
 
-    //- @my_class2 ref MyClass2
-    //- @my_static_var ref MyStaticVar
-    $display(my_class2::my_static_var);
+        //- @my_class2 ref MyClass2
+        //- @my_static_var ref MyStaticVar
+        $display(my_class2::my_static_var);
 
-end
+    end
 endmodule

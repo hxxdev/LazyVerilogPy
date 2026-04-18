@@ -9,8 +9,8 @@
 `include "incdir_shadow.svh"
 
 module incdir_first_test;
-`ifdef INCDIR_SHADOW_IS_LOCAL  // Local shadow file was found -- trigger a deliberate error:
-int x          = local_was_found_error;
-`else int x    = 1;
-`endif
+    `ifdef INCDIR_SHADOW_IS_LOCAL  // Local shadow file was found -- trigger a deliberate error:
+    int x          = local_was_found_error;
+    `else int x    = 1;
+    `endif
 endmodule

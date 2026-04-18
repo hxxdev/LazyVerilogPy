@@ -35,47 +35,47 @@ endclass
 
 //- @my_module defines/binding MyModule
 module my_module();
-//- @my_class2 ref MyClass2
-//- @instance1 defines/binding Instance1
-//- Instance1 childof MyModule
-my_class2 instance1 = new ();
+    //- @my_class2 ref MyClass2
+    //- @instance1 defines/binding Instance1
+    //- Instance1 childof MyModule
+    my_class2 instance1 = new ();
 
-initial begin
-    //- @instance1 ref Instance1
-    //- @var1 ref Var1
-    $display(instance1::var1);
-    //- @instance1 ref Instance1
-    //- @var2 ref Var2
-    $display(instance1.var2);
+    initial begin
+        //- @instance1 ref Instance1
+        //- @var1 ref Var1
+        $display(instance1::var1);
+        //- @instance1 ref Instance1
+        //- @var2 ref Var2
+        $display(instance1.var2);
 
-    //- @instance1 ref Instance1
-    //- @instance2 ref Instance2
-    //- @var1 ref Var1
-    $display(instance1::instance2::var1);
-    //- @instance1 ref Instance1
-    //- @instance2 ref Instance2
-    //- @var2 ref Var2
-    $display(instance1.instance2.var2);
+        //- @instance1 ref Instance1
+        //- @instance2 ref Instance2
+        //- @var1 ref Var1
+        $display(instance1::instance2::var1);
+        //- @instance1 ref Instance1
+        //- @instance2 ref Instance2
+        //- @var2 ref Var2
+        $display(instance1.instance2.var2);
 
-    //- @instance1 ref Instance1
-    //- @my_function1 ref Function1
-    //- @my_function1 ref/call Function1
-    $display(instance1.my_function1());
-    //- @instance1 ref Instance1
-    //- @my_function2 ref Function2
-    //- @my_function2 ref/call Function2
-    $display(instance1.my_function2());
+        //- @instance1 ref Instance1
+        //- @my_function1 ref Function1
+        //- @my_function1 ref/call Function1
+        $display(instance1.my_function1());
+        //- @instance1 ref Instance1
+        //- @my_function2 ref Function2
+        //- @my_function2 ref/call Function2
+        $display(instance1.my_function2());
 
-    //- @instance1 ref Instance1
-    //- @instance2 ref Instance2
-    //- @my_function1 ref Function1
-    //- @my_function1 ref/call Function1
-    $display(instance1::instance2.my_function1());
-    //- @instance1 ref Instance1
-    //- @instance2 ref Instance2
-    //- @my_function2 ref Function2
-    //- @my_function2 ref/call Function2
-    $display(instance1.instance2.my_function2());
-end
+        //- @instance1 ref Instance1
+        //- @instance2 ref Instance2
+        //- @my_function1 ref Function1
+        //- @my_function1 ref/call Function1
+        $display(instance1::instance2.my_function1());
+        //- @instance1 ref Instance1
+        //- @instance2 ref Instance2
+        //- @my_function2 ref Function2
+        //- @my_function2 ref/call Function2
+        $display(instance1.instance2.my_function2());
+    end
 
 endmodule

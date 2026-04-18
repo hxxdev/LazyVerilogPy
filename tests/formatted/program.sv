@@ -22,26 +22,26 @@ program testcase(  //- @intf defines/binding Intf
 
     //- @tbench_top defines/binding _
     module tbench_top;
-    //- @mem_intf ref MemIntf
-    //- @#1intf defines/binding Intf1
-    mem_intf intf();
+        //- @mem_intf ref MemIntf
+        //- @#1intf defines/binding Intf1
+        mem_intf intf();
 
-    //- @memory ref Memory
-    //- @dut defines/binding _
-    memory dut(  //- @#0clk ref Clk2
-    //- @intf ref Intf1
-    //- @#1clk ref CLK
-    .clk(intf.clk),);
+        //- @memory ref Memory
+        //- @dut defines/binding _
+        memory dut(  //- @#0clk ref Clk2
+        //- @intf ref Intf1
+        //- @#1clk ref CLK
+        .clk(intf.clk),);
 
-    //- @testcase ref TestCase
-    //- @#1test defines/binding _
-    //- @intf ref Intf1
-    testcase test(intf);
+        //- @testcase ref TestCase
+        //- @#1test defines/binding _
+        //- @intf ref Intf1
+        testcase test(intf);
     endmodule
 
     //- @memory defines/binding Memory
     module memory(  //- @clk ref Clk2
-    clk);
-    //- @clk defines/binding Clk2
-    input clk;
+        clk);
+        //- @clk defines/binding Clk2
+        input clk;
     endmodule

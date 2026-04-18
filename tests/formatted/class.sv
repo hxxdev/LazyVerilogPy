@@ -63,55 +63,55 @@ endpackage
 //- MyModule.subkind module
 //- MyModule.complete definition
 module my_module;
-//- @my_pkg ref/imports MyPkg
-import my_pkg::*;
-
-//- @my_class1 ref MyClass1
-//- @handle1 defines/binding Handle1
-//- Handle1.node/kind variable
-//- Handle1.complete definition
-//- Handle1 childof MyModule
-static my_class1 handle1 = new ();
-
-//- @my_class1 ref MyClass1
-//- @handle3 defines/binding Handle3
-//- Handle3.node/kind variable
-//- Handle3.complete definition
-//- Handle3 childof MyModule
-//- @handle4 defines/binding Handle4
-//- Handle4.node/kind variable
-//- Handle4.complete definition
-//- Handle4 childof MyModule
-my_class1 handle3 = new (), handle4 = new ();
-
-initial begin
-    //- @handle1 ref Handle1
-    //- @my_function ref MyFunction
-    //- @my_function ref/call MyFunction
-    $display(handle1.my_function());
-
-    //- @handle1 ref Handle1
-    //- @my_task ref/call MyTask
-    handle1.my_task(2);
+    //- @my_pkg ref/imports MyPkg
+    import my_pkg::*;
 
     //- @my_class1 ref MyClass1
-    //- @my_static_var ref MyStaticVar
-    $display(my_class1::my_static_var);
-end
+    //- @handle1 defines/binding Handle1
+    //- Handle1.node/kind variable
+    //- Handle1.complete definition
+    //- Handle1 childof MyModule
+    static my_class1 handle1 = new ();
 
-//- @my_class3 defines/binding MyClass3
-//- MyClass3.node/kind record
-//- MyClass3.complete definition
-//- MyClass3 childof MyModule
-class my_class3;
-    //- @my_function3 defines/binding MyFunction3
-    //- MyFunction3.node/kind function
-    //- MyFunction3.complete definition
-    //- MyFunction3 childof MyClass3
-    function int my_function3();
-        return 1;
-    endfunction
-    //- @my_class3 ref MyClass3
-endclass
-: my_class3
+    //- @my_class1 ref MyClass1
+    //- @handle3 defines/binding Handle3
+    //- Handle3.node/kind variable
+    //- Handle3.complete definition
+    //- Handle3 childof MyModule
+    //- @handle4 defines/binding Handle4
+    //- Handle4.node/kind variable
+    //- Handle4.complete definition
+    //- Handle4 childof MyModule
+    my_class1 handle3 = new (), handle4 = new ();
+
+    initial begin
+        //- @handle1 ref Handle1
+        //- @my_function ref MyFunction
+        //- @my_function ref/call MyFunction
+        $display(handle1.my_function());
+
+        //- @handle1 ref Handle1
+        //- @my_task ref/call MyTask
+        handle1.my_task(2);
+
+        //- @my_class1 ref MyClass1
+        //- @my_static_var ref MyStaticVar
+        $display(my_class1::my_static_var);
+    end
+
+    //- @my_class3 defines/binding MyClass3
+    //- MyClass3.node/kind record
+    //- MyClass3.complete definition
+    //- MyClass3 childof MyModule
+    class my_class3;
+        //- @my_function3 defines/binding MyFunction3
+        //- MyFunction3.node/kind function
+        //- MyFunction3.complete definition
+        //- MyFunction3 childof MyClass3
+        function int my_function3();
+            return 1;
+        endfunction
+        //- @my_class3 ref MyClass3
+    endclass
+    : my_class3
 endmodule

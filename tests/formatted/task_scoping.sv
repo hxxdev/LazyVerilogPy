@@ -18,16 +18,16 @@ class task_class;
 endclass
 
 module task_scoping;
-initial begin
-    int result;
+    initial begin
+        int result;
 
-    //- @tc_instance defines/binding TcInstance
-    automatic task_class tc_instance = new ();
-    //- @tc_instance ref TcInstance
-    //- @my_task ref/call ClassTask
-    tc_instance.my_task(1, 2, result);
+        //- @tc_instance defines/binding TcInstance
+        automatic task_class tc_instance = new ();
+        //- @tc_instance ref TcInstance
+        //- @my_task ref/call ClassTask
+        tc_instance.my_task(1, 2, result);
 
-    //- @my_task ref/call MyTask
-    my_pkg::my_task(1, 2, result);
-end
+        //- @my_task ref/call MyTask
+        my_pkg::my_task(1, 2, result);
+    end
 endmodule

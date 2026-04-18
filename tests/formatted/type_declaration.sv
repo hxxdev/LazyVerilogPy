@@ -17,8 +17,8 @@ S #(logic)::some_type bar;
 
 //- @m1 defines/binding _
 module m1();
-//- @S ref S
-//- @some_type ref SomeType
-//- @bar defines/binding _
-S #(logic)::some_type bar;
+    //- @S ref S
+    //- @some_type ref SomeType
+    //- @bar defines/binding _
+    S #(logic)::some_type bar;
 endmodule

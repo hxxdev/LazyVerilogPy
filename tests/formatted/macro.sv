@@ -89,27 +89,27 @@ package my_pkg;
 endpackage
 
 module macro;
-//- @MacroModule defines/binding MacroModule
-//- MacroModule.node/kind macro
-`define macromodule 10
+    //- @MacroModule defines/binding MacroModule
+    //- MacroModule.node/kind macro
+    `define macromodule 10
 
-//- @"TEN" ref/expands TEN
-parameter int x = `TEN;
-initial begin
+        //- @"TEN" ref/expands TEN
+        parameter int x = `TEN;
+        initial begin
 
-    //- @"PRINT_3_STRINGS" ref/expands PRINT_3_STRINGS
-    `PRINT_3_STRINGS("Grand", "Tour", "S4");
-    //- @"PRINT_3_INTS" ref/expands PRINT_3_INTS
-    `PRINT_3_INTS(1, 2, 3);
-    //- @"TEN" ref/expands TEN
-    $display("%d\n", `TEN);
-    //- @"MacroClass" ref/expands MacroClass
-    $display("%d\n", `MacroClass);
-    //- @"NUM" ref/expands NUM
-    $display("%d\n", `NUM(1));
-    //- @"TEN" ref/expands TEN
-    //- @"NUM" ref/expands NUM
-    $display("%d\n", `NUM(`TEN));
+            //- @"PRINT_3_STRINGS" ref/expands PRINT_3_STRINGS
+            `PRINT_3_STRINGS("Grand", "Tour", "S4");
+            //- @"PRINT_3_INTS" ref/expands PRINT_3_INTS
+            `PRINT_3_INTS(1, 2, 3);
+            //- @"TEN" ref/expands TEN
+            $display("%d\n", `TEN);
+            //- @"MacroClass" ref/expands MacroClass
+            $display("%d\n", `MacroClass);
+            //- @"NUM" ref/expands NUM
+            $display("%d\n", `NUM(1));
+            //- @"TEN" ref/expands TEN
+            //- @"NUM" ref/expands NUM
+            $display("%d\n", `NUM(`TEN));
 
-end
-endmodule
+        end
+    endmodule

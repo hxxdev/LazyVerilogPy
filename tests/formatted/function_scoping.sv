@@ -31,19 +31,19 @@ class nested_class;
 endclass
 
 module function_scoping;
-import top_pkg::*;
+    import top_pkg::*;
 
-initial begin
-    //- @my_function ref PkgFunction
-    //- @my_function ref/call PkgFunction
-    automatic int i = my_function(2);
+    initial begin
+        //- @my_function ref PkgFunction
+        //- @my_function ref/call PkgFunction
+        automatic int i = my_function(2);
 
-    //- @nc_instance defines/binding ClassInstance
-    automatic nested_class nc_instance = new ();
+        //- @nc_instance defines/binding ClassInstance
+        automatic nested_class nc_instance = new ();
 
-    //- @nc_instance ref ClassInstance
-    //- @my_function ref ClassFunction
-    //- @my_function ref/call ClassFunction
-    automatic int j = nc_instance.my_function(2);
-end
+        //- @nc_instance ref ClassInstance
+        //- @my_function ref ClassFunction
+        //- @my_function ref/call ClassFunction
+        automatic int j = nc_instance.my_function(2);
+    end
 endmodule

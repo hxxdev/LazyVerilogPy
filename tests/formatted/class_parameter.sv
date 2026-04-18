@@ -22,30 +22,30 @@ endclass
 
 //- @my_module defines/binding _
 module my_module();
-//- @Stack ref Stack
-//- @real_stack defines/binding _
-Stack #(real) real_stack = new ();
+    //- @Stack ref Stack
+    //- @real_stack defines/binding _
+    Stack #(real) real_stack = new ();
 
-//- @#0Stack ref Stack
-//- @#1Stack ref Stack
-//- @instance1 defines/binding _
-Stack #(Stack #(int)) instance1 = new;
+    //- @#0Stack ref Stack
+    //- @#1Stack ref Stack
+    //- @instance1 defines/binding _
+    Stack #(Stack #(int)) instance1 = new;
 
-//- @#0Vector ref Vector
-//- @#1Vector ref Vector
-//- @instance2 defines/binding _
-Vector #(Vector #(int)) instance2 = new;
+    //- @#0Vector ref Vector
+    //- @#1Vector ref Vector
+    //- @instance2 defines/binding _
+    Vector #(Vector #(int)) instance2 = new;
 
-//- @Vector ref Vector
-//- @v1 defines/binding _
-Vector v1 = new ();
-//- @x1 defines/binding X1
-int x1;
-//- @Vector ref Vector
-//- @v2 defines/binding _
-//- @x1 ref X1
-//- @WIDTH ref WIDTH
-Vector #(.WIDTH(x1)) v2 = new ();
+    //- @Vector ref Vector
+    //- @v1 defines/binding _
+    Vector v1 = new ();
+    //- @x1 defines/binding X1
+    int x1;
+    //- @Vector ref Vector
+    //- @v2 defines/binding _
+    //- @x1 ref X1
+    //- @WIDTH ref WIDTH
+    Vector #(.WIDTH(x1)) v2 = new ();
 endmodule
 
 //- @uvm_sequence_item defines/binding UvmSequenceItem

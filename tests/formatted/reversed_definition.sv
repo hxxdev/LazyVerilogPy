@@ -39,22 +39,22 @@ endclass
 
 //- @top_module defines/binding _
 module top_module;
-//- @my_module ref MyModule  
-//- @dut defines/binding DutDef
-my_module dut();
-//- @dut ref DutDef
-//- @instance5 ref Instance5
-//- @var2 ref Var2
-initial $display(dut.instance5.var2);
+    //- @my_module ref MyModule  
+    //- @dut defines/binding DutDef
+    my_module dut();
+    //- @dut ref DutDef
+    //- @instance5 ref Instance5
+    //- @var2 ref Var2
+    initial $display(dut.instance5.var2);
 endmodule
 
 //- @my_module defines/binding MyModule
 module my_module;
-//- @pkg ref/imports MyPkg1
-import pkg::*;
-//- @pkg_class1 ref PkgClass
-//- @instance5 defines/binding Instance5
-pkg_class1 instance5 = new ();
+    //- @pkg ref/imports MyPkg1
+    import pkg::*;
+    //- @pkg_class1 ref PkgClass
+    //- @instance5 defines/binding Instance5
+    pkg_class1 instance5 = new ();
 endmodule
 
 //- @pkg defines/binding MyPkg1
@@ -68,17 +68,17 @@ endpackage
 
 // Used to check whether the extractor will crash or not.
 module top_module2;
-//- @my_module2 ref MyModule2 
-//- @dut2 defines/binding DutDef2
-my_module2 dut2();
-//- @dut2 ref DutDef2
-//- @instance6 ref Instance6
-initial $display(dut2::instance6::var2);
+    //- @my_module2 ref MyModule2 
+    //- @dut2 defines/binding DutDef2
+    my_module2 dut2();
+    //- @dut2 ref DutDef2
+    //- @instance6 ref Instance6
+    initial $display(dut2::instance6::var2);
 endmodule
 
 //- @my_module2 defines/binding MyModule2
 module my_module2;
-import pkg2::*;
-//- @instance6 defines/binding Instance6
-pkg_class1 instance6 = new ();
+    import pkg2::*;
+    //- @instance6 defines/binding Instance6
+    pkg_class1 instance6 = new ();
 endmodule

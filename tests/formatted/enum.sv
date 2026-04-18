@@ -35,14 +35,14 @@ package my_pkg;
 endpackage
 
 module my_module;
-initial begin
-    //- @my_enum2 ref MyEnum2
-    //- @my_enum_var2 defines/binding _
-    //- @DD ref DD
-    automatic my_pkg::my_enum2 my_enum_var2 = my_pkg::DD;
+    initial begin
+        //- @my_enum2 ref MyEnum2
+        //- @my_enum_var2 defines/binding _
+        //- @DD ref DD
+        automatic my_pkg::my_enum2 my_enum_var2 = my_pkg::DD;
 
-    //- @my_enum_var1 ref MyEnumVar1
-    //- @BB ref BB
-    my_pkg::my_enum_var1 = my_pkg::BB;
-end
+        //- @my_enum_var1 ref MyEnumVar1
+        //- @BB ref BB
+        my_pkg::my_enum_var1 = my_pkg::BB;
+    end
 endmodule

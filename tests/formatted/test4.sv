@@ -1,13 +1,13 @@
 module baz;
-int k    = j;
-int j    = 1;
+    int k    = j;
+    int j    = 1;
 
-`ifndef FOOBAR int blah = unknown;
-`endif
+    `ifndef FOOBAR int blah = unknown;
+    `endif
 endmodule
 
 module unused;
-`pragma diagnostic warn = "-Wfoobaz"
+    `pragma diagnostic warn = "-Wfoobaz"
 endmodule
 
 `ifdef FOOBAR module frob #(parameter int bar);

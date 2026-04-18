@@ -26,38 +26,38 @@ endpackage
 //- @my_module defines/binding _
 module my_module();
 
-initial begin
-    //- @my_class ref MyClass1
-    //- @m_class defines/binding MClass
-    my_class m_class = new ();
+    initial begin
+        //- @my_class ref MyClass1
+        //- @m_class defines/binding MClass
+        my_class m_class = new ();
 
-    //- @m_class ref MClass
-    //- @var1 ref Var1
-    $display(m_class.var1);
+        //- @m_class ref MClass
+        //- @var1 ref Var1
+        $display(m_class.var1);
 
-    //- @pkg1 ref Pkg1
-    //- @my_class ref MyClass2
-    //- @instance2 ref Instance2
-    //- @var2 ref Var2
-    $display(pkg1::my_class::instance2.var2);
+        //- @pkg1 ref Pkg1
+        //- @my_class ref MyClass2
+        //- @instance2 ref Instance2
+        //- @var2 ref Var2
+        $display(pkg1::my_class::instance2.var2);
 
-    //- @m_class ref MClass
-    //- @#0instance1 ref Instance1
-    //- @#1instance1 ref Instance1
-    //- @var1 ref Var1
-    $display(m_class.instance1.instance1.var1);
+        //- @m_class ref MClass
+        //- @#0instance1 ref Instance1
+        //- @#1instance1 ref Instance1
+        //- @var1 ref Var1
+        $display(m_class.instance1.instance1.var1);
 
-    //- @m_class ref MClass
-    //- @instance1 ref Instance1
-    //- @var1 ref Var1
-    $display(m_class.instance1.var1);
+        //- @m_class ref MClass
+        //- @instance1 ref Instance1
+        //- @var1 ref Var1
+        $display(m_class.instance1.var1);
 
-    //- @#0m_class ref MClass
-    //- @#1m_class ref MClass
-    //- @#0var1 ref Var1
-    //- @#1var1 ref Var1
-    m_class.var1 <= m_class.var1;
+        //- @#0m_class ref MClass
+        //- @#1m_class ref MClass
+        //- @#0var1 ref Var1
+        //- @#1var1 ref Var1
+        m_class.var1 <= m_class.var1;
 
-end
+    end
 
 endmodule

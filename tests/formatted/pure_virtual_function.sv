@@ -41,15 +41,15 @@ virtual class BaseClass;
 
         //- @tb defines/binding TB
         module tb();
-        //- @ChildClass ref ChildClass
-        //- @child defines/binding Child
-        //- Child childof TB
-        ChildClass child;
-        initial begin
-            //- @child ref Child
-            child = new ();
-            //- @getData ref GetData
-            //- @child ref Child
-            $display(child.getData(1, 2));
-        end
+            //- @ChildClass ref ChildClass
+            //- @child defines/binding Child
+            //- Child childof TB
+            ChildClass child;
+            initial begin
+                //- @child ref Child
+                child = new ();
+                //- @getData ref GetData
+                //- @child ref Child
+                $display(child.getData(1, 2));
+            end
         endmodule
