@@ -9,3 +9,4 @@ Reference documentation for LazyVerilogPy users and contributors.
 |------|---------|
 | `format-options.md` | All `[formatter]` TOML options with type, default, and examples |
 | `lint.md` | `[codebase]` TOML section — multi-file `.f` filelist loading |
+| `hover.md` | Hover feature — what `K` shows for ports, variables, instances |
