@@ -51,6 +51,7 @@ class FTT(Enum):
     colon = auto()             # :
     hash = auto()              # #  (delay / parameter-list operator)
     at = auto()                # @  (event-control operator)
+    include_directive = auto() # `include "file.svh"
 
 
 # ---------------------------------------------------------------------------
@@ -308,7 +309,7 @@ def _classify(raw: str, text: str, prev_ftt: Optional[FTT]) -> FTT:
     if raw == "scope":
         return FTT.hierarchy
     if raw == "include_directive":
-        return FTT.string_literal
+        return FTT.include_directive
     if raw == "word":
         return FTT.keyword if text.lower() in _SV_KEYWORDS else FTT.identifier
     if raw == "open_group":
@@ -407,6 +408,10 @@ def _spaces_required(
     """
     lf, lx, ll = left.ftt, left.text, left.lo
     rf, rx, rl = right.ftt, right.text, right.lo
+
+    # 0. include_directive is always on its own line → no inline spacing
+    if lf == FTT.include_directive or rf == FTT.include_directive:
+        return 0
 
     # 1. Comments always get 2 spaces before them (line 153)
     if rf in (FTT.eol_comment, FTT.comment_block):
@@ -550,6 +555,10 @@ def _break_decision(
     if in_dim and lf != FTT.colon and lx not in ("[", "]") \
                and rf != FTT.colon and rx not in ("[", "]"):
         return SpacingDecision.kPreserve
+
+    # include_directive always occupies its own line
+    if rf == FTT.include_directive or lf == FTT.include_directive:
+        return SpacingDecision.kMustWrap
 
     # After eol comment → kMustWrap (line 776)
     if lf == FTT.eol_comment:
