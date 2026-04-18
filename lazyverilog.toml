@@ -1,5 +1,5 @@
 [codebase]
-vcode = "tests/rtl/vcode.f"
+vcode = "tests/demo/vcode.f"
 
 [formatter]
 indent_size = 4
