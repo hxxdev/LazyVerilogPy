@@ -331,7 +331,7 @@ class Analyzer:
             s = str(sym.type)
             if s:
                 if not s.startswith("<"):
-                    return s
+                    return Analyzer._norm_type(s)
                 had_error = True
         except Exception:
             pass
@@ -343,14 +343,14 @@ class Analyzer:
                     s = str(resolved)
                     if s:
                         if not s.startswith("<"):
-                            return s
+                            return Analyzer._norm_type(s)
                         had_error = True
                 except Exception:
                     pass
                 s = str(dt)
                 if s:
                     if not s.startswith("<"):
-                        return s
+                        return Analyzer._norm_type(s)
                     had_error = True
         except Exception:
             pass
@@ -358,7 +358,7 @@ class Analyzer:
             s = str(sym.getType())
             if s:
                 if not s.startswith("<"):
-                    return s
+                    return Analyzer._norm_type(s)
                 had_error = True
         except Exception:
             pass
@@ -370,10 +370,18 @@ class Analyzer:
         return "<undefined>" if s.startswith("<") else s
 
     @staticmethod
+    def _norm_type(s: str) -> str:
+        """Normalise a pyslang type string for display.
+
+        - Inserts a space between an identifier and ``[``: ``logic[3:0]`` → ``logic [3:0]``
+        """
+        return re.sub(r"(\w)\[", r"\1 [", s)
+
+    @staticmethod
     def _subroutine_preview(sym, max_args: int = 5) -> str:
         """Build a fenced preview for a function or task symbol."""
         try:
-            ret = str(sym.returnType)
+            ret = Analyzer._norm_type(str(sym.returnType))
         except Exception:
             ret = ""
 
@@ -394,7 +402,7 @@ class Analyzer:
                             direction = "<undefined>"
                     except Exception:
                         pass
-                    type_part = Analyzer._clean_type(str(arg.type)) if hasattr(arg, "type") else ""
+                    type_part = Analyzer._clean_type(Analyzer._norm_type(str(arg.type))) if hasattr(arg, "type") else ""
                     # Anonymous arg: pyslang lost the name due to a bad direction keyword.
                     # Still show the slot so the arg count is correct.
                     if not arg_name:
