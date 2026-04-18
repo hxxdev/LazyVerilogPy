@@ -214,7 +214,23 @@ class Analyzer:
         if not word:
             return None
 
-        return self._find_symbol(state, word, uri)
+        info = self._find_symbol(state, word, uri)
+        if info is not None:
+            return info
+
+        # Fallback: word not found in compilation — if it is preceded by '.'
+        # it is likely an undeclared named port in an instantiation.
+        lines = state.text.splitlines()
+        if line < len(lines):
+            src_line = lines[line]
+            col = word_range[0]  # start of word
+            if col > 0 and src_line[col - 1] == ".":
+                return SymbolInfo(
+                    name=word,
+                    kind="SymbolKind.Port",
+                    type_str="unknown",
+                )
+        return None
 
     def definition_of(self, uri: str, line: int, character: int) -> Optional[SourceRange]:
         info = self.symbol_at(uri, line, character)
@@ -288,6 +304,160 @@ class Analyzer:
         best = min(candidates, key=lambda s: _KIND_PRIORITY.get(str(s.kind), 50))
         return self._build_info(best, tree, state.uri)
 
+    # ------------------------------------------------------------------
+    # Hover helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _port_direction(sym) -> str:
+        """Return 'input', 'output', 'inout', 'ref', or '' for a Port symbol."""
+        try:
+            raw = str(sym.direction)          # e.g. "PortDirection.In"
+            label = raw.split(".")[-1].lower()
+            return {"in": "input", "out": "output", "inout": "inout", "ref": "ref"}.get(label, "<undefined>")
+        except Exception:
+            return ""
+
+    @staticmethod
+    def _get_type_str(sym) -> str:
+        """Return the resolved SV type string for a symbol.
+
+        In pyslang the type is exposed as the ``type`` property on ValueSymbol
+        subclasses (PortSymbol, VariableSymbol, NetSymbol, …).  Falls back to
+        the older getDeclaredType()/getType() method API for forward compat.
+        """
+        had_error = False
+        try:
+            s = str(sym.type)
+            if s:
+                if not s.startswith("<"):
+                    return s
+                had_error = True
+        except Exception:
+            pass
+        try:
+            dt = sym.getDeclaredType()
+            if dt is not None:
+                try:
+                    resolved = dt.getType()
+                    s = str(resolved)
+                    if s:
+                        if not s.startswith("<"):
+                            return s
+                        had_error = True
+                except Exception:
+                    pass
+                s = str(dt)
+                if s:
+                    if not s.startswith("<"):
+                        return s
+                    had_error = True
+        except Exception:
+            pass
+        try:
+            s = str(sym.getType())
+            if s:
+                if not s.startswith("<"):
+                    return s
+                had_error = True
+        except Exception:
+            pass
+        return "<undefined>" if had_error else ""
+
+    @staticmethod
+    def _clean_type(s: str) -> str:
+        """Replace pyslang error sentinels with a friendlier label."""
+        return "<undefined>" if s.startswith("<") else s
+
+    @staticmethod
+    def _subroutine_preview(sym, max_args: int = 5) -> str:
+        """Build a fenced preview for a function or task symbol."""
+        try:
+            ret = str(sym.returnType)
+        except Exception:
+            ret = ""
+
+        is_task = ret == "void"
+        name = getattr(sym, "name", "?")
+
+        all_args: list[str] = []
+        try:
+            for arg in sym.arguments:
+                try:
+                    arg_name = getattr(arg, "name", "")
+                    direction = Analyzer._port_direction(arg)
+                    # If the syntax token for direction is Unknown, no direction keyword
+                    # was written — the compiled direction is inherited/defaulted, not
+                    # explicit.  Show <undefined> so the display isn't misleading.
+                    try:
+                        if "Unknown" in str(arg.syntax.parent.direction.kind):
+                            direction = "<undefined>"
+                    except Exception:
+                        pass
+                    type_part = Analyzer._clean_type(str(arg.type)) if hasattr(arg, "type") else ""
+                    # Anonymous arg: pyslang lost the name due to a bad direction keyword.
+                    # Still show the slot so the arg count is correct.
+                    if not arg_name:
+                        direction = direction or "<undefined>"
+                        type_part = type_part or "<undefined>"
+                    pieces = [p for p in [direction, type_part, arg_name] if p]
+                    all_args.append("    " + " ".join(pieces))
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
+        shown = all_args[:max_args]
+        hidden = len(all_args) - len(shown)
+
+        if is_task:
+            header = f"task {name}"
+        else:
+            ret_part = f" {ret}" if ret else ""
+            header = f"function{ret_part} {name}"
+
+        if not shown:
+            return f"```\n{header};\n```"
+
+        args_str = ",\n".join(shown)
+        if hidden:
+            args_str += f",\n    // … {hidden} more arg(s)"
+        return f"```\n{header} (\n{args_str}\n);\n```"
+
+    @staticmethod
+    def _module_preview(body_sym, max_ports: int = 5) -> str:
+        """Build a fenced module port-list preview (at most *max_ports* shown)."""
+        name = getattr(body_sym, "name", "?")
+        all_ports: list[str] = []
+
+        try:
+            for port in body_sym.portList:
+                try:
+                    direction = Analyzer._port_direction(port)
+                    type_part = Analyzer._get_type_str(port)
+                    # Undeclared/implicit port — pyslang defaults to inout with
+                    # no type.  Show "unknown" type and suppress the direction.
+                    if direction == "inout" and not type_part:
+                        direction = ""
+                        type_part = "unknown"
+                    pieces = [p for p in [direction, type_part, port.name] if p]
+                    all_ports.append("    " + " ".join(pieces))
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
+        shown = all_ports[:max_ports]
+        hidden = len(all_ports) - len(shown)
+
+        if not shown:
+            return f"```\nmodule {name};\n```"
+
+        lines = ",\n".join(shown)
+        if hidden:
+            lines += f",\n    // … {hidden} more port(s)"
+        return f"```\nmodule {name} (\n{lines}\n);\n```"
+
     def _build_info(self, sym, tree, current_uri: str) -> SymbolInfo:
         """Build a :class:`SymbolInfo` from a pyslang symbol.
 
@@ -298,12 +468,32 @@ class Analyzer:
         sm = tree.sourceManager
         kind = str(sym.kind) if hasattr(sym, "kind") else "symbol"
 
-        type_str = ""
-        try:
-            t = sym.getDeclaredType()
-            type_str = str(t) if t is not None else ""
-        except Exception:
-            pass
+        # --- type string ---
+        type_str = self._get_type_str(sym)
+
+        # --- port: prepend direction ---
+        if "Port" in kind:
+            direction = self._port_direction(sym)
+            if direction:
+                # Undeclared/implicit port — pyslang defaults to inout with no
+                # type.  Show "unknown" type and suppress the misleading direction.
+                if direction == "inout" and not type_str:
+                    type_str = "unknown"
+                    direction = ""
+                if direction:
+                    type_str = f"{direction} {type_str}".strip() if type_str else direction
+
+        # --- doc: module preview for Instance / InstanceBody; subroutine preview ---
+        doc = ""
+        if "InstanceBody" in kind:
+            doc = self._module_preview(sym)
+        elif "Instance" in kind:
+            try:
+                doc = self._module_preview(sym.body)
+            except Exception:
+                pass
+        elif "Subroutine" in kind:
+            doc = self._subroutine_preview(sym)
 
         def_range: Optional[SourceRange] = None
         try:
@@ -333,4 +523,5 @@ class Analyzer:
             kind=kind,
             type_str=type_str,
             definition_range=def_range,
+            doc=doc,
         )
