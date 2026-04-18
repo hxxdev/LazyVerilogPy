@@ -19,3 +19,5 @@ Introduce new token type:
 `FTT.include_directive`
 Update _classify() to return this type
 Update spacing and break rules to handle it explicitly
+
+After finishing this job, make a commit using `git commit -m <your message>`.

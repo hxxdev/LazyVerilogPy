@@ -37,3 +37,5 @@ Handle missing signals (generate wire declarations)
 Treat preprocessor directives (include, define, ifdef) as first-class syntax, not strings
 Keep tokenizer and formatter responsibilities clearly separated
 Ensure deterministic output (idempotent formatting)
+
+After finishing this job, make a commit using `git commit -m <your message>`.

@@ -19,3 +19,4 @@ Update tokenizer regex to match only `include "..."
 Remove any logic related to <...> includes
 Normalize whitespace inside quotes and around include
 
+After finishing this job, make a commit using `git commit -m <your message>`.
