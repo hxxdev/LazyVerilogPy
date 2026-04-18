@@ -1,84 +1,208 @@
---- LSP client setup — starts the Python server and attaches it to buffers.
+-- LSP client setup — starts the Python server and attaches it to buffers.
 
 local M = {}
 
---- Resolve the server executable path.
----@param cfg table
----@return string[]  cmd array suitable for vim.lsp.start
-local function build_cmd(cfg)
-  local exe = cfg.cmd
-  if exe == nil then
-    -- Try the script installed by pip, then a local editable install
-    for _, candidate in ipairs({
-      "lazyverilogpy-lsp",
-      vim.fn.stdpath("data") .. "/lazyverilogpy/bin/lazyverilogpy-lsp",
-    }) do
-      if vim.fn.executable(candidate) == 1 then
-        exe = candidate
-        break
-      end
+local RELEASE_VERSION = "0.1.0"
+local RELEASE_BASE_URL = "https://github.com/hxxdev/LazyVerilogPy/releases/download"
+
+-- ---------------------------------------------------------------------------
+-- Binary helpers
+-- ---------------------------------------------------------------------------
+
+local function _bin_dir()
+    return vim.fn.stdpath("data") .. "/lazyverilogpy/bin"
+end
+
+local function _managed_bin()
+    return _bin_dir() .. "/lazyverilogpy-lsp"
+end
+
+local function _platform()
+    local uname = vim.uv.os_uname()
+    local sys   = uname.sysname:lower()
+    local arch  = uname.machine:lower()
+
+    local os_part
+    if sys:find("linux") then
+        os_part = "linux"
+    elseif sys:find("darwin") then
+        os_part = "darwin"
+    else
+        return nil
     end
-  end
 
-  if exe == nil then
-    vim.notify(
-      "[LazyVerilogPy] server executable not found. "
-        .. "Run: pip install lazyverilogpy",
-      vim.log.levels.ERROR
-    )
-    return {}
-  end
+    local arch_part
+    if arch == "x86_64" or arch == "amd64" then
+        arch_part = "x86_64"
+    elseif arch == "aarch64" or arch == "arm64" then
+        arch_part = "arm64"
+    else
+        return nil
+    end
 
-  local cmd = { exe }
-  vim.list_extend(cmd, cfg.cmd_args or {})
-  return cmd
+    return os_part .. "-" .. arch_part
 end
 
---- Find the workspace root by walking up from the buffer's directory.
----@param bufnr integer
----@param markers string[]
----@return string
+-- ---------------------------------------------------------------------------
+-- Auto install
+-- ---------------------------------------------------------------------------
+
+local function _auto_install(on_done)
+    local platform = _platform()
+    if not platform then
+        vim.notify("[LazyVerilogPy] unsupported platform", vim.log.levels.ERROR)
+        return
+    end
+
+    local bin_dir  = _bin_dir()
+    local bin_path = _managed_bin()
+    local asset    = "lazyverilogpy-lsp-" .. platform
+    local url      = RELEASE_BASE_URL .. "/v" .. RELEASE_VERSION .. "/" .. asset
+
+    vim.fn.mkdir(bin_dir, "p")
+    vim.notify("[LazyVerilogPy] downloading server binary…", vim.log.levels.INFO)
+
+    vim.system({ "curl", "-fsSL", "-o", bin_path, url }, {}, function(dl)
+        if dl.code ~= 0 then
+            vim.schedule(function()
+                vim.notify(
+                    "[LazyVerilogPy] download failed: " .. (dl.stderr or "unknown error"),
+                    vim.log.levels.ERROR
+                )
+            end)
+            return
+        end
+
+        vim.system({ "chmod", "+x", bin_path }, {}, function(ch)
+            vim.schedule(function()
+                if ch.code ~= 0 then
+                    vim.notify("[LazyVerilogPy] chmod +x failed", vim.log.levels.ERROR)
+                    return
+                end
+                vim.notify("[LazyVerilogPy] server installed", vim.log.levels.INFO)
+                on_done(bin_path)
+            end)
+        end)
+    end)
+end
+
+-- ---------------------------------------------------------------------------
+-- Command resolver (canonical format)
+-- ---------------------------------------------------------------------------
+
+local function resolve_cmd(cfg)
+    -- Case 1: already a full command
+    if type(cfg.cmd) == "table" then
+        if type(cfg.cmd[1]) == "string" and vim.fn.executable(cfg.cmd[1]) == 1 then
+            return cfg.cmd
+        end
+        return nil
+    end
+
+    -- Case 2: string executable
+    if type(cfg.cmd) == "string" and cfg.cmd ~= "" then
+        if vim.fn.executable(cfg.cmd) == 1 then
+            local cmd = { cfg.cmd }
+            vim.list_extend(cmd, cfg.cmd_args or {})
+            return cmd
+        end
+        return nil
+    end
+
+    -- Case 3: fallback
+    for _, candidate in ipairs({ "lazyverilogpy-lsp", _managed_bin() }) do
+        if vim.fn.executable(candidate) == 1 then
+            local cmd = { candidate }
+            vim.list_extend(cmd, cfg.cmd_args or {})
+            return cmd
+        end
+    end
+
+    return nil
+end
+
+-- ---------------------------------------------------------------------------
+-- Validation (prevents nested-table bug)
+-- ---------------------------------------------------------------------------
+
+local function validate_cmd(cmd)
+    if type(cmd) ~= "table" then
+        return false, "cmd must be a table"
+    end
+
+    if type(cmd[1]) ~= "string" then
+        return false, "cmd[1] must be executable string"
+    end
+
+    for _, v in ipairs(cmd) do
+        if type(v) ~= "string" then
+            return false, "cmd must be flat string array (no nesting)"
+        end
+    end
+
+    return true
+end
+
+-- ---------------------------------------------------------------------------
+-- Root detection
+-- ---------------------------------------------------------------------------
+
 local function find_root(bufnr, markers)
-  local path = vim.api.nvim_buf_get_name(bufnr)
-  if path == "" then
-    return vim.fn.getcwd()
-  end
-  local dir = vim.fn.fnamemodify(path, ":h")
-  return vim.fs.root(dir, markers) or dir
+    local path = vim.api.nvim_buf_get_name(bufnr)
+    if path == "" then
+        return vim.fn.getcwd()
+    end
+    local dir = vim.fn.fnamemodify(path, ":h")
+    return vim.fs.root(dir, markers) or dir
 end
 
----@param cfg table  resolved config from config.lua
+-- ---------------------------------------------------------------------------
+-- LSP start
+-- ---------------------------------------------------------------------------
+
+local function start_lsp(cfg, cmd)
+    local ok, err = validate_cmd(cmd)
+    if not ok then
+        vim.notify("[LazyVerilogPy] Invalid cmd: " .. err, vim.log.levels.ERROR)
+        return
+    end
+
+    local bufnr = vim.api.nvim_get_current_buf()
+    local root  = find_root(bufnr, cfg.root_markers)
+
+    vim.lsp.start({
+        name         = "lazyverilogpy",
+        cmd          = cmd,
+        cmd_env      = cfg.cmd_env,
+        root_dir     = root,
+        filetypes    = cfg.filetypes,
+        capabilities = cfg.capabilities,
+        on_attach    = cfg.on_attach,
+        settings     = {
+            lazyverilogpy = {
+                formatter = cfg.formatter,
+            },
+        },
+        flags        = {
+            debounce_text_changes = 150,
+        },
+    })
+end
+
+-- ---------------------------------------------------------------------------
+-- Public API
+-- ---------------------------------------------------------------------------
+
 function M.start(cfg)
-  local cmd = build_cmd(cfg)
-  if #cmd == 0 then
-    return
-  end
+    local cmd = resolve_cmd(cfg)
 
-  local bufnr = vim.api.nvim_get_current_buf()
-  local root = find_root(bufnr, cfg.root_markers)
-
-  local client_id = vim.lsp.start({
-    name = "lazyverilogpy",
-    cmd = cmd,
-    root_dir = root,
-    filetypes = cfg.filetypes,
-    capabilities = cfg.capabilities,
-    on_attach = cfg.on_attach,
-    settings = {
-      lazyverilogpy = {
-        formatter = cfg.formatter,
-      },
-    },
-    -- Tell the server we send full document content on every change
-    -- (simplest sync strategy — sufficient for most SV files)
-    flags = {
-      debounce_text_changes = 150,
-    },
-  })
-
-  if client_id then
-    vim.lsp.buf_attach_client(bufnr, client_id)
-  end
+    if cmd then
+        start_lsp(cfg, cmd)
+    else
+        _auto_install(function(bin_path)
+            start_lsp(cfg, { bin_path }) -- guaranteed flat
+        end)
+    end
 end
 
 return M
