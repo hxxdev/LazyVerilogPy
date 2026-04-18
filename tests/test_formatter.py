@@ -529,6 +529,20 @@ class TestFormatSource:
         assert "2'b00:" in result
         assert "default:" in result
 
+    def test_include_directive_normalized(self):
+        # Extra spaces between backtick/include and inside quotes are stripped
+        result = fmt('` include " foo.svh "\n')
+        assert '`include "foo.svh"' in result
+
+    def test_include_directive_already_clean(self):
+        result = fmt('`include "foo.svh"\n')
+        assert '`include "foo.svh"' in result
+
+    def test_include_no_angle_bracket_form(self):
+        # C-style #include is not an include directive — treated as tokens
+        result = fmt('#include "foo.svh"\n')
+        assert '#include' not in result or '`include' not in result
+
 
 # ---------------------------------------------------------------------------
 # Format-disable directives

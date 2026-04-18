@@ -1,4 +1,4 @@
-#include " params.svh "
+`include "params.svh"
 
 `define WIDTH 32
 

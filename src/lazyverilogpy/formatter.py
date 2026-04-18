@@ -264,7 +264,7 @@ _TOKEN_RE = re.compile(
     r"|(?P<vnum>\d+'[bBoOdDhHxX][\w_]*|'[bBoOdDhHxX][\w_]*|'[01xXzZ])"
     r"|(?P<number>\b\d[\w.]*)"
     r"|(?P<scope>::)"                  # :: before word to avoid splitting
-    r"|(?P<include_directive>#\s*include\s*(?:<[^>\n]*>|\"[^\"]*\"))"  # #include <f> / "f"
+    r"|(?P<include_directive>`\s*include\s*\"[^\"]*\")"  # `include "f"
     r"|(?P<word>[A-Za-z_`$]\w*)"       # identifiers, keywords, macros
     # Multi-char operators — longer patterns first
     r"|(?P<mop>"
@@ -353,8 +353,8 @@ def _tokenize(source: str) -> list[_Tok]:
             tokens.append(_Tok(FTT.whitespace, text, m.start()))
             continue
         if raw == "include_directive":
-            # Normalize spaces inside <...>: `< foo.svh >` → `<foo.svh>`
-            text = re.sub(r"<\s*([^>]*?)\s*>", r"<\1>", text)
+            # Normalize: ` include " foo.svh " → `include "foo.svh"
+            text = re.sub(r"`\s*include\s*\"\s*(.*?)\s*\"", r'`include "\1"', text)
         ftt = _classify(raw, text, prev_ftt)
         tokens.append(_Tok(ftt, text, m.start()))
         # Only meaningful token types inform the next unary/binary decision.
