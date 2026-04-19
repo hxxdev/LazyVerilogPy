@@ -1069,3 +1069,95 @@ class TestAlignPortDeclarations:
         result = self._align(text)
         # Blank line preserved
         assert "\n\n" in result
+
+
+# ---------------------------------------------------------------------------
+# Instance port alignment
+# ---------------------------------------------------------------------------
+
+class TestAlignInstancePorts:
+    """Tests for the align_instance_ports pass."""
+
+    _SRC = (
+        "module top;\n"
+        "  memory u_mem(.i_clk(i_clk), .address(address), .data_in(data_in),"
+        " .data_out(data_out), .read_write(read_write), .chip_en(chip_en));\n"
+        "endmodule\n"
+    )
+
+    def _fmt(self, src: str = None, **kw) -> str:
+        defaults = dict(indent_size=2, align_instance_ports=True)
+        defaults.update(kw)
+        return fmt(src or self._SRC, **defaults)
+
+    def test_multiline_expansion(self):
+        result = self._fmt()
+        assert result.count("\n") > self._SRC.count("\n")
+
+    def test_one_port_per_line(self):
+        result = self._fmt()
+        port_lines = [l for l in result.splitlines() if l.lstrip().startswith(".")]
+        assert len(port_lines) == 6  # 6 named ports
+
+    def test_dot_column_aligned(self):
+        result = self._fmt()
+        port_lines = [l for l in result.splitlines() if l.lstrip().startswith(".")]
+        dot_cols = [l.index(".") for l in port_lines]
+        assert len(set(dot_cols)) == 1, f"dots not aligned: {dot_cols}"
+
+    def test_open_paren_column_aligned(self):
+        result = self._fmt()
+        port_lines = [l for l in result.splitlines() if l.lstrip().startswith(".")]
+        # The first '(' after the dot is the signal paren — find rightmost '(' before signal
+        paren_cols = []
+        for l in port_lines:
+            # "  .port_name  (signal  ),"
+            dot = l.index(".")
+            p = l.index("(", dot)
+            paren_cols.append(p)
+        assert len(set(paren_cols)) == 1, f"open parens not aligned: {paren_cols}"
+
+    def test_close_paren_column_aligned(self):
+        result = self._fmt()
+        port_lines = [l for l in result.splitlines() if l.lstrip().startswith(".")]
+        close_cols = []
+        for l in port_lines:
+            stripped = l.rstrip().rstrip(",")
+            close_cols.append(len(stripped) - 1)  # last char is ')'
+        assert len(set(close_cols)) == 1, f"close parens not aligned: {close_cols}"
+
+    def test_last_port_no_comma(self):
+        result = self._fmt()
+        port_lines = [l for l in result.splitlines() if l.lstrip().startswith(".")]
+        assert not port_lines[-1].rstrip().endswith(",")
+
+    def test_no_trailing_whitespace(self):
+        result = self._fmt()
+        for line in result.splitlines():
+            assert line == line.rstrip(), f"trailing whitespace: {repr(line)}"
+
+    def test_idempotent(self):
+        opts = FormatOptions(indent_size=2, align_instance_ports=True)
+        once  = format_source(self._SRC, opts)
+        twice = format_source(once, opts)
+        assert once == twice, f"not idempotent:\n1st:\n{once}\n2nd:\n{twice}"
+
+    def test_positional_ports_unchanged(self):
+        src = "module top;\n  memory u_mem(i_clk, addr);\nendmodule\n"
+        result = self._fmt(src)
+        # Positional: should NOT be expanded
+        assert result.count("\n") == src.count("\n") or ".i_clk" not in result
+
+    def test_default_disabled(self):
+        assert FormatOptions().align_instance_ports is False
+
+    def test_spacing_options(self):
+        result = self._fmt(instance_port_spacing_before_paren=2,
+                           instance_port_spacing_inside_paren=1)
+        port_lines = [l for l in result.splitlines() if l.lstrip().startswith(".")]
+        # Each line: "  .port_name  (signal ),"
+        # Check 2 spaces before '(' and 1 space before ')' in each line
+        for l in port_lines:
+            dot = l.index(".")
+            p = l.index("(", dot)
+            assert l[p - 2:p] == "  ", f"expected 2 spaces before '(', got: {repr(l)}"

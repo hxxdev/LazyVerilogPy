@@ -23,7 +23,10 @@ module tb_top;
     logic clk;
     logic rst_n;
 
-    my_dut dut_inst(.clk(clk), .rst_n(rst_n));
+    my_dut dut_inst (
+                .clk            (clk            ),
+                .rst_n          (rst_n          )
+    );
 
     initial clk      = 0;
     always #5 clk    = ~clk;

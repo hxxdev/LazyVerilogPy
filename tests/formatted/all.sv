@@ -17,8 +17,8 @@ endpackage
 
 module automatic m1 import p::*, p::x;
     #(int i = 1) (a, b,, .c({a, b[0]}));
-    input a;
-    output[1:0] b;
+    input                           a;
+    output          [1:0]           b;
 endmodule
 
 module m2 #(parameter i = 1, localparam j = i, parameter type x_t = bit) (input int a[], (* bar = "asdf" *) output logic b = 1, ref c, interface.mod d, .e());
@@ -44,7 +44,10 @@ module m2 #(parameter i = 1, localparam j = i, parameter type x_t = bit) (input 
             macromodule m3;
                 wire b;
                 logic c;
-                I d(.a(), .b());
+                I d (
+                            .a          (           ),
+                            .b          (           )
+                );
 
                 typedef p::y_t y_t;
 
@@ -321,9 +324,9 @@ module m2 #(parameter i = 1, localparam j = i, parameter type x_t = bit) (input 
                                                 endconfig
 
                                                 module ALU(o1, i1, i2, opcode);
-                                                    input[7:0] i1, i2;
-                                                    input[2:1] opcode;
-                                                    output[7:0] o1;
+                                                    input           [7:0]           i1    , i2    ;
+                                                    input           [2:1]           opcode;
+                                                    output          [7:0]           o1    ;
 
                                                     specify
                                                         specparam s1                            = 2;

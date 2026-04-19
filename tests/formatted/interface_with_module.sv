@@ -22,7 +22,9 @@ module TestRAM;
     //- @TheRAM defines/binding _
     //- @MemBus ref MemBus
     //- @TheBus ref TheBus
-    RAM TheRAM(.MemBus(TheBus));
+    RAM TheRAM (
+                .MemBus             (TheBus             )
+    );
 
     initial begin
         //- @TheBus ref TheBus
