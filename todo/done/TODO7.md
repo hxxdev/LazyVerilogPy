@@ -1,5 +1,7 @@
 ### Implement Neovim Verilog/SystemVerilog port declaration column alignment
 
+#### Trigger
+FormatOptions `align_port_declarations`(bool type) is True.
 
 #### Expected behavior
 Format and align all port declarations them into 4 fixed columns with consistent spacing.
@@ -13,20 +15,22 @@ Format and align all port declarations them into 4 fixed columns with consistent
 
 #### Input example
 ```systemverilog
-input  i_clk;
+input  i_clk, i_rstn;
 input  data_t [7:0] i_data_array;
 input logic [7:0] i_data_valid;
 input i_valid;
+input wire i_chip_en, i_chip_boost;
 output data_t [15:0] o_data_array;
 ```
 
 #### Output example
 ```systemverilog
-input                   i_clk;
-input  data_t  [7:0]    i_data_array;
-input  logic   [7:0]    i_data_valid;
-input                   i_valid;
-output data_t  [15:0]   o_data_array;
+input                i_clk       , i_rstn       ;
+input  data_t [7:0]  i_data_array;
+input  logic  [7:0]  i_data_valid;
+input                i_valid     ;
+input  wire          i_chip_en   , i_chip_boost ;
+output data_t [15:0] o_data_array;
 ```
 
 #### Column definitions

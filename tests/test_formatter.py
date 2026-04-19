@@ -6,7 +6,7 @@ Covers:
   - BreakDecisionBetween rules (_break_decision)
   - Full format_source output for common SV patterns
   - format_source disable ranges (// verilog_format: off/on)
-  - FormatOptions (keyword_case, blank_lines_between_items, use_tabs, etc.)
+  - FormatOptions (keyword_case, blank_lines_between_items, etc.)
   - Idempotency: format(format(x)) == format(x)
 """
 
@@ -514,11 +514,6 @@ class TestFormatSource:
         result = fmt("module foo; endmodule\n", keyword_case="preserve")
         assert "module" in result
 
-    def test_tab_indentation(self):
-        src = "module foo;\nalways_comb begin\nx = 1;\nend\nendmodule\n"
-        result = fmt(src, use_tabs=True)
-        assert "\t" in result
-
     def test_no_space_hash_paren(self):
         result = fmt("my_mod #(8) u0();\n")
         assert "#(8)" in result
@@ -593,9 +588,8 @@ class TestFormatDisable:
 
 class TestFormatOptions:
     def test_from_dict_basic(self):
-        opts = FormatOptions.from_dict({"indent_size": 4, "use_tabs": True})
+        opts = FormatOptions.from_dict({"indent_size": 4})
         assert opts.indent_size == 4
-        assert opts.use_tabs is True
 
     def test_from_dict_ignores_unknown(self):
         opts = FormatOptions.from_dict({"nonexistent_key": 99})
@@ -729,13 +723,6 @@ class TestIdempotency:
             f"After 1st pass:\n{once}\n"
             f"After 2nd pass:\n{twice}\n"
         )
-
-    @pytest.mark.parametrize("source", _IDEMPOTENCY_CASES)
-    def test_format_twice_equals_once_tabs(self, source):
-        opts = FormatOptions(use_tabs=True)
-        once = format_source(source, opts)
-        twice = format_source(once, opts)
-        assert once == twice
 
 
 # ---------------------------------------------------------------------------

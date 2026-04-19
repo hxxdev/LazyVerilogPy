@@ -3,7 +3,6 @@ vcode = "tests/demo/vcode.f"
 
 [formatter]
 indent_size = 4
-use_tabs = false
 keyword_case = "lower"          # "lower" | "upper" | "preserve"
 max_line_length = 120
 wrap_spaces = 4
@@ -14,3 +13,8 @@ default_indent_level_inside_module_block = 1
 align_assign_operators = true
 tab_align = true
 # align_assign_gap = 20
+align_port_declarations = true
+port_col1_margin = 10
+port_col2_margin = 10
+port_col3_margin = 10
+port_col4_margin = 10

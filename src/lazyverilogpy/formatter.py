@@ -216,7 +216,6 @@ class FormatOptions:
     """Compact binary expressions inside ``[…]`` (Verible default: True)."""
 
     # Python-only options (no Verible equivalent)
-    use_tabs: bool = False
     keyword_case: str = "preserve"       # "preserve" | "lower" | "upper"
     blank_lines_between_items: int = 1   # max consecutive blank lines preserved
 
@@ -251,6 +250,22 @@ class FormatOptions:
     or preprocessor directives.  Trailing whitespace is stripped from each
     aligned line.
     """
+
+    port_col1_margin: int = 1
+    """Minimum spaces after column 1 (direction keyword).
+    When ``tab_align`` is ``True``, the next column's start is snapped to grid."""
+
+    port_col2_margin: int = 1
+    """Minimum spaces after column 2 (data type).
+    When ``tab_align`` is ``True``, the next column's start is snapped to grid."""
+
+    port_col3_margin: int = 1
+    """Minimum spaces after column 3 (packed dimension).
+    When ``tab_align`` is ``True``, the next column's start is snapped to grid."""
+
+    port_col4_margin: int = 0
+    """Minimum spaces after column 4 (port name) and before the terminator (``; / ,``).
+    When ``tab_align`` is ``True``, the terminator position is snapped to grid."""
 
     @classmethod
     def from_dict(cls, d: dict) -> "FormatOptions":
@@ -797,28 +812,54 @@ def _reassemble_port_line(
     type_width: int,
     dim_width: int,
     name_width: int,
+    margins: "tuple[int,int,int,int] | None" = None,
 ) -> str:
     """Rebuild a port declaration line with column padding applied.
 
     Each name in *names* is padded to *name_width* so that the name column
     aligns across all lines in the block, including multi-name declarations.
+
+    *margins* is a 4-tuple ``(m1, m2, m3, m4)`` — trailing spaces after each
+    column (direction / type / dim / name).  Defaults to ``(1, 1, 1, 0)``.
     """
-    parts = [indent, direction.ljust(dir_width)]
+    m1, m2, m3, m4 = margins if margins is not None else (1, 1, 1, 0)
 
-    if type_width > 0:
-        parts.append(" " + dtype.ljust(type_width))
-
-    if dim_width > 0:
-        parts.append(" " + dim.ljust(dim_width))
-
-    # Pad every name to name_width; join with ", "; append terminator.
     padded = [n.ljust(name_width) for n in names]
-    parts.append(" " + ", ".join(padded) + terminator)
+    name_str = ", ".join(padded)
+
+    if type_width > 0 and dim_width > 0:
+        line = (
+            indent
+            + direction.ljust(dir_width) + " " * m1
+            + dtype.ljust(type_width) + " " * m2
+            + dim.ljust(dim_width) + " " * m3
+            + name_str + " " * m4 + terminator
+        )
+    elif type_width > 0:
+        line = (
+            indent
+            + direction.ljust(dir_width) + " " * m1
+            + dtype.ljust(type_width) + " " * m2
+            + name_str + " " * m4 + terminator
+        )
+    elif dim_width > 0:
+        line = (
+            indent
+            + direction.ljust(dir_width) + " " * m1
+            + dim.ljust(dim_width) + " " * m3
+            + name_str + " " * m4 + terminator
+        )
+    else:
+        line = (
+            indent
+            + direction.ljust(dir_width) + " " * m1
+            + name_str + " " * m4 + terminator
+        )
 
     if comment:
-        parts.append(comment)
+        line += comment
 
-    return "".join(parts).rstrip()
+    return line.rstrip()
 
 
 _PORT_DIR_RE = re.compile(r"^\s*(?:input|output|inout)\b", re.IGNORECASE)
@@ -828,6 +869,7 @@ def _align_port_declarations_pass(
     text: str,
     tab_align: bool = False,
     indent_size: int = 4,
+    margins: "tuple[int,int,int,int]" = (1, 1, 1, 0),
 ) -> str:
     """Post-processing pass: align contiguous port declaration blocks.
 
@@ -837,9 +879,10 @@ def _align_port_declarations_pass(
     padded to the same *name_width* (the longest individual name across the
     whole block), so names form a consistent column.
 
-    When *tab_align* is ``True``, each column's start position is snapped to
-    the next multiple of *indent_size* so the four columns land on the
-    indentation grid.
+    *margins* is a 4-tuple ``(m1, m2, m3, m4)`` — minimum trailing spaces
+    after each column (direction / type / dim / name-before-terminator).
+    When *tab_align* is ``True``, each column's start position is snapped up
+    to the next multiple of *indent_size* by expanding the preceding margin.
 
     The block resets only at blank lines, comment-only lines, non-port lines,
     and preprocessor directives.
@@ -883,27 +926,41 @@ def _align_port_declarations_pass(
             # name_w: longest individual name across all lines (incl. multi-name).
             name_w = max(len(n) for p in parseable for n in p[4])
 
+            m1, m2, m3, m4 = margins
+
             if tab_align and indent_size > 1:
-                # Snap each column's START position to the indentation grid.
-                # All parseable lines should share the same indent; use the first.
+                # Snap each column's START to the indentation grid by expanding
+                # the *trailing* margin of the preceding column.
+                # pos tracks the current character position (end of last content).
                 indent_len = len(parseable[0][0])
+                pos = indent_len + dir_w  # after direction content
 
-                # Col 2 (type) start: snap position after direction + 1 sep.
-                type_col = _snap(indent_len + dir_w + 1)
-                dir_w = type_col - indent_len - 1  # >= original dir_w
-
-                if type_w > 0:
-                    # Col 3 (dim) start: snap position after type + 1 sep.
-                    dim_col = _snap(type_col + type_w + 1)
-                    type_w = dim_col - type_col - 1
+                if type_w > 0 and dim_w > 0:
+                    type_start = _snap(pos + m1);  m1 = type_start - pos;  pos = type_start + type_w
+                    dim_start  = _snap(pos + m2);  m2 = dim_start  - pos;  pos = dim_start  + dim_w
+                    name_start = _snap(pos + m3);  m3 = name_start - pos
+                    if m4 > 0:
+                        pos = name_start + name_w
+                        m4 = _snap(pos + m4) - pos
+                elif type_w > 0:
+                    type_start = _snap(pos + m1);  m1 = type_start - pos;  pos = type_start + type_w
+                    name_start = _snap(pos + m2);  m2 = name_start - pos
+                    if m4 > 0:
+                        pos = name_start + name_w
+                        m4 = _snap(pos + m4) - pos
+                elif dim_w > 0:
+                    dim_start  = _snap(pos + m1);  m1 = dim_start  - pos;  pos = dim_start  + dim_w
+                    name_start = _snap(pos + m3);  m3 = name_start - pos
+                    if m4 > 0:
+                        pos = name_start + name_w
+                        m4 = _snap(pos + m4) - pos
                 else:
-                    dim_col = type_col  # no type column; dim follows direction
+                    name_start = _snap(pos + m1);  m1 = name_start - pos
+                    if m4 > 0:
+                        pos = name_start + name_w
+                        m4 = _snap(pos + m4) - pos
 
-                if dim_w > 0:
-                    # Col 4 (name) start: snap position after dim + 1 sep.
-                    name_col = _snap(dim_col + dim_w + 1)
-                    dim_w = name_col - dim_col - 1
-                # name_w is not snapped (it's the last column).
+            eff_margins = (m1, m2, m3, m4)
 
             for orig, parsed in block:
                 if parsed is None:
@@ -914,6 +971,7 @@ def _align_port_declarations_pass(
                         indent, direction, dtype, dim, names,
                         terminator, comment,
                         dir_w, type_w, dim_w, name_w,
+                        eff_margins,
                     ))
 
         i = j
@@ -941,7 +999,7 @@ def format_source(source: str, options: Optional[FormatOptions] = None) -> str:
         options = FormatOptions()
 
     opts = options
-    indent_unit = "\t" if opts.use_tabs else " " * opts.indent_size
+    indent_unit = " " * opts.indent_size
     disabled = _find_disabled(source)
     tokens = _tokenize(source)
 
@@ -1090,5 +1148,8 @@ def format_source(source: str, options: Optional[FormatOptions] = None) -> str:
     if opts.align_assign_operators:
         result = _align_assign_pass(result, opts)
     if opts.align_port_declarations:
-        result = _align_port_declarations_pass(result, opts.tab_align, opts.indent_size)
+        result = _align_port_declarations_pass(
+            result, opts.tab_align, opts.indent_size,
+            (opts.port_col1_margin, opts.port_col2_margin, opts.port_col3_margin, opts.port_col4_margin),
+        )
     return result
