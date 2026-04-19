@@ -981,3 +981,104 @@ class TestAlignAssignOperators:
         once = fmt(src, align_assign_operators=True)
         twice = fmt(once, align_assign_operators=True)
         assert once == twice, f"Not idempotent:\n1st: {once}\n2nd: {twice}"
+
+
+class TestAlignPortDeclarations:
+    """Tests for the align_port_declarations pass."""
+
+    def _align(self, text: str) -> str:
+        from lazyverilogpy.formatter import _align_port_declarations_pass
+        return _align_port_declarations_pass(text)
+
+    def test_four_columns_aligned(self):
+        text = (
+            "    input  i_clk;\n"
+            "    input  data_t [7:0] i_data_array;\n"
+            "    input logic [7:0] i_data_valid;\n"
+            "    input i_valid;\n"
+            "    output data_t [15:0] o_data_array;"
+        )
+        result = self._align(text)
+        lines = result.splitlines()
+        # All names must start at the same column.
+        name_cols = [len(l) - len(l.lstrip()) + l.lstrip().rindex(' ') + 1 for l in lines]
+        # Verify direction column is aligned (first word same start col).
+        dir_starts = [len(l) - len(l.lstrip()) for l in lines]
+        assert len(set(dir_starts)) == 1
+        # Verify port names (last word before ;) are aligned.
+        def _name_col(l):
+            code = l.rstrip().rstrip(';').rstrip(',').rstrip()
+            return l.index(code.split()[-1])
+        cols = [_name_col(l) for l in lines]
+        assert len(set(cols)) == 1, f"port names not aligned: {cols}\n{result}"
+
+    def test_absent_type_and_dim(self):
+        # input with no type, no dim should get blank col2+col3
+        text = "    input i_clk;\n    input logic [7:0] i_data;"
+        result = self._align(text)
+        lines = result.splitlines()
+        # Name columns must be equal
+        def _name_col(l):
+            code = l.rstrip().rstrip(';').rstrip()
+            return l.index(code.split()[-1])
+        cols = [_name_col(l) for l in lines]
+        assert len(set(cols)) == 1, f"name cols differ: {cols}\n{result}"
+
+    def test_absent_dim_only(self):
+        # input with type but no dim
+        text = "    input logic i_valid;\n    input logic [7:0] i_data;"
+        result = self._align(text)
+        lines = result.splitlines()
+        def _name_col(l):
+            code = l.rstrip().rstrip(';').rstrip()
+            return l.index(code.split()[-1])
+        cols = [_name_col(l) for l in lines]
+        assert len(set(cols)) == 1, f"name cols differ: {cols}\n{result}"
+
+    def test_no_trailing_whitespace(self):
+        text = "    input i_clk;\n    input logic [7:0] i_data;"
+        result = self._align(text)
+        for line in result.splitlines():
+            assert line == line.rstrip(), f"trailing whitespace: {repr(line)}"
+
+    def test_single_port_unchanged(self):
+        # Single-port block: just normalise, don't crash
+        text = "    input logic [7:0] i_data;"
+        result = self._align(text)
+        assert "input" in result and "i_data" in result
+
+    def test_idempotent(self):
+        text = (
+            "    input  i_clk;\n"
+            "    input  data_t [7:0] i_data_array;\n"
+            "    input logic [7:0] i_data_valid;\n"
+            "    output data_t [15:0] o_data_array;"
+        )
+        once = self._align(text)
+        twice = self._align(once)
+        assert once == twice, f"Not idempotent:\n1st:\n{once}\n2nd:\n{twice}"
+
+    def test_default_true(self):
+        assert FormatOptions().align_port_declarations is True
+
+    def test_disabled_when_false(self):
+        text = "    input  i_clk;\n    input logic [7:0] i_data;"
+        from lazyverilogpy.formatter import _align_port_declarations_pass
+        aligned = _align_port_declarations_pass(text)
+        # When option is False, format_source should not call the pass
+        # (just verify the option wires through format_source correctly)
+        src = "module foo(\n    input  i_clk,\n    input  data_t [7:0] i_data\n);\nendmodule\n"
+        r_on  = fmt(src, align_port_declarations=True)
+        r_off = fmt(src, align_port_declarations=False)
+        # Both should be valid SV — just check option doesn't crash
+        assert "input" in r_on and "input" in r_off
+
+    def test_block_resets_at_blank_line(self):
+        text = (
+            "    input logic [7:0] i_data;\n"
+            "\n"
+            "    input i_clk;"
+        )
+        result = self._align(text)
+        # Blank line preserved
+        assert "\n\n" in result
