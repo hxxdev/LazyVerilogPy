@@ -12,17 +12,17 @@ int var1, var2, var3, var4;
 //- @var4 ref Var4
 //- @t1 defines/binding T1
 function f4(int [var1:var2] t1[var3:var4]);
-  //- @x defines/binding X
-  //- @y defines/binding Y
-  //- @data defines/binding Data
-  struct {int x;
-  int y;
-  } data;
-  //- @sum defines/binding _
-  //- @#0data ref Data
-  //- @#1data ref Data
-  //- @x ref X
-  //- @y ref Y
-  //- @t1 ref T1
-  int sum = data.x + data.y + t1;
+    //- @x defines/binding X
+    //- @y defines/binding Y
+    //- @data defines/binding Data
+    struct {int x;
+    int y;
+    } data;
+    //- @sum defines/binding _
+    //- @#0data ref Data
+    //- @#1data ref Data
+    //- @x ref X
+    //- @y ref Y
+    //- @t1 ref T1
+    int sum = data.x + data.y + t1;
 endfunction
