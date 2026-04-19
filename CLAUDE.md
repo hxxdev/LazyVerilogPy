@@ -1,77 +1,65 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ## Commands
-
 ```bash
-make test          # run the full pytest suite (sets PYTHONPATH=src automatically)
-make answers       # regenerate tests/formatted/ after intentional formatter rule changes — never to fix failures
-make dist          # build standalone binary: dist/lazyverilogpy-lsp
-
-# Run a single test file or test directly:
+make test          # full pytest suite (PYTHONPATH=src auto-set)
+make answers       # regenerate tests/formatted/ after intentional rule changes ONLY
+make dist          # build dist/lazyverilogpy-lsp binary
 PYTHONPATH=src .venv/bin/python -m pytest tests/test_formatter.py -v -k "test_name"
-
-# Run Python scripts (always set PYTHONPATH):
-PYTHONPATH=src .venv/bin/python -c "from src.lazyverilogpy.analyzer import Analyzer; ..."
 ```
-
-`make test` must pass before claiming any formatter change is correct.
+**Rule:** `make test` must pass before any formatter change is declared correct.
 
 ## Architecture
+Two layers communicating over stdio via LSP:
+- **Python LSP server** (`src/lazyverilogpy/`)
+- **Neovim Lua integration** (`lua/lazyverilogpy/`)
 
-Two separate layers: a Python LSP server and a Neovim Lua integration. They communicate over stdio via LSP.
-
-### Python LSP server (`src/lazyverilogpy/`)
-
+### Python server files
 | File | Role |
 |------|------|
-| `server.py` | Entry point. Registers all LSP feature handlers with `pygls`. Commands (`autoinst`, `autoarg`) use `@server.command(NAME)` — not `@server.feature(WORKSPACE_EXECUTE_COMMAND)` — so `executeCommandProvider.commands` is populated. |
-| `analyzer.py` | Per-document `DocumentState` (text + pyslang `SyntaxTree` + `Compilation`). Manages a cache keyed by URI via `open()` / `change()` / `close()`. All pyslang interaction lives here. |
-| `formatter.py` | Token-based SV formatter. `format_source(source, options)` must be idempotent and semantically neutral (only whitespace changes). |
-| `hover.py` | Hover provider — calls `analyzer.symbol_at()`. |
+| `server.py` | Entry point; registers LSP handlers. Commands use `@server.command(NAME)` (not `@server.feature`) so `executeCommandProvider.commands` is populated. |
+| `analyzer.py` | `DocumentState` (text + pyslang SyntaxTree + Compilation). URI-keyed cache via `open()`/`change()`/`close()`. All pyslang interaction here. |
+| `formatter.py` | Token-based SV formatter. `format_source(source, options)` must be idempotent and semantics-neutral (whitespace only). |
+| `hover.py` | Hover — calls `analyzer.symbol_at()`. |
 | `definition.py` | Go-to-definition — calls `analyzer.definition_of()`. |
 
-**Analyzer internals worth knowing:**
-- Each `DocumentState` compiles the open file plus any extra files from the `.f` filelist in `lazyverilog.toml`.
+### Analyzer internals
+- `DocumentState` compiles the open file + extra files from `.f` filelist in `lazyverilog.toml`.
 - `set_extra_files(paths)` re-parses all open docs immediately.
-- `refresh_if_stale(uri)` checks mtime of disk-based extra files and re-parses if any changed — called at the start of `autoinst` and `autoarg` so results reflect on-disk edits even when the file isn't open in the editor.
-- `_find_instance_at_line(state, line)` finds an Instance symbol by line number (not word under cursor) to handle non-ANSI Verilog where module type and instance name differ.
-- `autoinst` uses only `body.portList` — it does **not** fall back to scanning body declarations. If the port list header `()` is empty, it returns no ports.
-- `autoarg` is purely text-based: scans backward for `module`, forward for `endmodule`, extracts port names from `input`/`output`/`inout` body declarations via `_scan_port_names`, and returns the `(...)` header range for replacement.
+- `refresh_if_stale(uri)` checks mtime of extra files; called at start of `autoinst`/`autoarg`.
+- `_find_instance_at_line(state, line)` finds Instance by line number (handles non-ANSI Verilog).
+- `autoinst`: uses only `body.portList`; empty `()` header → no ports returned.
+- `autoarg`: text-based; scans for `module`/`endmodule`, extracts ports via `_scan_port_names`, returns `(...)` header range.
 
-**Token classification (`formatter.py`):**
+### Formatter internals
 - `_classify(raw, text, prev_ftt)` → `FTT` enum; `+`/`-` are context-sensitive on `prev_ftt`.
-- Format-disable regions: `// verilog_format: off` … `// verilog_format: on`.
-- New format options: add to `FormatOptions` dataclass, add to `from_dict()` (silently ignores unknown keys).
+- Disable regions: `// verilog_format: off` … `// verilog_format: on`.
+- New options: add to `FormatOptions` dataclass + `from_dict()` (unknown keys silently ignored).
 
-### Neovim Lua layer (`lua/lazyverilogpy/`)
-
+### Neovim Lua files
 | File | Role |
 |------|------|
-| `init.lua` | Public API (`setup()`, `autoinst()`, `autoarg()`). Uses `_with_client()` helper that retries up to 3×500 ms when LSP hasn't attached yet. |
-| `config.lua` | Single source of truth for defaults; `resolve(user)` deep-merges user config. |
-| `lsp.lua` | `start(cfg)` — resolves the executable, detects root dir, calls `vim.lsp.start()`. |
+| `init.lua` | Public API (`setup()`, `autoinst()`, `autoarg()`). `_with_client()` retries 3×500 ms for LSP attach. |
+| `config.lua` | Defaults; `resolve(user)` deep-merges user config. |
+| `lsp.lua` | `start(cfg)` — resolves executable, detects root, calls `vim.lsp.start()`. |
 
-`plugin/lazyverilogpy.lua` is only a double-load guard; no logic goes there.
+`plugin/lazyverilogpy.lua` — double-load guard only.
 
-Formatter settings flow: `cfg.formatter` → `settings.lazyverilogpy.formatter` in `vim.lsp.start()` → received by server on `WORKSPACE_DID_CHANGE_CONFIGURATION`.
+**Formatter settings flow:** `cfg.formatter` → `settings.lazyverilogpy.formatter` in `vim.lsp.start()` → received on `WORKSPACE_DID_CHANGE_CONFIGURATION`.
 
-### Project config (`lazyverilog.toml`)
-
+## Project config (`lazyverilog.toml`)
 ```toml
 [codebase]
-vcode = "vcode.f"   # .f filelist of extra SV files to include in every compilation
+vcode = "vcode.f"   # .f filelist of extra SV files for compilation
 ```
+Missing filelist → `[LazyVerilogPy]` warning via `ls.show_message`.
 
-Missing filelist produces a `[LazyVerilogPy]` warning via `ls.show_message`.
+## Tests (`tests/test_formatter.py`)
+| Helper | Purpose |
+|--------|---------|
+| `fmt(source, **kw)` | Calls `format_source` with keyword options |
+| `spaces(l, r)` / `decision(l, r)` | Unit-test spacing/break rules |
+| `_kw()`, `_id()`, `_op()`, `_num()` | Build `_Tok` instances |
+| `TestRegression.test_rtl` | Matches `tests/formatted/`, checks idempotency + semantic neutrality |
 
-## Tests
-
-All tests are in `tests/test_formatter.py`. Key helpers:
-- `fmt(source, **kw)` — calls `format_source` with keyword options.
-- `spaces(l, r)` / `decision(l, r)` — unit-test spacing/break rules.
-- `_kw()`, `_id()`, `_op()`, `_num()`, etc. — build `_Tok` instances.
-- `TestRegression.test_rtl` — verifies output matches `tests/formatted/`, idempotency, and semantic neutrality against files in `tests/rtl/`.
-
-To add a regression case: put `.sv` in `tests/rtl/`, run `make answers` once to generate the expected output in `tests/formatted/`.
+**Add regression case:** put `.sv` in `tests/rtl/`, run `make answers` once.
