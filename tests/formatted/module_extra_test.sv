@@ -5,8 +5,8 @@
 
 //- @my_module defines/binding MyModule
 module my_module(  //- @in1 defines/binding In1
-    input  bit in1,  //- @in2 defines/binding In2
-    input  bit in2,  //- @out1 defines/binding Out1
+    input  bit in1  ,  //- @in2 defines/binding In2
+    input  bit in2  ,  //- @out1 defines/binding Out1
     output bit out1);
 
     //- @in1 ref In1

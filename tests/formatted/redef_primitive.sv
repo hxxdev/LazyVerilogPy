@@ -4,7 +4,7 @@
 primitive
     mux_primitive(Y, S, A, B);
     output Y;
-    input S, A, B;
+    input  S, A, B;
     table 0 0 ? : 0;
     0 1 ? : 1;
     1 ? 0: 0;

@@ -701,29 +701,28 @@ _PORT_BUILTIN_TYPES = frozenset([
 ])
 
 
-def _parse_port_line(line: str) -> "tuple[str, str, str, str, str] | None":
-    """Parse a port declaration line into (indent, direction, dtype, dim, name).
+def _parse_port_line(
+    line: str,
+) -> "tuple[str, str, str, str, list[str], str, str] | None":
+    """Parse a port declaration line into (indent, direction, dtype, dim, names, terminator, comment).
 
     Returns None if the line is not a port declaration (direction keyword not
     present as the first non-whitespace word).
 
-    The returned 5-tuple is:
-        indent    — leading whitespace (preserved)
-        direction — e.g. "input", "output", "inout"
-        dtype     — data type token or "" if absent
-        dim       — packed dimension string e.g. "[7:0]" or "" if absent
-        name      — port name (last identifier before the line terminator)
-
-    The line terminator (";", ",") and any trailing inline comment are
-    intentionally excluded from the parsed fields and will be reconstructed
-    from the original line when reassembling.
+    The returned 7-tuple is:
+        indent     — leading whitespace (preserved)
+        direction  — e.g. "input", "output", "inout"
+        dtype      — data type token or "" if absent
+        dim        — packed dimension string e.g. "[7:0]" or "" if absent
+        names      — list of port names; length > 1 for multi-name declarations
+        terminator — ";" or "," or ""
+        comment    — trailing // comment text (with leading whitespace) or ""
     """
-    # Strip trailing whitespace; keep the indent.
     stripped = line.rstrip()
     indent = stripped[: len(stripped) - len(stripped.lstrip())]
     code = stripped.lstrip()
 
-    # Peel off a trailing // comment (keep it for later reconstruction).
+    # Peel off a trailing // comment.
     comment = ""
     comment_match = re.search(r'\s*//.*$', code)
     if comment_match:
@@ -736,33 +735,22 @@ def _parse_port_line(line: str) -> "tuple[str, str, str, str, str] | None":
         terminator = code[-1]
         code = code[:-1].rstrip()
 
-    # Tokenize the code portion into non-whitespace tokens.
     tokens = code.split()
-
     if not tokens:
         return None
 
-    # First token must be a direction keyword.
     direction = tokens[0].lower()
     if direction not in _PORT_DIRECTIONS:
         return None
 
-    idx = 1  # cursor into tokens[]
+    idx = 1
 
-    # Optional data type (col 2): built-in keyword or user-defined identifier
-    # that is NOT a '[' (which would indicate the dimension comes right after
-    # the direction with no type, e.g. "input [7:0] name").
+    # Optional data type (col 2).
     dtype = ""
     if idx < len(tokens):
         candidate = tokens[idx]
-        # A '[' token means no dtype; dimension comes next.
         if not candidate.startswith("["):
-            # Accept built-in type keywords.  Also accept identifiers that
-            # look like user-defined type names (start with letter/underscore,
-            # no '[' or ']'), but exclude the last token (which is the name).
             is_builtin = candidate.lower() in _PORT_BUILTIN_TYPES
-            # For user-defined types: accept if there is at least one more
-            # token remaining (name must follow).
             is_user_type = (
                 re.match(r'^[A-Za-z_]\w*(::\w+)?$', candidate)
                 and idx + 1 < len(tokens)
@@ -771,15 +759,11 @@ def _parse_port_line(line: str) -> "tuple[str, str, str, str, str] | None":
                 dtype = candidate
                 idx += 1
 
-    # Optional packed dimension (col 3): may be multi-token like "[", "7", ":", "0", "]"
-    # because the tokenizer already resolved spacing, but after our formatter
-    # pass the dimension is a single contiguous "[N:M]"-style token run.
-    # We collect everything that starts with '[' and ends with the matching ']'.
+    # Optional packed dimension (col 3).
     dim = ""
     if idx < len(tokens) and tokens[idx].startswith("["):
-        # Collect tokens until balanced bracket.
         depth = 0
-        dim_parts = []
+        dim_parts: list[str] = []
         while idx < len(tokens):
             t = tokens[idx]
             dim_parts.append(t)
@@ -789,19 +773,16 @@ def _parse_port_line(line: str) -> "tuple[str, str, str, str, str] | None":
                 break
         dim = "".join(dim_parts)
 
-    # The remaining token(s) form the port name.  After the formatter pass
-    # there should be exactly one name token, but handle multi-token remainder
-    # defensively (array dimensions on the name, e.g. "i_data[3]").
     if idx >= len(tokens):
         return None
-    name = " ".join(tokens[idx:])
 
-    # Multi-name declarations (e.g. "input wire [7:0] a, b;") cannot be
-    # cleanly mapped to the 4-column layout — skip them.
-    if "," in name:
+    # Remaining tokens are port name(s) — comma-separated for multi-name lines.
+    remaining = " ".join(tokens[idx:])
+    names = [n.strip() for n in remaining.split(",") if n.strip()]
+    if not names:
         return None
 
-    return (indent, direction, dtype, dim, name)
+    return (indent, direction, dtype, dim, names, terminator, comment)
 
 
 def _reassemble_port_line(
@@ -809,46 +790,33 @@ def _reassemble_port_line(
     direction: str,
     dtype: str,
     dim: str,
-    name: str,
+    names: "list[str]",
+    terminator: str,
+    comment: str,
     dir_width: int,
     type_width: int,
     dim_width: int,
-    original_line: str,
+    name_width: int,
 ) -> str:
     """Rebuild a port declaration line with column padding applied.
 
-    *_width values are the maximum widths across the current alignment block.
-    The original terminator (, or ;) and any trailing comment are preserved
-    from *original_line*.
+    Each name in *names* is padded to *name_width* so that the name column
+    aligns across all lines in the block, including multi-name declarations.
     """
-    # Recover the terminator and trailing comment from the original line.
-    rest = ""
-    code_end = original_line.rstrip()
-    comment_match = re.search(r'\s*//.*$', code_end)
-    if comment_match:
-        rest = comment_match.group()
-        code_end = code_end[: comment_match.start()].rstrip()
-    if code_end.endswith((",", ";")):
-        rest = code_end[-1] + rest
-
-    # Build the line piece by piece.
-    # Col 1: direction padded to dir_width, then at least 1 space.
     parts = [indent, direction.ljust(dir_width)]
 
-    # Col 2: dtype padded to type_width (or just spaces when absent).
-    if dtype or type_width > 0:
-        # Always emit col2 padding when the block has any dtype.
-        col2 = (" " + dtype.ljust(type_width)) if type_width > 0 else ""
-        parts.append(col2)
+    if type_width > 0:
+        parts.append(" " + dtype.ljust(type_width))
 
-    # Col 3: dim padded to dim_width (or just spaces when absent).
-    if dim or dim_width > 0:
-        col3 = (" " + dim.ljust(dim_width)) if dim_width > 0 else ""
-        parts.append(col3)
+    if dim_width > 0:
+        parts.append(" " + dim.ljust(dim_width))
 
-    # Col 4: port name — always at least 1 space separator before it.
-    parts.append(" " + name)
-    parts.append(rest)
+    # Pad every name to name_width; join with ", "; append terminator.
+    padded = [n.ljust(name_width) for n in names]
+    parts.append(" " + ", ".join(padded) + terminator)
+
+    if comment:
+        parts.append(comment)
 
     return "".join(parts).rstrip()
 
@@ -861,9 +829,9 @@ def _align_port_declarations_pass(text: str) -> str:
 
     A "block" is a run of lines that each start with a port direction keyword
     (``input`` / ``output`` / ``inout``).  Multi-name declarations such as
-    ``input wire [7:0] a, b;`` cannot be column-aligned (they are emitted
-    unchanged) but they do *not* break the block — they keep adjacent
-    single-name declarations in the same alignment group.
+    ``input wire [7:0] a, b;`` are fully aligned: every name on every line is
+    padded to the same *name_width* (the longest individual name across the
+    whole block), so names form a consistent column.
 
     The block resets only at blank lines, comment-only lines, non-port lines,
     and preprocessor directives.
@@ -875,16 +843,13 @@ def _align_port_declarations_pass(text: str) -> str:
     while i < len(lines):
         line = lines[i]
 
-        # Does this line start a port direction block?
         if not _PORT_DIR_RE.match(line):
             out.append(line)
             i += 1
             continue
 
-        # Collect a contiguous block.  Each entry is either:
-        #   (original_line, parsed_tuple)  — alignable single-name line
-        #   (original_line, None)          — multi-name pass-through
-        block: list[tuple[str, "tuple[str,str,str,str,str] | None"]] = []
+        # Collect a contiguous block of port direction lines.
+        block: list[tuple[str, "tuple | None"]] = []
         j = i
         while j < len(lines):
             if not _PORT_DIR_RE.match(lines[j]):
@@ -892,26 +857,27 @@ def _align_port_declarations_pass(text: str) -> str:
             block.append((lines[j], _parse_port_line(lines[j])))
             j += 1
 
-        # Compute column widths using only the alignable (non-None) entries.
-        alignable = [p for _, p in block if p is not None]
+        parseable = [p for _, p in block if p is not None]
 
-        if len(alignable) <= 1:
-            # Zero or one alignable line — emit all lines as-is (no padding).
+        if len(parseable) <= 1:
             for orig, _ in block:
                 out.append(orig)
         else:
-            dir_w  = max(len(p[1]) for p in alignable)
-            type_w = max(len(p[2]) for p in alignable)
-            dim_w  = max(len(p[3]) for p in alignable)
+            dir_w  = max(len(p[1]) for p in parseable)
+            type_w = max(len(p[2]) for p in parseable)
+            dim_w  = max(len(p[3]) for p in parseable)
+            # name_w: longest individual name across all lines (incl. multi-name).
+            name_w = max(len(n) for p in parseable for n in p[4])
 
             for orig, parsed in block:
                 if parsed is None:
-                    out.append(orig)  # multi-name: pass through unchanged
+                    out.append(orig)
                 else:
-                    indent, direction, dtype, dim, name = parsed
+                    indent, direction, dtype, dim, names, terminator, comment = parsed
                     out.append(_reassemble_port_line(
-                        indent, direction, dtype, dim, name,
-                        dir_w, type_w, dim_w, orig,
+                        indent, direction, dtype, dim, names,
+                        terminator, comment,
+                        dir_w, type_w, dim_w, name_w,
                     ))
 
         i = j

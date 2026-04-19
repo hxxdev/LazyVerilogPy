@@ -47,7 +47,7 @@ module my_module(  //- @my_mult defines/binding MyMult
     output my_mult,  //- @out1 defines/binding Out1
     out1,  //- @out2 defines/binding Out2
     out2,  //- @clk defines/binding Clk
-    input clk,  //- @in1 defines/binding In1
+    input clk ,  //- @in1 defines/binding In1
     input in1);
 
     //- @clk ref Clk
