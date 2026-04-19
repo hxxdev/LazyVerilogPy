@@ -288,6 +288,31 @@ class FormatOptions:
     instance_port_spacing_inside_paren: int = 0
     """Spaces between the signal and the closing ``)``."""
 
+    align_variable_declarations: bool = False
+    """Align contiguous variable declaration lines into fixed columns:
+    type / qualifier / dimension / name(s).
+
+    Block boundaries reset at blank lines, comment-only lines, non-declaration
+    lines, or preprocessor directives.  Trailing whitespace is stripped from
+    each aligned line.
+    """
+
+    var_col1_margin: int = 1
+    """Minimum spaces after column 1 (type keyword).
+    When ``tab_align`` is ``True``, the next column's start is snapped to grid."""
+
+    var_col2_margin: int = 1
+    """Minimum spaces after column 2 (qualifier: signed/unsigned).
+    When ``tab_align`` is ``True``, the next column's start is snapped to grid."""
+
+    var_col3_margin: int = 1
+    """Minimum spaces after column 3 (packed dimension).
+    When ``tab_align`` is ``True``, the next column's start is snapped to grid."""
+
+    var_col4_margin: int = 0
+    """Minimum spaces after column 4 (each signal name) before delimiter.
+    When ``tab_align`` is ``True``, the delimiter position is snapped to grid."""
+
     @classmethod
     def from_dict(cls, d: dict) -> "FormatOptions":
         obj = cls()
@@ -1015,6 +1040,281 @@ def _align_port_declarations_pass(
 
 
 # ---------------------------------------------------------------------------
+# Variable-declaration alignment pass
+# ---------------------------------------------------------------------------
+
+# Built-in type keywords that can start a variable declaration (not ports).
+_VAR_BUILTIN_TYPES = frozenset([
+    "wire", "logic", "reg", "bit", "byte", "int", "integer", "time",
+    "shortint", "longint", "signed", "unsigned",
+])
+
+# Directions that must NOT be matched as variable declarations.
+_VAR_EXCLUDED_DIRECTIONS = frozenset(["input", "output", "inout", "ref"])
+
+# Regex: first non-whitespace token is a known var-type keyword.
+_VAR_LINE_RE = re.compile(
+    r"^\s*(?:wire|logic|reg|bit|byte|int|integer|time|shortint|longint|signed|unsigned)\b",
+    re.IGNORECASE,
+)
+
+# Regex to split compact "typename[...]" into two tokens (same as port parser).
+_COMPACT_VAR_DIM_RE = re.compile(r'^([A-Za-z_]\w*(?:::\w+)?)(\[.+)$')
+
+
+def _parse_var_line(
+    line: str,
+) -> "tuple[str, str, str, str, list[tuple[str,str]], str] | None":
+    """Parse a variable declaration line into its columns.
+
+    Returns ``None`` if the line is not a variable declaration.
+
+    The returned 6-tuple is:
+        indent     — leading whitespace (preserved)
+        type_kw    — type keyword or user-defined type name  (col 1)
+        qualifier  — "signed" / "unsigned" or ""  (col 2)
+        dim        — packed dimension string e.g. "[7:0]" or ""  (col 3)
+        name_delims — list of (name, delimiter) pairs; last delimiter is ";" (col 4+)
+        comment    — trailing // comment text (with leading whitespace) or ""
+    """
+    stripped = line.rstrip()
+    indent = stripped[: len(stripped) - len(stripped.lstrip())]
+    code = stripped.lstrip()
+
+    # Peel off a trailing // comment.
+    comment = ""
+    comment_match = re.search(r'\s*//.*$', code)
+    if comment_match:
+        comment = comment_match.group()
+        code = code[: comment_match.start()]
+
+    # Must end with semicolon.
+    if not code.endswith(";"):
+        return None
+    code = code[:-1].rstrip()
+
+    raw_tokens = code.split()
+    if not raw_tokens:
+        return None
+
+    # Expand compact "identifier[...]" tokens.
+    tokens: list[str] = []
+    for _t in raw_tokens:
+        _m = _COMPACT_VAR_DIM_RE.match(_t)
+        if _m:
+            tokens.append(_m.group(1))
+            tokens.append(_m.group(2))
+        else:
+            tokens.append(_t)
+
+    first = tokens[0].lower()
+
+    # Reject port directions.
+    if first in _VAR_EXCLUDED_DIRECTIONS:
+        return None
+
+    # Determine type column (col 1).
+    if first in _VAR_BUILTIN_TYPES:
+        type_kw = tokens[0]
+        idx = 1
+    else:
+        # User-defined type: identifier not a SV keyword, followed by something
+        # that looks like a dimension, qualifier, or signal name.
+        if not re.match(r'^[A-Za-z_]\w*$', tokens[0]):
+            return None
+        if first in _SV_KEYWORDS:
+            return None
+        if len(tokens) < 2:
+            return None
+        next_tok = tokens[1].lower()
+        if not (tokens[1].startswith('[') or
+                re.match(r'^[A-Za-z_]\w*$', tokens[1]) or
+                next_tok in _PORT_QUALIFIERS):
+            return None
+        type_kw = tokens[0]
+        idx = 1
+
+    # Optional qualifier: signed / unsigned (col 2).
+    qualifier = ""
+    if idx < len(tokens) and tokens[idx].lower() in _PORT_QUALIFIERS:
+        qualifier = tokens[idx]
+        idx += 1
+
+    # Optional packed dimension(s) (col 3).
+    dim = ""
+    if idx < len(tokens) and tokens[idx].startswith("["):
+        depth = 0
+        dim_parts: list[str] = []
+        while idx < len(tokens):
+            t = tokens[idx]
+            dim_parts.append(t)
+            depth += t.count("[") - t.count("]")
+            idx += 1
+            if depth <= 0:
+                break
+        dim = "".join(dim_parts)
+
+    if idx >= len(tokens):
+        return None
+
+    # Remaining tokens are comma-separated signal names.
+    remaining = " ".join(tokens[idx:])
+    raw_names = [n.strip() for n in remaining.split(",") if n.strip()]
+    if not raw_names:
+        return None
+
+    # Build (name, delimiter) pairs: all but last get ",", last gets ";".
+    name_delims: list[tuple[str, str]] = []
+    for k, name in enumerate(raw_names):
+        delim = "," if k < len(raw_names) - 1 else ";"
+        name_delims.append((name, delim))
+
+    return (indent, type_kw, qualifier, dim, name_delims, comment)
+
+
+def _reassemble_var_line(
+    indent: str,
+    type_kw: str,
+    qualifier: str,
+    dim: str,
+    name_delims: "list[tuple[str,str]]",
+    type_w: int,
+    qual_w: int,
+    dim_w: int,
+    name_w: int,
+    margins: "tuple[int,int,int,int]",
+) -> str:
+    """Rebuild a variable declaration line with column padding applied.
+
+    *margins* is a 4-tuple ``(m1, m2, m3, m4)`` — trailing spaces after each
+    column (type / qualifier / dim / name-before-delimiter).
+    """
+    m1, m2, m3, m4 = margins
+
+    line = indent + type_kw.ljust(type_w) + " " * m1
+    if qual_w > 0:
+        line += qualifier.ljust(qual_w) + " " * m2
+    if dim_w > 0:
+        line += dim.ljust(dim_w) + " " * m3
+
+    for k, (name, delim) in enumerate(name_delims):
+        line += name.ljust(name_w) + " " * m4 + delim
+        if k < len(name_delims) - 1:
+            line += " "
+
+    return line.rstrip()
+
+
+def _align_variable_declarations_pass(
+    text: str,
+    tab_align: bool = False,
+    indent_size: int = 4,
+    margins: "tuple[int,int,int,int]" = (1, 1, 1, 0),
+) -> str:
+    """Post-processing pass: align contiguous variable declaration blocks.
+
+    A "block" is a run of lines that each start with a variable type keyword or
+    user-defined type.  Multi-name declarations such as ``logic a, b;`` are
+    fully aligned: every name is padded to the same *name_width*.
+
+    *margins* is a 4-tuple ``(m1, m2, m3, m4)`` — minimum trailing spaces after
+    each column (type / qualifier / dim / name-before-delimiter).
+    When *tab_align* is ``True``, each column's start position is snapped up to
+    the next multiple of *indent_size*.
+    """
+    lines = text.split("\n")
+    out: list[str] = []
+    i = 0
+
+    def _snap(pos: int) -> int:
+        if indent_size <= 1:
+            return pos
+        return math.ceil(pos / indent_size) * indent_size
+
+    while i < len(lines):
+        line = lines[i]
+
+        if not _VAR_LINE_RE.match(line):
+            # Also try user-defined type lines via full parse.
+            parsed_single = _parse_var_line(line)
+            if parsed_single is None:
+                out.append(line)
+                i += 1
+                continue
+
+        # Collect a contiguous block of variable declaration lines.
+        block: list[tuple[str, "tuple | None"]] = []
+        j = i
+        while j < len(lines):
+            cur = lines[j]
+            # Check builtin-type match first (fast).
+            if _VAR_LINE_RE.match(cur):
+                block.append((cur, _parse_var_line(cur)))
+                j += 1
+                continue
+            # Check user-defined type via full parse.
+            parsed = _parse_var_line(cur)
+            if parsed is not None:
+                block.append((cur, parsed))
+                j += 1
+                continue
+            break
+
+        parseable = [p for _, p in block if p is not None]
+
+        if len(parseable) <= 1:
+            for orig, _ in block:
+                out.append(orig)
+        else:
+            type_w = max(len(p[1]) for p in parseable)
+            qual_w = max(len(p[2]) for p in parseable)
+            dim_w  = max(len(p[3]) for p in parseable)
+            name_w = max(len(name) for p in parseable for name, _ in p[4])
+
+            m1, m2, m3, m4 = margins
+
+            if tab_align and indent_size > 1:
+                indent_len = len(parseable[0][0])
+                pos = indent_len + type_w  # after type content
+
+                if qual_w > 0:
+                    s = _snap(pos + m1);  m1 = s - pos;  pos = s + qual_w
+                    if dim_w > 0:
+                        s = _snap(pos + m2);  m2 = s - pos;  pos = s + dim_w
+                        s = _snap(pos + m3);  m3 = s - pos;  pos = s + name_w
+                    else:
+                        s = _snap(pos + m2);  m2 = s - pos;  pos = s + name_w
+                elif dim_w > 0:
+                    s = _snap(pos + m1);  m1 = s - pos;  pos = s + dim_w
+                    s = _snap(pos + m3);  m3 = s - pos;  pos = s + name_w
+                else:
+                    s = _snap(pos + m1);  m1 = s - pos;  pos = s + name_w
+
+                if m4 > 0:
+                    m4 = _snap(pos + m4) - pos
+
+            eff_margins = (m1, m2, m3, m4)
+
+            for orig, parsed in block:
+                if parsed is None:
+                    out.append(orig)
+                else:
+                    indent, type_kw, qualifier, dim, name_delims, comment = parsed
+                    assembled = _reassemble_var_line(
+                        indent, type_kw, qualifier, dim, name_delims,
+                        type_w, qual_w, dim_w, name_w,
+                        eff_margins,
+                    )
+                    if comment:
+                        assembled = assembled + comment
+                    out.append(assembled.rstrip())
+
+        i = j
+
+    return "\n".join(out)
+
+
+# ---------------------------------------------------------------------------
 # Instance port alignment pass
 # ---------------------------------------------------------------------------
 
@@ -1379,6 +1679,11 @@ def format_source(source: str, options: Optional[FormatOptions] = None) -> str:
         result = _align_port_declarations_pass(
             result, opts.tab_align, opts.indent_size,
             (opts.port_col1_margin, opts.port_col2_margin, opts.port_col3_margin, opts.port_col4_margin, opts.port_col5_margin),
+        )
+    if opts.align_variable_declarations:
+        result = _align_variable_declarations_pass(
+            result, opts.tab_align, opts.indent_size,
+            (opts.var_col1_margin, opts.var_col2_margin, opts.var_col3_margin, opts.var_col4_margin),
         )
     if opts.align_instance_ports:
         result = _align_instance_ports_pass(result, opts)

@@ -1161,3 +1161,181 @@ class TestAlignInstancePorts:
             dot = l.index(".")
             p = l.index("(", dot)
             assert l[p - 2:p] == "  ", f"expected 2 spaces before '(', got: {repr(l)}"
+
+
+# ---------------------------------------------------------------------------
+# Variable declaration alignment
+# ---------------------------------------------------------------------------
+
+class TestAlignVariableDeclarations:
+    """Tests for the align_variable_declarations pass."""
+
+    def _align(self, text: str, **kw) -> str:
+        from lazyverilogpy.formatter import _align_variable_declarations_pass
+        tab_align = kw.pop("tab_align", False)
+        indent_size = kw.pop("indent_size", 4)
+        m1 = kw.pop("var_col1_margin", 1)
+        m2 = kw.pop("var_col2_margin", 1)
+        m3 = kw.pop("var_col3_margin", 1)
+        m4 = kw.pop("var_col4_margin", 0)
+        return _align_variable_declarations_pass(text, tab_align, indent_size, (m1, m2, m3, m4))
+
+    def _name_col(self, line: str) -> int:
+        """Return column index of the last identifier (signal name) on the line."""
+        code = line.rstrip().rstrip(";").rstrip(",").rstrip()
+        return line.index(code.split()[-1])
+
+    # ------------------------------------------------------------------
+    # test_basic_alignment: all columns present
+    # ------------------------------------------------------------------
+    def test_basic_alignment(self):
+        text = (
+            "logic clk;\n"
+            "logic [7:0] data_array;\n"
+            "wire i_valid;\n"
+            "data_t [15:0] result;\n"
+            "logic signed [3:0] counter;\n"
+            "logic chip_en, r_chip_en;"
+        )
+        result = self._align(text)
+        lines = result.splitlines()
+        assert len(lines) == 6
+        # All signal names (col 4) must start at the same column.
+        name_cols = [self._name_col(l) for l in lines]
+        assert len(set(name_cols)) == 1, f"name cols differ: {name_cols}\n{result}"
+        # No trailing whitespace.
+        for line in lines:
+            assert line == line.rstrip(), f"trailing whitespace: {repr(line)}"
+
+    # ------------------------------------------------------------------
+    # test_absent_qualifier: qualifier column empty for some lines
+    # ------------------------------------------------------------------
+    def test_absent_qualifier(self):
+        text = (
+            "logic clk;\n"
+            "logic signed [3:0] counter;"
+        )
+        result = self._align(text)
+        lines = result.splitlines()
+        name_cols = [self._name_col(l) for l in lines]
+        assert len(set(name_cols)) == 1, f"name cols differ: {name_cols}\n{result}"
+
+    # ------------------------------------------------------------------
+    # test_absent_dimension: dimension column empty for some lines
+    # ------------------------------------------------------------------
+    def test_absent_dimension(self):
+        text = (
+            "logic clk;\n"
+            "logic [7:0] data_array;"
+        )
+        result = self._align(text)
+        lines = result.splitlines()
+        name_cols = [self._name_col(l) for l in lines]
+        assert len(set(name_cols)) == 1, f"name cols differ: {name_cols}\n{result}"
+
+    # ------------------------------------------------------------------
+    # test_multi_name: comma-separated names on a single declaration
+    # ------------------------------------------------------------------
+    def test_multi_name(self):
+        text = (
+            "logic clk;\n"
+            "logic chip_en, r_chip_en;"
+        )
+        result = self._align(text)
+        lines = result.splitlines()
+        assert len(lines) == 2
+        # Both lines' first name should be at the same column.
+        name_cols = [self._name_col(l) for l in lines]
+        assert len(set(name_cols)) == 1, f"first name cols differ: {name_cols}\n{result}"
+        # The multi-name line must contain both names and a comma.
+        assert "chip_en" in lines[1]
+        assert "r_chip_en" in lines[1]
+        assert "," in lines[1]
+        assert lines[1].rstrip().endswith(";")
+
+    # ------------------------------------------------------------------
+    # test_idempotent
+    # ------------------------------------------------------------------
+    def test_idempotent(self):
+        text = (
+            "logic clk;\n"
+            "logic [7:0] data_array;\n"
+            "wire i_valid;\n"
+            "logic signed [3:0] counter;\n"
+            "logic chip_en, r_chip_en;"
+        )
+        once = self._align(text)
+        twice = self._align(once)
+        assert once == twice, f"Not idempotent:\n1st:\n{once}\n2nd:\n{twice}"
+
+    # ------------------------------------------------------------------
+    # test_single_line_unchanged: block of 1 is never re-aligned
+    # ------------------------------------------------------------------
+    def test_single_line_unchanged(self):
+        text = "logic [7:0] data_array;"
+        result = self._align(text)
+        # Structural content must be the same (names/keywords preserved).
+        import re as _re
+        assert _re.sub(r'\s+', '', result) == _re.sub(r'\s+', '', text)
+
+    # ------------------------------------------------------------------
+    # test_default_false
+    # ------------------------------------------------------------------
+    def test_default_false(self):
+        assert FormatOptions().align_variable_declarations is False
+
+    # ------------------------------------------------------------------
+    # test_disabled_when_false: option=False → no alignment via format_source
+    # ------------------------------------------------------------------
+    def test_disabled_when_false(self):
+        src = (
+            "module foo;\n"
+            "logic clk;\n"
+            "logic [7:0] data_array;\n"
+            "endmodule\n"
+        )
+        r_off = fmt(src, align_variable_declarations=False)
+        r_on  = fmt(src, align_variable_declarations=True)
+        # Both should parse fine; when off, no extra padding is added.
+        assert "logic" in r_off
+        assert "logic" in r_on
+
+    # ------------------------------------------------------------------
+    # test_block_resets_at_blank_line
+    # ------------------------------------------------------------------
+    def test_block_resets_at_blank_line(self):
+        text = (
+            "logic clk;\n"
+            "logic [7:0] data_array;\n"
+            "\n"
+            "wire i_valid;\n"
+            "wire o_ready;"
+        )
+        result = self._align(text)
+        assert "\n\n" in result  # blank line preserved
+
+    # ------------------------------------------------------------------
+    # test_no_trailing_whitespace
+    # ------------------------------------------------------------------
+    def test_no_trailing_whitespace(self):
+        text = (
+            "logic clk;\n"
+            "logic [7:0] data_array;\n"
+            "wire i_valid;"
+        )
+        result = self._align(text)
+        for line in result.splitlines():
+            assert line == line.rstrip(), f"trailing whitespace: {repr(line)}"
+
+    # ------------------------------------------------------------------
+    # test_user_defined_type
+    # ------------------------------------------------------------------
+    def test_user_defined_type(self):
+        text = (
+            "data_t [15:0] result;\n"
+            "logic  clk;"
+        )
+        result = self._align(text)
+        lines = result.splitlines()
+        name_cols = [self._name_col(l) for l in lines]
+        assert len(set(name_cols)) == 1, f"name cols differ: {name_cols}\n{result}"

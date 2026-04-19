@@ -8,8 +8,8 @@ endfunction
 
 module memory_top(i_clk);
     input i_clk;
-    logic [`WIDTH-1:0] data;
-    logic [2:0] a, b, c;
+    logic           [`WIDTH-1:0]            data            ;
+    logic           [2:0]                   a               , b               , c               ;
 
     memory u_memory (
         .i_clk                  (i_clk                  ),
