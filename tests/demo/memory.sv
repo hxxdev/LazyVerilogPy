@@ -4,11 +4,12 @@ module memory(i_clk, address, data_in, data_out, read_write, chip_en);
     output          reg             signed          [7:0]           data_out  ;
     input           wire                                            read_write, chip_en   ;
 
-    reg [7:0] mem[0:255];
+    reg             [7:0]           mem [0:255]             ;
+    logic                           a_b                     ;
 
     always @(address or data_in or read_write or chip_en) if (read_write == 1 && chip_en == 1) begin
-        mem[address]                        = data_in;
-        mem[address]  /* test tset <= */    = data_in;
+        mem             [address]           = data_in                               ;
+        mem             [address]           /* test tset <= */ = data_in            ;
         /*test comment block = */
     end
 
