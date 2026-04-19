@@ -853,58 +853,66 @@ def _reassemble_port_line(
     return "".join(parts).rstrip()
 
 
+_PORT_DIR_RE = re.compile(r"^\s*(?:input|output|inout)\b", re.IGNORECASE)
+
+
 def _align_port_declarations_pass(text: str) -> str:
-    """Post-processing pass: align contiguous port declaration blocks."""
+    """Post-processing pass: align contiguous port declaration blocks.
+
+    A "block" is a run of lines that each start with a port direction keyword
+    (``input`` / ``output`` / ``inout``).  Multi-name declarations such as
+    ``input wire [7:0] a, b;`` cannot be column-aligned (they are emitted
+    unchanged) but they do *not* break the block — they keep adjacent
+    single-name declarations in the same alignment group.
+
+    The block resets only at blank lines, comment-only lines, non-port lines,
+    and preprocessor directives.
+    """
     lines = text.split("\n")
     out: list[str] = []
     i = 0
 
     while i < len(lines):
         line = lines[i]
-        parsed = _parse_port_line(line)
 
-        if parsed is None:
+        # Does this line start a port direction block?
+        if not _PORT_DIR_RE.match(line):
             out.append(line)
             i += 1
             continue
 
-        # Collect a contiguous block of port declaration lines.
-        # A block breaks on blank lines, comment-only lines, non-port lines,
-        # or preprocessor directives — these are all cases where
-        # _parse_port_line returns None.
-        block_lines: list[str] = [line]
-        block_parsed: list[tuple[str, str, str, str, str]] = [parsed]
-        j = i + 1
+        # Collect a contiguous block.  Each entry is either:
+        #   (original_line, parsed_tuple)  — alignable single-name line
+        #   (original_line, None)          — multi-name pass-through
+        block: list[tuple[str, "tuple[str,str,str,str,str] | None"]] = []
+        j = i
         while j < len(lines):
-            p = _parse_port_line(lines[j])
-            if p is None:
+            if not _PORT_DIR_RE.match(lines[j]):
                 break
-            block_lines.append(lines[j])
-            block_parsed.append(p)
+            block.append((lines[j], _parse_port_line(lines[j])))
             j += 1
 
-        if len(block_parsed) == 1:
-            # Single-line block — no alignment needed, but still normalise
-            # spacing (single space between present columns).
-            indent, direction, dtype, dim, name = block_parsed[0]
-            dir_w  = len(direction)
-            type_w = len(dtype)
-            dim_w  = len(dim)
-            out.append(_reassemble_port_line(
-                indent, direction, dtype, dim, name,
-                dir_w, type_w, dim_w, block_lines[0],
-            ))
-        else:
-            # Compute per-column max widths across the block.
-            dir_w  = max(len(p[1]) for p in block_parsed)
-            type_w = max(len(p[2]) for p in block_parsed)
-            dim_w  = max(len(p[3]) for p in block_parsed)
+        # Compute column widths using only the alignable (non-None) entries.
+        alignable = [p for _, p in block if p is not None]
 
-            for orig, (indent, direction, dtype, dim, name) in zip(block_lines, block_parsed):
-                out.append(_reassemble_port_line(
-                    indent, direction, dtype, dim, name,
-                    dir_w, type_w, dim_w, orig,
-                ))
+        if len(alignable) <= 1:
+            # Zero or one alignable line — emit all lines as-is (no padding).
+            for orig, _ in block:
+                out.append(orig)
+        else:
+            dir_w  = max(len(p[1]) for p in alignable)
+            type_w = max(len(p[2]) for p in alignable)
+            dim_w  = max(len(p[3]) for p in alignable)
+
+            for orig, parsed in block:
+                if parsed is None:
+                    out.append(orig)  # multi-name: pass through unchanged
+                else:
+                    indent, direction, dtype, dim, name = parsed
+                    out.append(_reassemble_port_line(
+                        indent, direction, dtype, dim, name,
+                        dir_w, type_w, dim_w, orig,
+                    ))
 
         i = j
 
