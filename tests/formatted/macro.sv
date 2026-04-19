@@ -65,51 +65,51 @@
 `define NUM(int1) int1
 
 package my_pkg;
-    function automatic my_function(int arg1, int arg2);
-        //- @MacroFunction defines/binding MacroFunction
-        //- MacroFunction.node/kind macro
-        `define MacroFunction 10 return arg1 + arg2;
-    endfunction
+  function automatic my_function(int arg1, int arg2);
+    //- @MacroFunction defines/binding MacroFunction
+    //- MacroFunction.node/kind macro
+    `define MacroFunction 10 return arg1 + arg2;
+  endfunction
 
-    //- @MacroPackage defines/binding MacroPackage
-    //- MacroPackage.node/kind macro
-    `define MacroPackage 10
+  //- @MacroPackage defines/binding MacroPackage
+  //- MacroPackage.node/kind macro
+  `define MacroPackage 10
 
-    task my_task();
-        //- @MacroTask defines/binding MacroTask
-        //- MacroTask.node/kind macro
-        `define MacroTask 10
-    endtask
+  task my_task();
+    //- @MacroTask defines/binding MacroTask
+    //- MacroTask.node/kind macro
+    `define MacroTask 10
+  endtask
 
-    class my_class;
-        //- @MacroClass defines/binding MacroClass
-        //- MacroClass.node/kind macro
-        `define MacroClass 10
-    endclass
+  class my_class;
+    //- @MacroClass defines/binding MacroClass
+    //- MacroClass.node/kind macro
+    `define MacroClass 10
+  endclass
 endpackage
 
 module macro;
-    //- @MacroModule defines/binding MacroModule
-    //- MacroModule.node/kind macro
-    `define macromodule 10
+  //- @MacroModule defines/binding MacroModule
+  //- MacroModule.node/kind macro
+  `define macromodule 10
 
-        //- @"TEN" ref/expands TEN
-        parameter int x = `TEN;
-        initial begin
+    //- @"TEN" ref/expands TEN
+    parameter int x = `TEN;
+    initial begin
 
-            //- @"PRINT_3_STRINGS" ref/expands PRINT_3_STRINGS
-            `PRINT_3_STRINGS("Grand", "Tour", "S4");
-            //- @"PRINT_3_INTS" ref/expands PRINT_3_INTS
-            `PRINT_3_INTS(1, 2, 3);
-            //- @"TEN" ref/expands TEN
-            $display("%d\n", `TEN);
-            //- @"MacroClass" ref/expands MacroClass
-            $display("%d\n", `MacroClass);
-            //- @"NUM" ref/expands NUM
-            $display("%d\n", `NUM(1));
-            //- @"TEN" ref/expands TEN
-            //- @"NUM" ref/expands NUM
-            $display("%d\n", `NUM(`TEN));
+      //- @"PRINT_3_STRINGS" ref/expands PRINT_3_STRINGS
+      `PRINT_3_STRINGS("Grand", "Tour", "S4");
+      //- @"PRINT_3_INTS" ref/expands PRINT_3_INTS
+      `PRINT_3_INTS(1, 2, 3);
+      //- @"TEN" ref/expands TEN
+      $display("%d\n", `TEN);
+      //- @"MacroClass" ref/expands MacroClass
+      $display("%d\n", `MacroClass);
+      //- @"NUM" ref/expands NUM
+      $display("%d\n", `NUM(1));
+      //- @"TEN" ref/expands TEN
+      //- @"NUM" ref/expands NUM
+      $display("%d\n", `NUM(`TEN));
 
-        end
-    endmodule
+    end
+  endmodule

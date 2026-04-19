@@ -13,10 +13,10 @@ endmodule
 //- TopTopModule.complete definition
 module top_top;
 
-    //- @#0top ref TopModule
-    //- @top_instance defines/binding TopInstanceDef
-    //- TopInstanceDef.node/kind variable
-    //- TopInstanceDef.complete definition
-    //- TopInstanceDef childof TopTopModule
-    top top_instance();
+  //- @#0top ref TopModule
+  //- @top_instance defines/binding TopInstanceDef
+  //- TopInstanceDef.node/kind variable
+  //- TopInstanceDef.complete definition
+  //- TopInstanceDef childof TopTopModule
+  top top_instance();
 endmodule

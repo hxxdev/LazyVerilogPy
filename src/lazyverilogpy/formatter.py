@@ -824,7 +824,11 @@ def _reassemble_port_line(
 _PORT_DIR_RE = re.compile(r"^\s*(?:input|output|inout)\b", re.IGNORECASE)
 
 
-def _align_port_declarations_pass(text: str) -> str:
+def _align_port_declarations_pass(
+    text: str,
+    tab_align: bool = False,
+    indent_size: int = 4,
+) -> str:
     """Post-processing pass: align contiguous port declaration blocks.
 
     A "block" is a run of lines that each start with a port direction keyword
@@ -833,12 +837,22 @@ def _align_port_declarations_pass(text: str) -> str:
     padded to the same *name_width* (the longest individual name across the
     whole block), so names form a consistent column.
 
+    When *tab_align* is ``True``, each column's start position is snapped to
+    the next multiple of *indent_size* so the four columns land on the
+    indentation grid.
+
     The block resets only at blank lines, comment-only lines, non-port lines,
     and preprocessor directives.
     """
     lines = text.split("\n")
     out: list[str] = []
     i = 0
+
+    def _snap(pos: int) -> int:
+        """Round *pos* up to the next multiple of *indent_size*."""
+        if indent_size <= 1:
+            return pos
+        return math.ceil(pos / indent_size) * indent_size
 
     while i < len(lines):
         line = lines[i]
@@ -868,6 +882,28 @@ def _align_port_declarations_pass(text: str) -> str:
             dim_w  = max(len(p[3]) for p in parseable)
             # name_w: longest individual name across all lines (incl. multi-name).
             name_w = max(len(n) for p in parseable for n in p[4])
+
+            if tab_align and indent_size > 1:
+                # Snap each column's START position to the indentation grid.
+                # All parseable lines should share the same indent; use the first.
+                indent_len = len(parseable[0][0])
+
+                # Col 2 (type) start: snap position after direction + 1 sep.
+                type_col = _snap(indent_len + dir_w + 1)
+                dir_w = type_col - indent_len - 1  # >= original dir_w
+
+                if type_w > 0:
+                    # Col 3 (dim) start: snap position after type + 1 sep.
+                    dim_col = _snap(type_col + type_w + 1)
+                    type_w = dim_col - type_col - 1
+                else:
+                    dim_col = type_col  # no type column; dim follows direction
+
+                if dim_w > 0:
+                    # Col 4 (name) start: snap position after dim + 1 sep.
+                    name_col = _snap(dim_col + dim_w + 1)
+                    dim_w = name_col - dim_col - 1
+                # name_w is not snapped (it's the last column).
 
             for orig, parsed in block:
                 if parsed is None:
@@ -1054,5 +1090,5 @@ def format_source(source: str, options: Optional[FormatOptions] = None) -> str:
     if opts.align_assign_operators:
         result = _align_assign_pass(result, opts)
     if opts.align_port_declarations:
-        result = _align_port_declarations_pass(result)
+        result = _align_port_declarations_pass(result, opts.tab_align, opts.indent_size)
     return result
