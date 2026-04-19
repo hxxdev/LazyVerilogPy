@@ -18,3 +18,7 @@ port_col1_margin = 10
 port_col2_margin = 10
 port_col3_margin = 10
 port_col4_margin = 10
+align_instance_ports = true
+instance_port_indent_level = 1 # indent levels for port lines relative to module instantiation
+instance_port_spacing_before_paren = 10 # spaces between port name and (
+instance_port_spacing_inside_paren = 10 # spaces between signal and )
