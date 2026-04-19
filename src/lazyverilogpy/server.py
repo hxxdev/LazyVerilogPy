@@ -240,7 +240,15 @@ def did_change_configuration(
 ) -> None:
     global _fmt_options
     try:
-        cfg = params.settings.get("lazyverilogpy", {}).get("formatter", {})
+        settings = params.settings
+        if not isinstance(settings, dict):
+            return
+        lv = settings.get("lazyverilogpy", {})
+        if not isinstance(lv, dict):
+            return
+        cfg = lv.get("formatter", {})
+        if not isinstance(cfg, dict):
+            cfg = {}
         _fmt_options = FormatOptions.from_dict(cfg)
     except Exception as exc:
         logger.warning("Failed to update configuration: %s", exc)
