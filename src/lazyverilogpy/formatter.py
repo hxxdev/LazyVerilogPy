@@ -226,7 +226,7 @@ class FormatOptions:
     align_assign_operators: bool = False
     """Align = and <= assignment operators vertically in consecutive assignment lines."""
 
-    tab_align_assign_operators: bool = False
+    tab_align: bool = False
     """Round the alignment column up to the nearest multiple of ``indent_size``.
 
     Only has effect when ``align_assign_operators`` is ``True``.
@@ -659,7 +659,7 @@ def _align_assign_pass(text: str, opts: "FormatOptions") -> str:
             effective_gap = opts.align_assign_gap
             # Step 2: if tab-snap is on, round the gap up to the next multiple
             # of indent_size so the spacing stays on the indentation grid.
-            if opts.tab_align_assign_operators and opts.indent_size > 0:
+            if opts.tab_align and opts.indent_size > 0:
                 effective_gap = math.ceil(effective_gap / opts.indent_size) * opts.indent_size
             # Target column for every op in the run.
             op_col = max_lhs_end + effective_gap

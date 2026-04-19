@@ -191,7 +191,7 @@ the operator column, so their content never triggers false alignment.
 
 ---
 
-### `tab_align_assign_operators`
+### `tab_align`
 | type | default |
 |------|---------|
 | bool | `false` |
@@ -205,12 +205,12 @@ alignment that "snaps to the grid" defined by the indentation unit.
 With `indent_size = 4` the operator lands at column 4, 8, 12, 16, …:
 
 ```systemverilog
-// align_assign_operators = true, tab_align_assign_operators = false
+// align_assign_operators = true, tab_align = false
 //   max LHS ends at col 6 → = at col 7
 a      = 1;
 long_n = 2;
 
-// align_assign_operators = true, tab_align_assign_operators = true, indent_size = 4
+// align_assign_operators = true, tab_align = true, indent_size = 4
 //   max LHS ends at col 6 → round up to col 8
 a        = 1;
 long_n   = 2;
@@ -241,9 +241,9 @@ long_name       = 2;
 very_long_name  = 3;  ← exactly 2 spaces before =
 ```
 
-**Interaction with `tab_align_assign_operators`**
+**Interaction with `tab_align`**
 
-When `tab_align_assign_operators` is also `true`, `align_assign_gap` is applied
+When `tab_align` is also `true`, `align_assign_gap` is applied
 *first* — and then snapped up to the next integer multiple of `indent_size` if
 it is not already a multiple.  This ensures the gap itself stays on the
 indentation grid:
@@ -259,7 +259,7 @@ align_assign_gap = 5  →  effective gap = 8  (5 is not a multiple of 4; snap to
 
 ```systemverilog
 // align_assign_operators = true
-// tab_align_assign_operators = true
+// tab_align = true
 // indent_size = 4, align_assign_gap = 1  (snaps to 4)
 a                 = 1;
 long_name         = 2;
