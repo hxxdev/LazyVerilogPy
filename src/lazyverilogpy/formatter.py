@@ -260,12 +260,33 @@ class FormatOptions:
     When ``tab_align`` is ``True``, the next column's start is snapped to grid."""
 
     port_col3_margin: int = 1
-    """Minimum spaces after column 3 (packed dimension).
+    """Minimum spaces after column 3 (qualifier: signed/unsigned).
     When ``tab_align`` is ``True``, the next column's start is snapped to grid."""
 
-    port_col4_margin: int = 0
-    """Minimum spaces after column 4 (port name) and before the terminator (``; / ,``).
+    port_col4_margin: int = 1
+    """Minimum spaces after column 4 (packed dimension).
+    When ``tab_align`` is ``True``, the next column's start is snapped to grid."""
+
+    port_col5_margin: int = 0
+    """Minimum spaces after column 5 (port name) and before the terminator (``; / ,``).
     When ``tab_align`` is ``True``, the terminator position is snapped to grid."""
+
+    align_instance_ports: bool = False
+    """Expand module instance port connections into a multi-line aligned block.
+
+    Named port connections (``(.port(signal), …)``) are reformatted so that the
+    ``.``, ``(``, signal, and ``)`` columns are all vertically aligned.
+    Positional and empty port lists are left unchanged.
+    """
+
+    instance_port_indent_level: int = 1
+    """Indent levels added for each port line inside an instance block."""
+
+    instance_port_spacing_before_paren: int = 1
+    """Spaces between the port name column and the opening ``(`` of the signal."""
+
+    instance_port_spacing_inside_paren: int = 0
+    """Spaces between the signal and the closing ``)``."""
 
     @classmethod
     def from_dict(cls, d: dict) -> "FormatOptions":
@@ -712,24 +733,28 @@ _PORT_DIRECTIONS = frozenset(["input", "output", "inout"])
 _PORT_BUILTIN_TYPES = frozenset([
     "logic", "wire", "reg", "bit", "byte", "shortint", "int", "longint",
     "integer", "real", "realtime", "shortreal", "time", "string", "chandle",
-    "event", "signed", "unsigned", "var",
+    "event", "var",
 ])
+
+# Sign qualifiers that occupy column 3 (between data type and dimension).
+_PORT_QUALIFIERS = frozenset(["signed", "unsigned"])
 
 
 def _parse_port_line(
     line: str,
-) -> "tuple[str, str, str, str, list[str], str, str] | None":
-    """Parse a port declaration line into (indent, direction, dtype, dim, names, terminator, comment).
+) -> "tuple[str, str, str, str, str, list[str], str, str] | None":
+    """Parse a port declaration line into its columns.
 
     Returns None if the line is not a port declaration (direction keyword not
     present as the first non-whitespace word).
 
-    The returned 7-tuple is:
+    The returned 8-tuple is:
         indent     — leading whitespace (preserved)
         direction  — e.g. "input", "output", "inout"
-        dtype      — data type token or "" if absent
-        dim        — packed dimension string e.g. "[7:0]" or "" if absent
-        names      — list of port names; length > 1 for multi-name declarations
+        dtype      — data type token or "" if absent  (col 2)
+        qualifier  — "signed" / "unsigned" or "" if absent  (col 3)
+        dim        — packed dimension string e.g. "[7:0]" or "" if absent  (col 4)
+        names      — list of port names; length > 1 for multi-name declarations  (col 5)
         terminator — ";" or "," or ""
         comment    — trailing // comment text (with leading whitespace) or ""
     """
@@ -750,9 +775,23 @@ def _parse_port_line(
         terminator = code[-1]
         code = code[:-1].rstrip()
 
-    tokens = code.split()
-    if not tokens:
+    raw_tokens = code.split()
+    if not raw_tokens:
         return None
+
+    # Expand compact "identifier[...]" tokens produced when compact_indexing
+    # removes the space between a type name and its packed dimension, e.g.
+    # "data_t[7:0]" → ["data_t", "[7:0]"].  This allows the port parser to
+    # correctly identify the type (col 2) and dimension (col 4) columns.
+    _COMPACT_TYPE_DIM_RE = re.compile(r'^([A-Za-z_]\w*(?:::\w+)?)(\[.+)$')
+    tokens: list[str] = []
+    for _t in raw_tokens:
+        _m = _COMPACT_TYPE_DIM_RE.match(_t)
+        if _m:
+            tokens.append(_m.group(1))
+            tokens.append(_m.group(2))
+        else:
+            tokens.append(_t)
 
     direction = tokens[0].lower()
     if direction not in _PORT_DIRECTIONS:
@@ -760,11 +799,11 @@ def _parse_port_line(
 
     idx = 1
 
-    # Optional data type (col 2).
+    # Optional data type (col 2). Qualifiers (signed/unsigned) are excluded here.
     dtype = ""
     if idx < len(tokens):
         candidate = tokens[idx]
-        if not candidate.startswith("["):
+        if not candidate.startswith("[") and candidate.lower() not in _PORT_QUALIFIERS:
             is_builtin = candidate.lower() in _PORT_BUILTIN_TYPES
             is_user_type = (
                 re.match(r'^[A-Za-z_]\w*(::\w+)?$', candidate)
@@ -774,7 +813,13 @@ def _parse_port_line(
                 dtype = candidate
                 idx += 1
 
-    # Optional packed dimension (col 3).
+    # Optional qualifier: signed / unsigned (col 3).
+    qualifier = ""
+    if idx < len(tokens) and tokens[idx].lower() in _PORT_QUALIFIERS:
+        qualifier = tokens[idx]
+        idx += 1
+
+    # Optional packed dimension (col 4).
     dim = ""
     if idx < len(tokens) and tokens[idx].startswith("["):
         depth = 0
@@ -797,64 +842,47 @@ def _parse_port_line(
     if not names:
         return None
 
-    return (indent, direction, dtype, dim, names, terminator, comment)
+    return (indent, direction, dtype, qualifier, dim, names, terminator, comment)
 
 
 def _reassemble_port_line(
     indent: str,
     direction: str,
     dtype: str,
+    qualifier: str,
     dim: str,
     names: "list[str]",
     terminator: str,
     comment: str,
     dir_width: int,
     type_width: int,
+    qual_width: int,
     dim_width: int,
     name_width: int,
-    margins: "tuple[int,int,int,int] | None" = None,
+    margins: "tuple[int,int,int,int,int] | None" = None,
 ) -> str:
     """Rebuild a port declaration line with column padding applied.
 
     Each name in *names* is padded to *name_width* so that the name column
     aligns across all lines in the block, including multi-name declarations.
 
-    *margins* is a 4-tuple ``(m1, m2, m3, m4)`` — trailing spaces after each
-    column (direction / type / dim / name).  Defaults to ``(1, 1, 1, 0)``.
+    *margins* is a 5-tuple ``(m1, m2, m3, m4, m5)`` — trailing spaces after
+    each column (direction / type / qualifier / dim / name).
+    Defaults to ``(1, 1, 1, 1, 0)``.
     """
-    m1, m2, m3, m4 = margins if margins is not None else (1, 1, 1, 0)
+    m1, m2, m3, m4, m5 = margins if margins is not None else (1, 1, 1, 1, 0)
 
     padded = [n.ljust(name_width) for n in names]
     name_str = ", ".join(padded)
 
-    if type_width > 0 and dim_width > 0:
-        line = (
-            indent
-            + direction.ljust(dir_width) + " " * m1
-            + dtype.ljust(type_width) + " " * m2
-            + dim.ljust(dim_width) + " " * m3
-            + name_str + " " * m4 + terminator
-        )
-    elif type_width > 0:
-        line = (
-            indent
-            + direction.ljust(dir_width) + " " * m1
-            + dtype.ljust(type_width) + " " * m2
-            + name_str + " " * m4 + terminator
-        )
-    elif dim_width > 0:
-        line = (
-            indent
-            + direction.ljust(dir_width) + " " * m1
-            + dim.ljust(dim_width) + " " * m3
-            + name_str + " " * m4 + terminator
-        )
-    else:
-        line = (
-            indent
-            + direction.ljust(dir_width) + " " * m1
-            + name_str + " " * m4 + terminator
-        )
+    line = indent + direction.ljust(dir_width) + " " * m1
+    if type_width > 0:
+        line += dtype.ljust(type_width) + " " * m2
+    if qual_width > 0:
+        line += qualifier.ljust(qual_width) + " " * m3
+    if dim_width > 0:
+        line += dim.ljust(dim_width) + " " * m4
+    line += name_str + " " * m5 + terminator
 
     if comment:
         line += comment
@@ -869,7 +897,7 @@ def _align_port_declarations_pass(
     text: str,
     tab_align: bool = False,
     indent_size: int = 4,
-    margins: "tuple[int,int,int,int]" = (1, 1, 1, 0),
+    margins: "tuple[int,int,int,int,int]" = (1, 1, 1, 1, 0),
 ) -> str:
     """Post-processing pass: align contiguous port declaration blocks.
 
@@ -879,8 +907,8 @@ def _align_port_declarations_pass(
     padded to the same *name_width* (the longest individual name across the
     whole block), so names form a consistent column.
 
-    *margins* is a 4-tuple ``(m1, m2, m3, m4)`` — minimum trailing spaces
-    after each column (direction / type / dim / name-before-terminator).
+    *margins* is a 5-tuple ``(m1, m2, m3, m4, m5)`` — minimum trailing spaces
+    after each column (direction / type / qualifier / dim / name-before-terminator).
     When *tab_align* is ``True``, each column's start position is snapped up
     to the next multiple of *indent_size* by expanding the preceding margin.
 
@@ -922,59 +950,259 @@ def _align_port_declarations_pass(
         else:
             dir_w  = max(len(p[1]) for p in parseable)
             type_w = max(len(p[2]) for p in parseable)
-            dim_w  = max(len(p[3]) for p in parseable)
+            qual_w = max(len(p[3]) for p in parseable)
+            dim_w  = max(len(p[4]) for p in parseable)
             # name_w: longest individual name across all lines (incl. multi-name).
-            name_w = max(len(n) for p in parseable for n in p[4])
+            name_w = max(len(n) for p in parseable for n in p[5])
 
-            m1, m2, m3, m4 = margins
+            m1, m2, m3, m4, m5 = margins
 
             if tab_align and indent_size > 1:
                 # Snap each column's START to the indentation grid by expanding
                 # the *trailing* margin of the preceding column.
-                # pos tracks the current character position (end of last content).
+                # Only present columns (width > 0) consume a margin slot.
+                # The margin variable used matches what _reassemble_port_line outputs.
                 indent_len = len(parseable[0][0])
                 pos = indent_len + dir_w  # after direction content
 
-                if type_w > 0 and dim_w > 0:
-                    type_start = _snap(pos + m1);  m1 = type_start - pos;  pos = type_start + type_w
-                    dim_start  = _snap(pos + m2);  m2 = dim_start  - pos;  pos = dim_start  + dim_w
-                    name_start = _snap(pos + m3);  m3 = name_start - pos
-                    if m4 > 0:
-                        pos = name_start + name_w
-                        m4 = _snap(pos + m4) - pos
-                elif type_w > 0:
-                    type_start = _snap(pos + m1);  m1 = type_start - pos;  pos = type_start + type_w
-                    name_start = _snap(pos + m2);  m2 = name_start - pos
-                    if m4 > 0:
-                        pos = name_start + name_w
-                        m4 = _snap(pos + m4) - pos
+                if type_w > 0:
+                    s = _snap(pos + m1);  m1 = s - pos;  pos = s + type_w
+                    if qual_w > 0:
+                        s = _snap(pos + m2);  m2 = s - pos;  pos = s + qual_w
+                        if dim_w > 0:
+                            s = _snap(pos + m3);  m3 = s - pos;  pos = s + dim_w
+                            s = _snap(pos + m4);  m4 = s - pos;  pos = s + name_w
+                        else:
+                            s = _snap(pos + m3);  m3 = s - pos;  pos = s + name_w
+                    elif dim_w > 0:
+                        s = _snap(pos + m2);  m2 = s - pos;  pos = s + dim_w
+                        s = _snap(pos + m4);  m4 = s - pos;  pos = s + name_w
+                    else:
+                        s = _snap(pos + m2);  m2 = s - pos;  pos = s + name_w
+                elif qual_w > 0:
+                    s = _snap(pos + m1);  m1 = s - pos;  pos = s + qual_w
+                    if dim_w > 0:
+                        s = _snap(pos + m3);  m3 = s - pos;  pos = s + dim_w
+                        s = _snap(pos + m4);  m4 = s - pos;  pos = s + name_w
+                    else:
+                        s = _snap(pos + m3);  m3 = s - pos;  pos = s + name_w
                 elif dim_w > 0:
-                    dim_start  = _snap(pos + m1);  m1 = dim_start  - pos;  pos = dim_start  + dim_w
-                    name_start = _snap(pos + m3);  m3 = name_start - pos
-                    if m4 > 0:
-                        pos = name_start + name_w
-                        m4 = _snap(pos + m4) - pos
+                    s = _snap(pos + m1);  m1 = s - pos;  pos = s + dim_w
+                    s = _snap(pos + m4);  m4 = s - pos;  pos = s + name_w
                 else:
-                    name_start = _snap(pos + m1);  m1 = name_start - pos
-                    if m4 > 0:
-                        pos = name_start + name_w
-                        m4 = _snap(pos + m4) - pos
+                    s = _snap(pos + m1);  m1 = s - pos;  pos = s + name_w
 
-            eff_margins = (m1, m2, m3, m4)
+                if m5 > 0:
+                    m5 = _snap(pos + m5) - pos
+
+            eff_margins = (m1, m2, m3, m4, m5)
 
             for orig, parsed in block:
                 if parsed is None:
                     out.append(orig)
                 else:
-                    indent, direction, dtype, dim, names, terminator, comment = parsed
+                    indent, direction, dtype, qualifier, dim, names, terminator, comment = parsed
                     out.append(_reassemble_port_line(
-                        indent, direction, dtype, dim, names,
+                        indent, direction, dtype, qualifier, dim, names,
                         terminator, comment,
-                        dir_w, type_w, dim_w, name_w,
+                        dir_w, type_w, qual_w, dim_w, name_w,
                         eff_margins,
                     ))
 
         i = j
+
+    return "\n".join(out)
+
+
+# ---------------------------------------------------------------------------
+# Instance port alignment pass
+# ---------------------------------------------------------------------------
+
+_SV_KW = frozenset({
+    "module", "macromodule", "endmodule", "always", "always_ff", "always_comb",
+    "always_latch", "initial", "final", "if", "else", "for", "while", "do",
+    "foreach", "repeat", "forever", "case", "casex", "casez", "caseinside",
+    "endcase", "begin", "end", "task", "endtask", "function", "endfunction",
+    "generate", "endgenerate", "genvar", "assign", "parameter", "localparam",
+    "input", "output", "inout", "wire", "reg", "logic", "integer", "real",
+    "string", "bit", "byte", "int", "longint", "shortint", "shortreal",
+    "chandle", "void", "enum", "typedef", "struct", "union", "class",
+    "endclass", "interface", "endinterface", "modport", "primitive",
+    "endprimitive", "table", "endtable", "specify", "endspecify",
+    "import", "export", "virtual", "pure", "extends", "rand", "randc",
+    "fork", "join", "join_any", "join_none", "wait", "disable",
+    "force", "release", "deassign",
+})
+
+# Detects "  module_type instance_name (" at the start of a line.
+_INST_RE = re.compile(r'^(\s*)(\w+)\s+(\w+)\s*\(')
+
+
+def _collect_instance(lines: "list[str]", start: int) -> "tuple[int, str] | None":
+    """Collect lines of a module instance starting at *start*.
+
+    Returns ``(end_index, flat)`` where *end_index* is one past the last
+    consumed line and *flat* is the stripped lines joined with spaces.
+    Returns ``None`` when the closing ``);`` is not found.
+    """
+    parts: list[str] = []
+    depth = 0
+    j = start
+    while j < len(lines):
+        parts.append(lines[j].strip())
+        for ch in lines[j]:
+            if ch == '(':
+                depth += 1
+            elif ch == ')':
+                depth -= 1
+            elif ch == ';' and depth == 0:
+                return j + 1, " ".join(parts)
+        j += 1
+    return None
+
+
+def _extract_port_list(flat: str) -> "str | None":
+    """Return the content of the outermost ``(…)`` immediately before ``;``."""
+    semi = flat.rfind(';')
+    if semi < 0:
+        return None
+    j = semi - 1
+    while j >= 0 and flat[j] in ' \t':
+        j -= 1
+    if j < 0 or flat[j] != ')':
+        return None
+    close = j
+    depth = 1
+    j -= 1
+    while j >= 0 and depth > 0:
+        if flat[j] == ')':
+            depth += 1
+        elif flat[j] == '(':
+            depth -= 1
+        j -= 1
+    return flat[j + 2: close].strip()
+
+
+def _parse_named_ports(port_list: str) -> "list[tuple[str, str]] | None":
+    """Parse ``[(port_name, signal), …]`` from a named port connection list.
+
+    Returns ``None`` if the list uses positional connections or is malformed.
+    """
+    ports: list[tuple[str, str]] = []
+    i, n = 0, len(port_list)
+    while i < n:
+        while i < n and port_list[i] in ' \t\n,':
+            i += 1
+        if i >= n:
+            break
+        if port_list[i] != '.':
+            return None  # positional
+        i += 1
+        j = i
+        while j < n and (port_list[j].isalnum() or port_list[j] == '_'):
+            j += 1
+        port_name = port_list[i:j]
+        i = j
+        while i < n and port_list[i] in ' \t':
+            i += 1
+        if i >= n or port_list[i] != '(':
+            return None
+        i += 1  # skip '('
+        depth = 1
+        sig_start = i
+        while i < n and depth > 0:
+            if port_list[i] == '(':
+                depth += 1
+            elif port_list[i] == ')':
+                depth -= 1
+            i += 1
+        ports.append((port_name, port_list[sig_start:i - 1].strip()))
+    return ports or None
+
+
+def _align_instance_ports_pass(text: str, opts: "FormatOptions") -> str:
+    """Expand and align named port connections in module instances.
+
+    Each instance with named connections is reformatted into a multi-line block:
+
+    .. code-block:: text
+
+        module_type inst_name (
+            .port_name  (signal    ),
+            …
+        );
+
+    The port-name column (including the leading ``.``) and the signal column
+    are each padded to the widest entry in that instance so all ``(``, signal,
+    and ``)`` characters align vertically.
+    """
+    port_indent = " " * (opts.instance_port_indent_level * opts.indent_size)
+    m_before = opts.instance_port_spacing_before_paren
+    m_inside = opts.instance_port_spacing_inside_paren
+
+    lines = text.split("\n")
+    out: list[str] = []
+    i = 0
+
+    while i < len(lines):
+        line = lines[i]
+        m = _INST_RE.match(line)
+
+        if m is None or m.group(2).lower() in _SV_KW or m.group(3).lower() in _SV_KW:
+            out.append(line)
+            i += 1
+            continue
+
+        indent = m.group(1)
+        module_type = m.group(2)
+        inst_name = m.group(3)
+
+        collected = _collect_instance(lines, i)
+        if collected is None:
+            out.append(line)
+            i += 1
+            continue
+
+        end_i, flat = collected
+        port_list = _extract_port_list(flat)
+        if port_list is None:
+            for k in range(i, end_i):
+                out.append(lines[k])
+            i = end_i
+            continue
+
+        ports = _parse_named_ports(port_list)
+        if not ports:
+            for k in range(i, end_i):
+                out.append(lines[k])
+            i = end_i
+            continue
+
+        max_port = max(len(p) for p, _ in ports)
+        max_sig  = max(len(s) for _, s in ports)
+
+        if opts.tab_align and opts.indent_size > 1:
+            def _snap(pos: int) -> int:
+                return math.ceil(pos / opts.indent_size) * opts.indent_size
+            # Position just after the port-name column content.
+            base = len(indent) + len(port_indent) + 1 + max_port
+            open_paren = _snap(base + m_before)
+            m_before = open_paren - base
+            close_paren = _snap(open_paren + 1 + max_sig + m_inside)
+            m_inside = close_paren - open_paren - 1 - max_sig
+
+        out.append(f"{indent}{module_type} {inst_name} (")
+        for k, (port, sig) in enumerate(ports):
+            comma = "" if k == len(ports) - 1 else ","
+            pline = (
+                f"{indent}{port_indent}"
+                f".{port.ljust(max_port)}"
+                f"{' ' * m_before}({sig.ljust(max_sig)}{' ' * m_inside}){comma}"
+            )
+            out.append(pline.rstrip())
+        out.append(f"{indent});")
+
+        i = end_i
 
     return "\n".join(out)
 
@@ -1150,6 +1378,8 @@ def format_source(source: str, options: Optional[FormatOptions] = None) -> str:
     if opts.align_port_declarations:
         result = _align_port_declarations_pass(
             result, opts.tab_align, opts.indent_size,
-            (opts.port_col1_margin, opts.port_col2_margin, opts.port_col3_margin, opts.port_col4_margin),
+            (opts.port_col1_margin, opts.port_col2_margin, opts.port_col3_margin, opts.port_col4_margin, opts.port_col5_margin),
         )
+    if opts.align_instance_ports:
+        result = _align_instance_ports_pass(result, opts)
     return result
