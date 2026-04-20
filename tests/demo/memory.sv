@@ -8,8 +8,9 @@ module memory(i_clk, address, data_in, data_out, read_write, chip_en);
     logic                           a_b                     ;
 
     always @(address or data_in or read_write or chip_en) if (read_write == 1 && chip_en == 1) begin
-        mem             [address]           = data_in                               ;
-        mem             [address]           /* test tset <= */ = data_in            ;
+        mem[address]                        = data_in;
+        mem[address]  /* test tset <= */    = data_in;
+        a_b                                 = 3;
         /*test comment block = */
     end
 

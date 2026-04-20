@@ -1181,8 +1181,14 @@ class TestAlignVariableDeclarations:
         return _align_variable_declarations_pass(text, tab_align, indent_size, (m1, m2, m3, m4))
 
     def _name_col(self, line: str) -> int:
-        """Return column index of the last identifier (signal name) on the line."""
-        code = line.rstrip().rstrip(";").rstrip(",").rstrip()
+        """Return column index of the first signal name on the line."""
+        code = line.rstrip()
+        # Truncate at first comma or semicolon to isolate the first name.
+        for sep in (",", ";"):
+            pos = code.find(sep)
+            if pos != -1:
+                code = code[:pos].rstrip()
+                break
         return line.index(code.split()[-1])
 
     # ------------------------------------------------------------------

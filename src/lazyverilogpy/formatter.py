@@ -1163,6 +1163,13 @@ def _parse_var_line(
     if not raw_names:
         return None
 
+    # Reject assignment/expression statements: each name must start with an
+    # identifier character.  "= data_in" or "/* comment */ = …" fail this
+    # check, so array-indexed assignments like `mem[address] = data_in;`
+    # are not mistaken for variable declarations.
+    if not all(re.match(r'^[A-Za-z_]', n) for n in raw_names):
+        return None
+
     # Build (name, delimiter) pairs: all but last get ",", last gets ";".
     name_delims: list[tuple[str, str]] = []
     for k, name in enumerate(raw_names):

@@ -23,7 +23,7 @@ module TestRAM;
     //- @MemBus ref MemBus
     //- @TheBus ref TheBus
     RAM TheRAM (
-                .MemBus             (TheBus             )
+        .MemBus             (TheBus             )
     );
 
     initial begin

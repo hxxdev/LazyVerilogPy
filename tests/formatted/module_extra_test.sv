@@ -28,9 +28,9 @@ module top;
     //- @bb ref BB
     //- @cc ref CC
     my_module dut (
-                .in1            (aa             ),
-                .in2            (bb             ),
-                .out1           (cc             )
+        .in1            (aa             ),
+        .in2            (bb             ),
+        .out1           (cc             )
     );
 
 endmodule

@@ -9,8 +9,8 @@ package top_pkg;
     //- F1.node/kind function
     //- F1 childof TopPkg
     function automatic int f1(int arg1);
-        int temp1    = f2(arg1);
-        int temp2    = f2(arg1);
+        int             temp1 = f2(arg1)            ;
+        int             temp2 = f2(arg1)            ;
         //- @f3 ref/call F3
         //- @f3 ref F3
         return f3(arg1);
