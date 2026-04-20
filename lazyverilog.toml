@@ -1,6 +1,10 @@
 [codebase]
 vcode = "tests/demo/vcode.f"
 
+[rtltree]
+show_instance_name = true   # show "cpu (u_cpu)" instead of just "cpu"
+show_file = true             # show "[rtl/cpu.sv]" after module name
+
 [formatter]
 indent_size = 4
 keyword_case = "lower"          # "lower" | "upper" | "preserve"

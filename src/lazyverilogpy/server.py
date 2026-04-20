@@ -451,6 +451,38 @@ def _format_autoarg(result: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
+# RTL tree (workspace/executeCommand)
+# ---------------------------------------------------------------------------
+
+RTL_TREE_COMMAND = "lazyverilogpy.rtlTree"
+RTL_TREE_REVERSE_COMMAND = "lazyverilogpy.rtlTreeReverse"
+
+
+@server.command(RTL_TREE_COMMAND)
+def execute_rtl_tree(ls: LanguageServer, *args) -> Optional[dict]:
+    try:
+        if len(args) < 1:
+            return None
+        uri = str(args[0])
+        return analyzer.get_rtl_tree(uri)
+    except Exception as exc:
+        logger.error("rtlTree error: %s", exc, exc_info=True)
+        return None
+
+
+@server.command(RTL_TREE_REVERSE_COMMAND)
+def execute_rtl_tree_reverse(ls: LanguageServer, *args) -> Optional[dict]:
+    try:
+        if len(args) < 1:
+            return None
+        uri = str(args[0])
+        return analyzer.get_rtl_tree_reverse(uri)
+    except Exception as exc:
+        logger.error("rtlTreeReverse error: %s", exc, exc_info=True)
+        return None
+
+
+# ---------------------------------------------------------------------------
 # Code actions
 # ---------------------------------------------------------------------------
 

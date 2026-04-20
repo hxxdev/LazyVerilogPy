@@ -17,7 +17,8 @@ module memory(i_clk, address, data_in, data_out, read_write, chip_en);
     always @(read_write or chip_en or address) if (read_write == 0 && chip_en) data_out    = mem[address];
     else data_out                                                                          = 0;
 
-    always @(posedge  /* FIXME*/) begin
+    always @(posedge i_clk  /* FIXME*/) begin
     end
+    memory u_memory();
 
 endmodule

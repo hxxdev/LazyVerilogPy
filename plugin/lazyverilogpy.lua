@@ -20,3 +20,17 @@ vim.cmd([[
     call luaeval('require("lazyverilogpy").autoarg()')
   endfunction
 ]])
+
+--- Global Vimscript function so users can call :call RtlTree()
+vim.cmd([[
+  function! RtlTree() abort
+    call luaeval('require("lazyverilogpy").rtltree()')
+  endfunction
+]])
+
+--- Global Vimscript function so users can call :call RtlTreeReverse()
+vim.cmd([[
+  function! RtlTreeReverse() abort
+    call luaeval('require("lazyverilogpy").rtltreereverse()')
+  endfunction
+]])

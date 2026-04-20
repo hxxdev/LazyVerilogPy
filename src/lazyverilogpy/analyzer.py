@@ -791,6 +791,129 @@ class Analyzer:
 
         return candidates[0] if candidates else None
 
+    # ------------------------------------------------------------------
+    # RTL tree hierarchy
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _collect_inst_data(state: "DocumentState", uri: str, path_to_uri: dict) -> tuple[dict, list]:
+        """Visitor that builds a path-keyed instance map and a list of buffer-root paths.
+
+        Returns ``(inst_data, buffer_paths)`` where *inst_data* maps each
+        ``hierarchicalPath`` to ``{inst, module, file}`` and *buffer_paths*
+        is the list of hierarchical paths defined in the current buffer.
+        """
+        sm = state.tree.sourceManager
+        inst_data: dict[str, dict] = {}
+        buffer_paths: list[str] = []
+
+        def _collect(sym) -> bool:
+            try:
+                kind = str(sym.kind)
+                if kind == "SymbolKind.InstanceBody":
+                    path = sym.hierarchicalPath
+                    entry = inst_data.setdefault(path, {"inst": "", "module": "", "file": ""})
+                    entry["module"] = sym.name
+                    try:
+                        fname = sm.getFileName(sym.location)
+                        if fname == "buffer.sv":
+                            entry["file"] = uri
+                            buffer_paths.append(path)
+                        else:
+                            resolved = Path(fname).resolve()
+                            entry["file"] = path_to_uri.get(resolved) or resolved.as_uri()
+                    except Exception:
+                        pass
+                elif "Instance" in kind and "InstanceBody" not in kind:
+                    path = sym.hierarchicalPath
+                    entry = inst_data.setdefault(path, {"inst": "", "module": "", "file": ""})
+                    try:
+                        entry["inst"] = sym.name
+                        entry["module"] = sym.body.name
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            return True
+
+        try:
+            state.compilation.getRoot().visit(_collect)
+        except Exception:
+            pass
+
+        return inst_data, buffer_paths
+
+    def get_rtl_tree(self, uri: str) -> Optional[dict]:
+        """Build the forward RTL module instantiation tree rooted at the module in *uri*."""
+        self.refresh_if_stale(uri)
+        state = self._docs.get(uri)
+        if state is None or state.compilation is None or state.tree is None:
+            return None
+
+        inst_data, buffer_paths = self._collect_inst_data(state, uri, self._path_to_uri)
+        if not buffer_paths:
+            return None
+
+        # Use the shallowest (least-nested) buffer path as the tree root.
+        root_path = min(buffer_paths, key=lambda p: p.count("."))
+
+        # Build parent→children map from hierarchical paths.
+        parent_to_children: dict[str, list] = {p: [] for p in inst_data}
+        for path in inst_data:
+            if "." in path:
+                parent = path.rsplit(".", 1)[0]
+                parent_to_children.setdefault(parent, []).append(path)
+
+        def _build(path: str, seen_types: frozenset) -> dict:
+            data = inst_data.get(path, {"inst": path.rsplit(".", 1)[-1], "module": "<unknown>", "file": ""})
+            module_type = data["module"]
+            if module_type in seen_types:
+                return {
+                    "name": module_type, "inst": data["inst"],
+                    "file": data["file"], "children": [], "recursive": True,
+                }
+            new_seen = seen_types | {module_type}
+            return {
+                "name": module_type,
+                "inst": data["inst"],
+                "file": data["file"],
+                "children": [_build(c, new_seen) for c in sorted(parent_to_children.get(path, []))],
+            }
+
+        return _build(root_path, frozenset())
+
+    def get_rtl_tree_reverse(self, uri: str) -> Optional[dict]:
+        """Build the reverse RTL hierarchy — who instantiates the module in *uri*."""
+        self.refresh_if_stale(uri)
+        state = self._docs.get(uri)
+        if state is None or state.compilation is None or state.tree is None:
+            return None
+
+        inst_data, buffer_paths = self._collect_inst_data(state, uri, self._path_to_uri)
+        if not buffer_paths:
+            return None
+
+        root_path = min(buffer_paths, key=lambda p: p.count("."))
+
+        def _build_reverse(path: str, visited: frozenset) -> dict:
+            data = inst_data.get(path, {"inst": path.rsplit(".", 1)[-1], "module": "<unknown>", "file": ""})
+            if path in visited:
+                return {"name": data["module"], "inst": data["inst"], "file": data["file"],
+                        "children": [], "recursive": True}
+            new_visited = visited | {path}
+            children = []
+            if "." in path:
+                parent_path = path.rsplit(".", 1)[0]
+                children = [_build_reverse(parent_path, new_visited)]
+            return {
+                "name": data["module"],
+                "inst": data["inst"],
+                "file": data["file"],
+                "children": children,
+            }
+
+        return _build_reverse(root_path, frozenset())
+
     @staticmethod
     def _inst_line_range(text: str, sym, tree) -> tuple[int, int]:
         """Return the 0-based (line_start, line_end) range of an instantiation.

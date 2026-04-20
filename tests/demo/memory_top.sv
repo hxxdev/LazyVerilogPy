@@ -19,6 +19,9 @@ module memory_top(i_clk);
         .read_write             (read_write             ),
         .chip_en                (chip_en                )
     );
+    memory u_pll1();
+    memory u_pll2();
+    memory u_pll3();
 
     always_comb begin
         a    = 3;
