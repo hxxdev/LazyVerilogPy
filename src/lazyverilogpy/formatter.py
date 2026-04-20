@@ -765,6 +765,9 @@ _PORT_BUILTIN_TYPES = frozenset([
 _PORT_QUALIFIERS = frozenset(["signed", "unsigned"])
 
 
+_COMPACT_TYPE_DIM_RE = re.compile(r'^([A-Za-z_]\w*(?:::\w+)?)(\[.+)$')
+
+
 def _parse_port_line(
     line: str,
 ) -> "tuple[str, str, str, str, str, list[str], str, str] | None":
@@ -808,7 +811,6 @@ def _parse_port_line(
     # removes the space between a type name and its packed dimension, e.g.
     # "data_t[7:0]" → ["data_t", "[7:0]"].  This allows the port parser to
     # correctly identify the type (col 2) and dimension (col 4) columns.
-    _COMPACT_TYPE_DIM_RE = re.compile(r'^([A-Za-z_]\w*(?:::\w+)?)(\[.+)$')
     tokens: list[str] = []
     for _t in raw_tokens:
         _m = _COMPACT_TYPE_DIM_RE.match(_t)
@@ -1059,7 +1061,7 @@ _VAR_LINE_RE = re.compile(
 )
 
 # Regex to split compact "typename[...]" into two tokens (same as port parser).
-_COMPACT_VAR_DIM_RE = re.compile(r'^([A-Za-z_]\w*(?:::\w+)?)(\[.+)$')
+_COMPACT_VAR_DIM_RE = _COMPACT_TYPE_DIM_RE
 
 
 def _parse_var_line(
@@ -1325,21 +1327,7 @@ def _align_variable_declarations_pass(
 # Instance port alignment pass
 # ---------------------------------------------------------------------------
 
-_SV_KW = frozenset({
-    "module", "macromodule", "endmodule", "always", "always_ff", "always_comb",
-    "always_latch", "initial", "final", "if", "else", "for", "while", "do",
-    "foreach", "repeat", "forever", "case", "casex", "casez", "caseinside",
-    "endcase", "begin", "end", "task", "endtask", "function", "endfunction",
-    "generate", "endgenerate", "genvar", "assign", "parameter", "localparam",
-    "input", "output", "inout", "wire", "reg", "logic", "integer", "real",
-    "string", "bit", "byte", "int", "longint", "shortint", "shortreal",
-    "chandle", "void", "enum", "typedef", "struct", "union", "class",
-    "endclass", "interface", "endinterface", "modport", "primitive",
-    "endprimitive", "table", "endtable", "specify", "endspecify",
-    "import", "export", "virtual", "pure", "extends", "rand", "randc",
-    "fork", "join", "join_any", "join_none", "wait", "disable",
-    "force", "release", "deassign",
-})
+_SV_KW = _SV_KEYWORDS
 
 # Detects "  module_type instance_name (" at the start of a line.
 _INST_RE = re.compile(r'^(\s*)(\w+)\s+(\w+)\s*\(')

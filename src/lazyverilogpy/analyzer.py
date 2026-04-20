@@ -63,29 +63,19 @@ def _pos_to_offset(text: str, line: int, character: int) -> int:
     return offset + character
 
 def _apply_change(old_text: str, change: types.TextDocumentContentChangeEvent) -> str:
-    """
-    Apply an LSP TextDocumentContentChangeEvent to old_text.
-
-    Handles both:
-    - full document replacement
-    - incremental (range-based) edits
-    """
-
+    """Apply an LSP TextDocumentContentChangeEvent to old_text."""
     if not hasattr(change, "range") or change.range is None:
         return change.text
 
     start = change.range.start
     end = change.range.end
 
-    # --- Fast path: no-op replacement ---
     if start.line == end.line and start.character == end.character and not change.text:
         return old_text
 
-    # --- Convert positions to offsets ---
     start_offset = _pos_to_offset(old_text, start.line, start.character)
     end_offset = _pos_to_offset(old_text, end.line, end.character)
 
-    # --- Safety guards (important for robustness) ---
     text_len = len(old_text)
     start_offset = max(0, min(start_offset, text_len))
     end_offset = max(0, min(end_offset, text_len))
@@ -93,11 +83,7 @@ def _apply_change(old_text: str, change: types.TextDocumentContentChangeEvent) -
     if start_offset > end_offset:
         start_offset, end_offset = end_offset, start_offset
 
-    # --- Apply patch ---
     return old_text[:start_offset] + change.text + old_text[end_offset:]
-
-
-
 
 
 class Analyzer:
@@ -185,6 +171,13 @@ class Analyzer:
                 self._parse(state)
                 return
 
+    def _record_mtime(self, path: Path) -> None:
+        """Cache the current mtime of *path* for staleness checks."""
+        try:
+            self._extra_mtimes[path] = path.stat().st_mtime
+        except Exception:
+            pass
+
     def _parse(self, state: DocumentState) -> None:
         # Resolve current document's path so we can skip it in the extra-files list.
         current_path: Optional[Path] = None
@@ -205,24 +198,14 @@ class Analyzer:
                     # Use the in-memory text if the file is currently open in the editor,
                     # so the compilation reflects unsaved edits in other buffers.
                     open_uri = self._path_to_uri.get(path)
-                    if open_uri is not None:
-                        open_state = self._docs.get(open_uri)
-                        if open_state is not None:
-                            extra_tree = pyslang.SyntaxTree.fromText(
-                                open_state.text, str(path)
-                            )
-                        else:
-                            extra_tree = pyslang.SyntaxTree.fromFile(str(path))
-                            try:
-                                self._extra_mtimes[path] = path.stat().st_mtime
-                            except Exception:
-                                pass
+                    open_state = self._docs.get(open_uri) if open_uri else None
+                    if open_state is not None:
+                        extra_tree = pyslang.SyntaxTree.fromText(
+                            open_state.text, str(path)
+                        )
                     else:
                         extra_tree = pyslang.SyntaxTree.fromFile(str(path))
-                        try:
-                            self._extra_mtimes[path] = path.stat().st_mtime
-                        except Exception:
-                            pass
+                        self._record_mtime(path)
                     compilation.addSyntaxTree(extra_tree)
                 except Exception as exc:
                     logger.warning("Failed to add extra file %s: %s", path, exc)
@@ -395,11 +378,6 @@ class Analyzer:
         return "<undefined>" if had_error else ""
 
     @staticmethod
-    def _clean_type(s: str) -> str:
-        """Replace pyslang error sentinels with a friendlier label."""
-        return "<undefined>" if s.startswith("<") else s
-
-    @staticmethod
     def _norm_type(s: str) -> str:
         """Normalise a pyslang type string for display.
 
@@ -432,7 +410,8 @@ class Analyzer:
                             direction = "<undefined>"
                     except Exception:
                         pass
-                    type_part = Analyzer._clean_type(Analyzer._norm_type(str(arg.type))) if hasattr(arg, "type") else ""
+                    raw_type = Analyzer._norm_type(str(arg.type)) if hasattr(arg, "type") else ""
+                    type_part = "<undefined>" if raw_type.startswith("<") else raw_type
                     # Anonymous arg: pyslang lost the name due to a bad direction keyword.
                     # Still show the slot so the arg count is correct.
                     if not arg_name:
