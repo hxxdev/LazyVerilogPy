@@ -38,9 +38,9 @@ module my_module();
 
     //- @Vector ref Vector
     //- @v1 defines/binding _
-    Vector v1 = new ();
+    Vector          v1 = new ()             ;
     //- @x1 defines/binding X1
-    int x1;
+    int             x1                      ;
     //- @Vector ref Vector
     //- @v2 defines/binding _
     //- @x1 ref X1

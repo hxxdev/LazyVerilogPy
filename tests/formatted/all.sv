@@ -777,9 +777,9 @@ module m2 #(parameter i = 1, localparam j = i, parameter type x_t = bit) (input 
                                                                                                         typedef Base #(64) MyBaseType;
                                                                                                         nettype MyBaseType::T wideTsum with MyBaseType::Tsum;
 
-                                                                                                        narrowTsum net1;
+                                                                                                        narrowTsum          net1            ;
                                                                                                         // data is 32 bits wide
-                                                                                                        wideTsum net2;
+                                                                                                        wideTsum            net2            ;
                                                                                                         // data is 64 bits wide
                                                                                                     endmodule
 
