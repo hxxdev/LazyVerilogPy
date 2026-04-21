@@ -1083,12 +1083,29 @@ def _parse_var_line(
     indent = stripped[: len(stripped) - len(stripped.lstrip())]
     code = stripped.lstrip()
 
+    # Peel off leading /* ... */ block comments — kept as a separate prefix
+    # so they can be emitted on their own line before the declaration.
+    leading_comment = ""
+    while code.startswith("/*"):
+        end = code.find("*/")
+        if end == -1:
+            return None  # unclosed block comment
+        leading_comment += ("" if not leading_comment else " ") + code[: end + 2]
+        code = code[end + 2 :].lstrip()
+
     # Peel off a trailing // comment.
     comment = ""
     comment_match = re.search(r'\s*//.*$', code)
     if comment_match:
         comment = comment_match.group()
         code = code[: comment_match.start()]
+
+    # Peel off a trailing /* ... */ block comment.
+    if not comment:
+        bc_match = re.search(r'\s*/\*.*?\*/\s*$', code)
+        if bc_match:
+            comment = " " + bc_match.group().strip()
+            code = code[: bc_match.start()]
 
     # Must end with semicolon.
     if not code.endswith(";"):
@@ -1178,7 +1195,7 @@ def _parse_var_line(
         delim = "," if k < len(raw_names) - 1 else ";"
         name_delims.append((name, delim))
 
-    return (indent, type_kw, qualifier, dim, name_delims, comment)
+    return (indent, type_kw, qualifier, dim, name_delims, comment, leading_comment)
 
 
 def _reassemble_var_line(
@@ -1252,6 +1269,7 @@ def _align_variable_declarations_pass(
                 continue
 
         # Collect a contiguous block of variable declaration lines.
+        # Comment-only lines are allowed inside the block (passed through as-is).
         block: list[tuple[str, "tuple | None"]] = []
         j = i
         while j < len(lines):
@@ -1265,6 +1283,12 @@ def _align_variable_declarations_pass(
             parsed = _parse_var_line(cur)
             if parsed is not None:
                 block.append((cur, parsed))
+                j += 1
+                continue
+            # Allow comment-only lines to pass through without breaking the block.
+            stripped = cur.strip()
+            if stripped.startswith("//") or stripped.startswith("/*"):
+                block.append((cur, None))
                 j += 1
                 continue
             break
@@ -1308,7 +1332,9 @@ def _align_variable_declarations_pass(
                 if parsed is None:
                     out.append(orig)
                 else:
-                    indent, type_kw, qualifier, dim, name_delims, comment = parsed
+                    indent, type_kw, qualifier, dim, name_delims, comment, leading_comment = parsed
+                    if leading_comment:
+                        out.append(indent + leading_comment)
                     assembled = _reassemble_var_line(
                         indent, type_kw, qualifier, dim, name_delims,
                         type_w, qual_w, dim_w, name_w,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import Optional
 import pyslang
@@ -11,6 +12,8 @@ from lsprotocol import types
 from pygls.lsp.server import LanguageServer
 
 from .analyzer import Analyzer
+from .autofunc import AutoFuncOptions, find_func_or_task_ports, generate_func_call, find_nearest_identifier, find_call_extent, parse_existing_args
+from .autowire import AutowireOptions, autowire
 from .definition import provide_definition
 from .formatter import FormatOptions, format_source
 from .hover import provide_hover
@@ -35,6 +38,12 @@ analyzer = Analyzer()
 
 # Default formatting options — overridden by config file or workspace configuration
 _fmt_options = FormatOptions()
+
+# Default autowire options — overridden by config file
+_autowire_options = AutowireOptions()
+
+# Default autofunc options — overridden by config file
+_autofunc_options = AutoFuncOptions()
 
 
 # ---------------------------------------------------------------------------
@@ -95,6 +104,30 @@ def _load_fmt_options_from_toml(path: Path) -> FormatOptions:
     opts = FormatOptions.from_dict(cfg)
     logger.info("Loaded format options from %s", path)
     return opts
+
+
+def _load_autowire_options_from_toml(path: Path) -> AutowireOptions:
+    """Parse *path* and return :class:`AutowireOptions` from ``[autowire]``."""
+    if tomllib is None:
+        return AutowireOptions()
+
+    with path.open("rb") as fh:
+        data = tomllib.load(fh)
+
+    cfg = data.get("autowire", {})
+    return AutowireOptions.from_dict(cfg)
+
+
+def _load_autofunc_options_from_toml(path: Path) -> AutoFuncOptions:
+    """Parse *path* and return :class:`AutoFuncOptions` from ``[autofunc]``."""
+    if tomllib is None:
+        return AutoFuncOptions()
+
+    with path.open("rb") as fh:
+        data = tomllib.load(fh)
+
+    cfg = data.get("autofunc", {})
+    return AutoFuncOptions.from_dict(cfg)
 
 
 def _parse_filelist(f_path: Path) -> list[Path]:
@@ -159,13 +192,21 @@ def _load_filelist_from_toml(path: Path) -> tuple[list[Path], str | None]:
 
 def _reload_config(start: Path, ls: LanguageServer | None = None) -> None:
     """Search for a config file starting at *start* and update ``_fmt_options``."""
-    global _fmt_options
+    global _fmt_options, _autowire_options, _autofunc_options
     path = _find_config_toml(start)
     if path is not None:
         try:
             _fmt_options = _load_fmt_options_from_toml(path)
         except Exception as exc:
             logger.warning("Failed to load %s: %s", path, exc)
+        try:
+            _autowire_options = _load_autowire_options_from_toml(path)
+        except Exception as exc:
+            logger.warning("Failed to load autowire options from %s: %s", path, exc)
+        try:
+            _autofunc_options = _load_autofunc_options_from_toml(path)
+        except Exception as exc:
+            logger.warning("Failed to load autofunc options from %s: %s", path, exc)
         try:
             extra_files, warn_msg = _load_filelist_from_toml(path)
             analyzer.set_extra_files(extra_files)
@@ -479,6 +520,186 @@ def execute_rtl_tree_reverse(ls: LanguageServer, *args) -> Optional[dict]:
         return analyzer.get_rtl_tree_reverse(uri)
     except Exception as exc:
         logger.error("rtlTreeReverse error: %s", exc, exc_info=True)
+        return None
+
+
+# ---------------------------------------------------------------------------
+# AutoWire (workspace/executeCommand)
+# ---------------------------------------------------------------------------
+
+AUTOWIRE_COMMAND = "lazyverilogpy.autowire"
+AUTOWIRE_PREVIEW_COMMAND = "lazyverilogpy.autowirepreview"
+
+
+@server.command(AUTOWIRE_COMMAND)
+def execute_autowire(ls: LanguageServer, *args) -> Optional[types.WorkspaceEdit]:
+    try:
+        if len(args) < 1:
+            return None
+        uri = str(args[0])
+
+        analyzer.refresh_if_stale(uri)
+        state = analyzer.get_state(uri)
+        if state is None:
+            return None
+
+        new_text = autowire(
+            state.text,
+            compilation=state.compilation,
+            tree=state.tree,
+            options=_autowire_options,
+        )
+        if new_text == state.text:
+            return None
+
+        lines = state.text.split("\n")
+        end_line = max(len(lines) - 1, 0)
+        end_char = len(lines[end_line]) if lines else 0
+
+        edit = types.TextEdit(
+            range=types.Range(
+                start=types.Position(line=0, character=0),
+                end=types.Position(line=end_line, character=end_char),
+            ),
+            new_text=new_text,
+        )
+        return types.WorkspaceEdit(changes={uri: [edit]})
+    except Exception as exc:
+        logger.error("autowire error: %s", exc, exc_info=True)
+        return None
+
+
+@server.command(AUTOWIRE_PREVIEW_COMMAND)
+def execute_autowire_preview(ls: LanguageServer, *args) -> Optional[list[str]]:
+    try:
+        if len(args) < 1:
+            return None
+        uri = str(args[0])
+
+        analyzer.refresh_if_stale(uri)
+        state = analyzer.get_state(uri)
+        if state is None:
+            return None
+
+        result = autowire(
+            state.text,
+            compilation=state.compilation,
+            tree=state.tree,
+            options=_autowire_options,
+            preview=True,
+        )
+        if not result:
+            return None
+        return result
+    except Exception as exc:
+        logger.error("autowirepreview error: %s", exc, exc_info=True)
+        return None
+
+
+# ---------------------------------------------------------------------------
+# AutoFunc (workspace/executeCommand) — handles both functions and tasks
+# ---------------------------------------------------------------------------
+
+AUTOFUNC_COMMAND = "lazyverilogpy.autofunc"
+
+
+@server.command(AUTOFUNC_COMMAND)
+def execute_autofunc(
+    ls: LanguageServer, *args
+) -> Optional[types.WorkspaceEdit]:
+    try:
+        if len(args) < 3:
+            return None
+        uri, line, character = str(args[0]), int(args[1]), int(args[2])
+
+        analyzer.refresh_if_stale(uri)
+        state = analyzer.get_state(uri)
+        if state is None:
+            return None
+
+        src_lines = state.text.splitlines()
+        if line >= len(src_lines):
+            return None
+
+        src_line = src_lines[line]
+
+        # Find the nearest identifier to the cursor position.
+        ident = find_nearest_identifier(src_line, character)
+        if ident is None:
+            return None
+
+        func_name, ident_start, ident_end = ident
+
+        # Determine the extent of any existing call text on the current line.
+        call_start, call_end_col = find_call_extent(src_line, ident_start, ident_end)
+
+        # --- Issue 2: only trigger when cursor is within the call extent ---
+        # On the trigger line, the call extent spans [call_start, call_end_col).
+        # We also need to allow cursor inside multiline parens (handled below).
+        if not (call_start <= character < call_end_col):
+            # Cursor might still be inside a multiline call's argument
+            # region on a *later* line, but we require the cursor to be on
+            # the identifier/paren line itself.
+            return None
+
+        # --- Issue 1: handle multiline call extents ---
+        # Check if parens are balanced on the current line.
+        end_line = line
+        end_character = call_end_col
+
+        paren_rest = src_line[ident_end:]
+        paren_m = re.match(r'\s*\(', paren_rest)
+        if paren_m is not None:
+            open_pos = ident_end + paren_m.end() - 1
+            # Count paren depth across lines starting from '('
+            depth = 0
+            found_close = False
+            for scan_line in range(line, len(src_lines)):
+                scan_text = src_lines[scan_line]
+                start_col = open_pos if scan_line == line else 0
+                for idx in range(start_col, len(scan_text)):
+                    if scan_text[idx] == '(':
+                        depth += 1
+                    elif scan_text[idx] == ')':
+                        depth -= 1
+                        if depth == 0:
+                            end_line = scan_line
+                            end_character = idx + 1
+                            # Consume trailing semicolon
+                            rest_after = scan_text[end_character:].lstrip()
+                            if rest_after.startswith(';'):
+                                end_character = scan_text.index(
+                                    ';', end_character
+                                ) + 1
+                            found_close = True
+                            break
+                if found_close:
+                    break
+
+        # Always regenerate from scratch (positional style) — do not
+        # pass existing_args so the call is fully replaced for idempotency.
+        ports = find_func_or_task_ports(state, func_name)
+        if ports is None:
+            logger.warning("autofunc: no definition found for '%s'", func_name)
+            return None
+
+        indent = src_line[: len(src_line) - len(src_line.lstrip())]
+        call_text = generate_func_call(
+            func_name, ports, indent,
+            indent_size=_autofunc_options.indent_size,
+            use_named_arguments=_autofunc_options.use_named_arguments,
+        )
+
+        edit = types.TextEdit(
+            range=types.Range(
+                start=types.Position(line=line, character=call_start),
+                end=types.Position(line=end_line, character=end_character),
+            ),
+            new_text=call_text,
+        )
+        return types.WorkspaceEdit(changes={uri: [edit]})
+    except Exception as exc:
+        logger.error("autofunc error: %s", exc, exc_info=True)
         return None
 
 

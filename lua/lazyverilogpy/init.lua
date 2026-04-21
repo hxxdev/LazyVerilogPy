@@ -416,4 +416,90 @@ function M.autoarg()
     _with_client(bufnr, uri, line, character, "lazyverilogpy.autoArg", "AutoArg", 3)
 end
 
+-- ---------------------------------------------------------------------------
+-- autofunc / autotask
+-- ---------------------------------------------------------------------------
+
+function M.autofunc()
+    local bufnr = vim.api.nvim_get_current_buf()
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local uri = vim.uri_from_bufnr(bufnr)
+    local line = cursor[1] - 1 -- LSP uses 0-indexed lines
+    local character = cursor[2]
+    _with_client(bufnr, uri, line, character, "lazyverilogpy.autofunc", "AutoFunc", 3)
+end
+
+-- ---------------------------------------------------------------------------
+-- autowire / autowire_preview
+-- ---------------------------------------------------------------------------
+
+local function _autowire_request(bufnr, command, label, retries, callback)
+    local get_clients = vim.lsp.get_clients or vim.lsp.get_active_clients
+    local clients = get_clients({ bufnr = bufnr, name = "lazyverilogpy" })
+    if #clients == 0 then
+        if retries > 0 then
+            if _cfg then lsp.start(_cfg) end
+            vim.defer_fn(function()
+                _autowire_request(bufnr, command, label, retries - 1, callback)
+            end, 500)
+        else
+            vim.notify("[LazyVerilogPy] no LSP client attached", vim.log.levels.WARN)
+        end
+        return
+    end
+    local client = vim.tbl_filter(function(c) return c.name == "lazyverilogpy" end, clients)[1]
+    local uri = vim.uri_from_bufnr(bufnr)
+    client.request("workspace/executeCommand", {
+        command = command,
+        arguments = { uri },
+    }, function(err, result)
+        if err then
+            vim.notify("[LazyVerilogPy] " .. label .. ": " .. tostring(err.message), vim.log.levels.ERROR)
+            return
+        end
+        callback(result, client)
+    end, bufnr)
+end
+
+--- Automatically declare undeclared signals used in module instantiations.
+function M.autowire()
+    local bufnr = vim.api.nvim_get_current_buf()
+    _autowire_request(bufnr, "lazyverilogpy.autowire", "AutoWire", 3, function(result, client)
+        if result then
+            vim.lsp.util.apply_workspace_edit(result, client.offset_encoding)
+        end
+    end)
+end
+
+--- Preview AutoWire declarations in a vertical split without modifying the file.
+function M.autowire_preview()
+    local bufnr = vim.api.nvim_get_current_buf()
+    _autowire_request(bufnr, "lazyverilogpy.autowirepreview", "AutoWirePreview", 3, function(result, _client)
+        if not result or #result == 0 then
+            vim.notify("[LazyVerilogPy] AutoWire: no signals to declare", vim.log.levels.INFO)
+            return
+        end
+        vim.schedule(function()
+            local lines = { "Will add:" }
+            for _, line in ipairs(result) do
+                table.insert(lines, line)
+            end
+            local buf = vim.api.nvim_create_buf(false, true)
+            pcall(vim.api.nvim_buf_set_name, buf, "AutoWire Preview")
+            vim.api.nvim_buf_set_option(buf, "buftype", "nofile")
+            vim.api.nvim_buf_set_option(buf, "bufhidden", "wipe")
+            vim.api.nvim_buf_set_option(buf, "buflisted", false)
+            vim.api.nvim_buf_set_option(buf, "swapfile", false)
+            vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+            vim.api.nvim_buf_set_option(buf, "modifiable", false)
+            vim.api.nvim_buf_set_option(buf, "readonly", true)
+            vim.cmd("vsplit")
+            vim.api.nvim_win_set_buf(0, buf)
+            vim.keymap.set("n", "q", function()
+                vim.api.nvim_buf_delete(buf, { force = true })
+            end, { noremap = true, silent = true, buffer = buf })
+        end)
+    end)
+end
+
 return M

@@ -3,8 +3,11 @@ PYTHONPATH := src
 
 .PHONY: test dist
 
+autofunc_test:
+	PYTHONPATH=src .venv/bin/python -m pytest tests/test_autofunc.py -q
+
 format_test:
-	PYTHONPATH=$(PYTHONPATH) $(PYTHON) -m pytest tests/test_formatter.py -v --quiet
+	PYTHONPATH=$(PYTHONPATH) $(PYTHON) -m pytest tests/test_formatter.py -v -q
 
 answers:
 	PYTHONPATH=$(PYTHONPATH) $(PYTHON) tests/gen_answers.py

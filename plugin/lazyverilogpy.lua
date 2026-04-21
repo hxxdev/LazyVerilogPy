@@ -34,3 +34,24 @@ vim.cmd([[
     call luaeval('require("lazyverilogpy").rtltreereverse()')
   endfunction
 ]])
+
+--- Global Vimscript function so users can call :call AutoFunc()
+vim.cmd([[
+  function! AutoFunc() abort
+    call luaeval('require("lazyverilogpy").autofunc()')
+  endfunction
+]])
+
+--- Global Vimscript function so users can call :call AutoWire()
+vim.cmd([[
+  function! AutoWire() abort
+    call luaeval('require("lazyverilogpy").autowire()')
+  endfunction
+]])
+
+--- Global Vimscript function so users can call :call AutoWirePreview()
+vim.cmd([[
+  function! AutoWirePreview() abort
+    call luaeval('require("lazyverilogpy").autowire_preview()')
+  endfunction
+]])

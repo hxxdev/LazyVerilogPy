@@ -31,3 +31,9 @@ var_col1_margin = 10
 var_col2_margin = 10
 var_col3_margin = 10
 var_col4_margin = 10
+
+[autofunc]
+use_named_arguments = true
+
+[autotask]
+use_named_arguments = true
