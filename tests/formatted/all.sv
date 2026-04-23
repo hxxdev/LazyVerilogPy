@@ -323,7 +323,12 @@ module m2 #(parameter i = 1, localparam j = i, parameter type x_t = bit) (input 
                                                     instance m17.j liblist a;
                                                 endconfig
 
-                                                module ALU(o1, i1, i2, opcode);
+                                                module ALU(
+                                                    o1,
+                                                    i1,
+                                                    i2,
+                                                    opcode
+                                                );
                                                     input           [7:0]           i1    , i2    ;
                                                     input           [2:1]           opcode;
                                                     output          [7:0]           o1    ;

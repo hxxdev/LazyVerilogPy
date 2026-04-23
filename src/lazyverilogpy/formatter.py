@@ -325,6 +325,23 @@ class FormatOptions:
     ``textDocument/formatting`` requests (i.e. format-on-save is suppressed).
     The ``:Format`` command and explicit format calls are unaffected."""
 
+    # Module port-list formatting
+    module_ports_per_line_enabled: bool = False
+    """When ``True``, ``module_ports_per_line`` controls how many non-ANSI port
+    names appear on each line of a module header port list."""
+
+    module_ports_per_line: int = 1
+    """Number of port names per line in a module header port list.
+    Only used when ``module_ports_per_line_enabled`` is ``True``."""
+
+    module_max_line_length_for_ports_enabled: bool = False
+    """When ``True``, ``module_max_line_length_for_ports`` controls the column
+    limit used when wrapping a module header port list."""
+
+    module_max_line_length_for_ports: int = 80
+    """Column limit for wrapping port names in a module header port list.
+    Only used when ``module_max_line_length_for_ports_enabled`` is ``True``."""
+
     @classmethod
     def from_dict(cls, d: dict) -> "FormatOptions":
         obj = cls()
@@ -1593,6 +1610,90 @@ def _apply_kw_case(text: str, case: str) -> str:
     return text
 
 
+# ---------------------------------------------------------------------------
+# Module port-list formatting pass
+# ---------------------------------------------------------------------------
+
+# Matches a module header whose port list is on the same line:
+#   [indent] module <name> [imports...] [#(...)] (ports);
+# Captures: (prefix_up_to_and_including_"(", ports_string, ");")
+# Only single-line headers are matched; multi-line are not touched.
+_MODULE_HDR_RE = re.compile(
+    r'^([ \t]*(?:module|macromodule)\b[^(\n]*\()([^)\n]+)(\);)',
+    re.MULTILINE,
+)
+
+# Simple non-ANSI port identifier: just a plain SV identifier.
+_SIMPLE_ID_RE = re.compile(r'^[A-Za-z_$][\w$]*$')
+
+
+def _format_module_portlist_pass(text: str, opts: "FormatOptions") -> str:
+    """Expand module header port lists that consist only of simple identifiers.
+
+    Non-ANSI port lists (names only, no type keywords) are split across
+    multiple lines according to *opts*:
+    - ``module_ports_per_line_enabled``: N names per line
+    - ``module_max_line_length_for_ports_enabled``: fill up to column limit
+    - both False (default): one name per line
+
+    ANSI-style ports that contain type keywords or brackets are left unchanged.
+    """
+    indent_unit = " " * opts.indent_size
+
+    def _reformat(m: re.Match) -> str:
+        prefix = m.group(1)    # "  module foo("
+        ports_str = m.group(2) # "a, b, c, d"
+        suffix = m.group(3)    # ");"
+
+        ports = [p.strip() for p in ports_str.split(",") if p.strip()]
+        if not ports:
+            return m.group(0)
+
+        # Only handle simple identifier lists (non-ANSI style)
+        if any(not _SIMPLE_ID_RE.match(p) for p in ports):
+            return m.group(0)
+
+        # Leading whitespace of the module line (for closing ");")
+        lead_m = re.match(r'^(\s*)', prefix)
+        leading_ws = lead_m.group(1) if lead_m else ""
+        port_indent = leading_ws + indent_unit
+
+        if opts.module_ports_per_line_enabled and opts.module_ports_per_line > 0:
+            n = opts.module_ports_per_line
+            groups = [ports[i:i + n] for i in range(0, len(ports), n)]
+            port_lines: list[str] = []
+            for gi, grp in enumerate(groups):
+                comma = "," if gi < len(groups) - 1 else ""
+                port_lines.append(port_indent + ", ".join(grp) + comma)
+        elif (
+            opts.module_max_line_length_for_ports_enabled
+            and opts.module_max_line_length_for_ports > 0
+        ):
+            max_len = opts.module_max_line_length_for_ports
+            port_lines = []
+            current: list[str] = []
+            for pi, port in enumerate(ports):
+                is_last = pi == len(ports) - 1
+                candidate = port_indent + ", ".join(current + [port])
+                if current and len(candidate) > max_len:
+                    port_lines.append(port_indent + ", ".join(current) + ",")
+                    current = [port]
+                else:
+                    current.append(port)
+            if current:
+                port_lines.append(port_indent + ", ".join(current))
+        else:
+            # Default: one port per line
+            port_lines = []
+            for pi, port in enumerate(ports):
+                comma = "," if pi < len(ports) - 1 else ""
+                port_lines.append(port_indent + port + comma)
+
+        return prefix + "\n" + "\n".join(port_lines) + "\n" + leading_ws + suffix
+
+    return _MODULE_HDR_RE.sub(_reformat, text)
+
+
 def format_source(source: str, options: Optional[FormatOptions] = None) -> str:
     """Format SystemVerilog *source* and return the result.
 
@@ -1796,4 +1897,5 @@ def format_source(source: str, options: Optional[FormatOptions] = None) -> str:
         )
     if opts.align_instance_ports:
         result = _align_instance_ports_pass(result, opts)
+    result = _format_module_portlist_pass(result, opts)
     return result

@@ -1,4 +1,11 @@
-module port_align(i_clk, i_rst_n, i_data, i_valid, o_data, o_valid);
+module port_align(
+    i_clk,
+    i_rst_n,
+    i_data,
+    i_valid,
+    o_data,
+    o_valid
+);
 
     input                                           i_clk  ;
     input                                           i_rst_n;
