@@ -100,7 +100,7 @@ output [31:0] data_out;
 Output:
 
 ```systemverilog
-wire [31:0] data_out_from_memory;
+logic [31:0] data_out_from_memory;
 ```
 
 Rules
@@ -369,14 +369,6 @@ Rules:
 * Same input → same output
 * Sorting must be stable
 * Group ordering must not change
-
----
-
-# Commit
-
-```bash id="oz1m6r"
-git commit -m "Add autowire grouping and sorting options"
-```
 
 ---
 
