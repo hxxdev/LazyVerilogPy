@@ -196,11 +196,12 @@ the operator column, so their content never triggers false alignment.
 |------|---------|
 | bool | `false` |
 
-**Requires `align_assign_operators = true`.**
-
-Instead of aligning at exactly the column of the longest LHS, round the target
-column up to the nearest integer multiple of `indent_size`.  This produces
-alignment that "snaps to the grid" defined by the indentation unit.
+Round alignment columns up to the nearest integer multiple of `indent_size`,
+snapping them to the indentation grid.  Applies to all alignment passes:
+assignment operators (`align_assign_operators`), port declarations
+(`align_port_declarations`), variable declarations
+(`align_variable_declarations`), and instance port connections
+(`align_instance_ports`).
 
 With `indent_size = 4` the operator lands at column 4, 8, 12, 16, …:
 
