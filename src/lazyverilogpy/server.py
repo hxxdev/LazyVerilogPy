@@ -529,8 +529,7 @@ def _format_autoarg(result: dict) -> str:
     for i, name in enumerate(port_names):
         comma = "," if i < len(port_names) - 1 else ""
         lines.append(f"  {name}{comma}")
-    # Last port followed by ");" on the same line
-    lines[-1] = lines[-1] + ");"
+    lines.append(");")
     return "(\n" + "\n".join(lines)
 
 
