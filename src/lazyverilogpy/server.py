@@ -154,26 +154,29 @@ def _parse_filelist(f_path: Path) -> list[Path]:
     return paths
 
 
-def _load_filelist_from_toml(path: Path) -> tuple[list[Path], str | None]:
-    """Return the list of extra files declared in *path*'s ``[files]`` section.
+def _load_filelist_from_toml(path: Path) -> tuple[list[Path], list[str], str | None]:
+    """Return (file_list, defines, warning_message) from *path*'s ``[design]`` section.
 
-    Returns a tuple of (file_list, warning_message).  The warning is a string
-    when the referenced ``.f`` file cannot be found, or ``None`` otherwise.
+    ``defines`` is a list of preprocessor macro names (e.g. ``["RTL_SIM"]``) that
+    are passed to pyslang when compiling the design.  The warning is a non-empty
+    string when the referenced ``.f`` file cannot be found, or ``None`` otherwise.
     """
     if tomllib is None:
-        return [], None
+        return [], [], None
 
     try:
         with path.open("rb") as fh:
             data = tomllib.load(fh)
     except Exception as exc:
         logger.warning("Failed to read %s for filelist: %s", path, exc)
-        return [], None
+        return [], [], None
 
-    files_cfg = data.get("codebase", {})
+    # Support both [design] (new) and [codebase] (legacy) section names.
+    files_cfg = data.get("design", data.get("codebase", {}))
+    defines: list[str] = files_cfg.get("define", [])
     filelist_val = files_cfg.get("vcode")
     if not filelist_val:
-        return [], None
+        return [], defines, None
 
     f_path = Path(filelist_val)
     if not f_path.is_absolute():
@@ -183,11 +186,11 @@ def _load_filelist_from_toml(path: Path) -> tuple[list[Path], str | None]:
     if not f_path.is_file():
         warn_msg = f"[LazyVerilogPy] filelist not found: {f_path}"
         logger.warning("Filelist not found: %s", f_path)
-        return [], warn_msg
+        return [], defines, warn_msg
 
     paths = _parse_filelist(f_path)
     logger.info("Loaded %d file(s) from filelist %s", len(paths), f_path)
-    return paths, None
+    return paths, defines, None
 
 
 def _reload_config(start: Path, ls: LanguageServer | None = None) -> None:
@@ -208,8 +211,9 @@ def _reload_config(start: Path, ls: LanguageServer | None = None) -> None:
         except Exception as exc:
             logger.warning("Failed to load autofunc options from %s: %s", path, exc)
         try:
-            extra_files, warn_msg = _load_filelist_from_toml(path)
+            extra_files, defines, warn_msg = _load_filelist_from_toml(path)
             analyzer.set_extra_files(extra_files)
+            analyzer.set_defines(defines)
             if warn_msg is not None and ls is not None:
                 ls.show_message(warn_msg, types.MessageType.Warning)
         except Exception as exc:
@@ -351,34 +355,79 @@ def definition(
 # ---------------------------------------------------------------------------
 
 
+def _build_full_file_edits(
+    original: str, formatted: str
+) -> list[types.TextEdit]:
+    """Return a single TextEdit replacing the whole file, or [] if unchanged."""
+    if formatted == original:
+        return []
+    lines = original.split("\n")
+    end_line = max(len(lines) - 1, 0)
+    end_char = len(lines[end_line]) if lines else 0
+    return [
+        types.TextEdit(
+            range=types.Range(
+                start=types.Position(line=0, character=0),
+                end=types.Position(line=end_line, character=end_char),
+            ),
+            new_text=formatted,
+        )
+    ]
+
+
 @server.feature(types.TEXT_DOCUMENT_FORMATTING)
 def formatting(
     ls: LanguageServer, params: types.DocumentFormattingParams,
 ) -> Optional[list[types.TextEdit]]:
     try:
+        if _fmt_options.disable_format_on_save:
+            return []
         state = analyzer.get_state(params.text_document.uri)
         if state is None:
             return None
-
         formatted = format_source(state.text, _fmt_options)
-        if formatted == state.text:
-            return []  # no changes
-
-        lines = state.text.split("\n")
-        end_line = max(len(lines) - 1, 0)
-        end_char = len(lines[end_line]) if lines else 0
-
-        return [
-            types.TextEdit(
-                range=types.Range(
-                    start=types.Position(line=0, character=0),
-                    end=types.Position(line=end_line, character=end_char),
-                ),
-                new_text=formatted,
-            )
-        ]
+        return _build_full_file_edits(state.text, formatted)
     except Exception as exc:
         logger.error("formatting error: %s", exc, exc_info=True)
+        return None
+
+
+@server.feature(types.TEXT_DOCUMENT_RANGE_FORMATTING)
+def range_formatting(
+    ls: LanguageServer, params: types.DocumentRangeFormattingParams,
+) -> Optional[list[types.TextEdit]]:
+    """Format the whole file but return only edits within the requested range."""
+    try:
+        state = analyzer.get_state(params.text_document.uri)
+        if state is None:
+            return None
+        formatted = format_source(state.text, _fmt_options)
+        if formatted == state.text:
+            return []
+
+        req_start = params.range.start.line
+        req_end = params.range.end.line
+
+        orig_lines = state.text.split("\n")
+        fmt_lines = formatted.split("\n")
+
+        # Collect per-line edits for lines within the requested range.
+        edits: list[types.TextEdit] = []
+        limit = min(len(orig_lines), len(fmt_lines), req_end + 1)
+        for ln in range(req_start, limit):
+            if orig_lines[ln] != fmt_lines[ln]:
+                edits.append(
+                    types.TextEdit(
+                        range=types.Range(
+                            start=types.Position(line=ln, character=0),
+                            end=types.Position(line=ln, character=len(orig_lines[ln])),
+                        ),
+                        new_text=fmt_lines[ln],
+                    )
+                )
+        return edits
+    except Exception as exc:
+        logger.error("range_formatting error: %s", exc, exc_info=True)
         return None
 
 

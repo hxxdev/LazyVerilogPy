@@ -320,6 +320,11 @@ class FormatOptions:
     """Minimum spaces after column 4 (each signal name) before delimiter.
     When ``tab_align`` is ``True``, the delimiter position is snapped to grid."""
 
+    disable_format_on_save: bool = False
+    """When ``True``, the LSP server returns no edits for
+    ``textDocument/formatting`` requests (i.e. format-on-save is suppressed).
+    The ``:Format`` command and explicit format calls are unaffected."""
+
     @classmethod
     def from_dict(cls, d: dict) -> "FormatOptions":
         obj = cls()

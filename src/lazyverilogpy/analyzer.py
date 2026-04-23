@@ -92,6 +92,7 @@ class Analyzer:
     def __init__(self) -> None:
         self._docs: dict[str, DocumentState] = {}
         self._extra_files: list = []       # list[Path] of additional SV files from .f filelist
+        self._defines: list[str] = []      # preprocessor defines passed to pyslang
         self._path_to_uri: dict[Path, str] = {}  # resolved path → open document URI
         self._extra_mtimes: dict = {}      # Path → float mtime at last disk read
 
@@ -151,6 +152,15 @@ class Analyzer:
         for state in self._docs.values():
             self._parse(state)
 
+    def set_defines(self, defines: list) -> None:
+        """Set preprocessor defines (e.g. ``["RTL_SIM"]``) passed to pyslang.
+
+        Re-parses all currently open documents so the new set takes effect immediately.
+        """
+        self._defines = list(defines)
+        for state in self._docs.values():
+            self._parse(state)
+
     def refresh_if_stale(self, uri: str) -> None:
         """Re-parse *uri*'s state if any disk-based extra file changed since last parse.
 
@@ -187,7 +197,19 @@ class Analyzer:
             pass
 
         try:
-            state.tree = pyslang.SyntaxTree.fromText(state.text, "buffer.sv")
+            # Build a Bag with preprocessor defines if any are configured.
+            bag: object = None
+            if self._defines:
+                po = pyslang.PreprocessorOptions()
+                po.predefines = list(self._defines)
+                bag = pyslang.Bag()
+                bag.preprocessorOptions = po
+
+            if bag is not None:
+                sm = pyslang.SourceManager()
+                state.tree = pyslang.SyntaxTree.fromText(state.text, sm, options=bag)
+            else:
+                state.tree = pyslang.SyntaxTree.fromText(state.text, "buffer.sv")
             compilation = pyslang.Compilation()
             compilation.addSyntaxTree(state.tree)
             for path in self._extra_files:
@@ -200,11 +222,21 @@ class Analyzer:
                     open_uri = self._path_to_uri.get(path)
                     open_state = self._docs.get(open_uri) if open_uri else None
                     if open_state is not None:
-                        extra_tree = pyslang.SyntaxTree.fromText(
-                            open_state.text, str(path)
-                        )
+                        if bag is not None:
+                            extra_tree = pyslang.SyntaxTree.fromText(
+                                open_state.text, sm, str(path), options=bag
+                            )
+                        else:
+                            extra_tree = pyslang.SyntaxTree.fromText(
+                                open_state.text, str(path)
+                            )
                     else:
-                        extra_tree = pyslang.SyntaxTree.fromFile(str(path))
+                        if bag is not None:
+                            extra_tree = pyslang.SyntaxTree.fromFile(
+                                str(path), sm, options=bag
+                            )
+                        else:
+                            extra_tree = pyslang.SyntaxTree.fromFile(str(path))
                         self._record_mtime(path)
                     compilation.addSyntaxTree(extra_tree)
                 except Exception as exc:

@@ -434,6 +434,45 @@ function M.autofunc()
 end
 
 -- ---------------------------------------------------------------------------
+-- :Format command
+-- ---------------------------------------------------------------------------
+
+--- Format the current buffer.
+---
+--- In normal mode (mode == "n") the whole file is formatted via
+--- ``textDocument/formatting``.  In visual mode (mode == "v") the selected
+--- line range is sent as ``textDocument/rangeFormatting`` so only the
+--- visualised block is touched.
+---
+--- Typical key-map:
+---   vim.keymap.set("n", "<leader>f", function() require("lazyverilogpy").format("n") end)
+---   vim.keymap.set("v", "<leader>f", function() require("lazyverilogpy").format("v") end)
+---
+--- Or create a :Format user-command:
+---   vim.api.nvim_create_user_command("Format",
+---     function(opts) require("lazyverilogpy").format(opts.range > 0 and "v" or "n") end,
+---     { range = true })
+function M.format(mode)
+    if mode == "v" then
+        -- getpos("'<") / getpos("'>") are set when leaving visual mode.
+        -- The marks are 1-indexed; LSP ranges are 0-indexed.
+        local start_pos = vim.fn.getpos("'<")
+        local end_pos   = vim.fn.getpos("'>")
+        local start_line = start_pos[2] - 1
+        local end_line   = end_pos[2] - 1
+        vim.lsp.buf.format({
+            bufnr = vim.api.nvim_get_current_buf(),
+            range = {
+                start   = { line = start_line, character = 0 },
+                ["end"] = { line = end_line,   character = 0 },
+            },
+        })
+    else
+        vim.lsp.buf.format({ bufnr = vim.api.nvim_get_current_buf() })
+    end
+end
+
+-- ---------------------------------------------------------------------------
 -- autowire / autowire_preview
 -- ---------------------------------------------------------------------------
 

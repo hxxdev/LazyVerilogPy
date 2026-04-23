@@ -256,3 +256,22 @@ a                 = 1;
 long_name         = 2;
 very_long_name    = 3;  ← exactly 4 spaces before =
 ```
+
+---
+
+## Format-on-save control
+
+### `disable_format_on_save`
+| type | default |
+|------|---------|
+| bool | `false` |
+
+When `true`, the LSP server returns no edits for automatic `textDocument/formatting`
+requests (i.e. format-on-save is suppressed).  The `:Format` command and any
+other explicit format invocations are **not** affected.
+
+```toml
+# lazyverilog.toml
+[formatter]
+disable_format_on_save = true
+```

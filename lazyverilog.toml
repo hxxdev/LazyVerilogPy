@@ -1,5 +1,6 @@
-[codebase]
+[design]
 vcode = "tests/demo/vcode.f"
+# define = ["RTL_SIM"]   # preprocessor defines passed to pyslang for AST parsing
 
 [rtltree]
 show_instance_name = true   # show "cpu (u_cpu)" instead of just "cpu"
