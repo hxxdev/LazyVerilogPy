@@ -50,9 +50,9 @@ endmodule
 //- MyModule.complete definition
 module my_module #(  //- @ADDR_WIDTH defines/binding ADDR_WIDTH2
     //- ADDR_WIDTH2 childof MyModule
-    parameter ADDR_WIDTH = 8,  //- @DATA_WIDTH defines/binding DATA_WIDTH
+    parameter ADDR_WIDTH    = 8,  //- @DATA_WIDTH defines/binding DATA_WIDTH
     //- DATA_WIDTH childof MyModule
-    parameter DATA_WIDTH = 32) ();
+    parameter DATA_WIDTH    = 32) ();
 
     //- @ADDR_WIDTH ref ADDR_WIDTH2
     //- @addr defines/binding _
@@ -69,7 +69,7 @@ endmodule
 
 //- @my_module4 defines/binding _
 module my_module4 #(  //- @a_param defines/binding AParam
-    parameter int a_param = 2,  //- @a_param ref AParam
+    parameter int a_param     = 2,  //- @a_param ref AParam
     //- @b_param defines/binding _
-    localparam int b_param = a_param - 1) ();
+    localparam int b_param    = a_param - 1) ();
 endmodule

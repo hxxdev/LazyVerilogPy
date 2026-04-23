@@ -1,10 +1,10 @@
 //- @Stack defines/binding Stack
 //- @T defines/binding T
-class Stack #(parameter type T = int);
+class Stack #(parameter type T    = int);
     //- @T ref T
     //- @items defines/binding _
     //- @idx defines/binding _
-    T items[64], idx = 0;
+    T items[64], idx              = 0;
 
     //- @T ref T
     //- @val defines/binding _

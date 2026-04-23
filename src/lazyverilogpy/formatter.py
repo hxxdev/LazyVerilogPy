@@ -720,8 +720,17 @@ def _find_assign_op(line: str) -> "tuple[int, str] | None":
     return None
 
 
+_COMMENT_ONLY_RE = re.compile(r'^\s*(?://|/\*)')
+
+
 def _align_assign_pass(text: str, opts: "FormatOptions") -> str:
-    """Align = and <= operators in runs of consecutive assignment lines."""
+    """Align = and <= operators in runs of consecutive assignment lines.
+
+    Comment-only lines (// …  or  /* … */) within a run are passed through
+    unchanged and do not break the run — they are treated as transparent
+    separators so assignments above and below a comment are still aligned
+    together.
+    """
     lines = text.split('\n')
     out: list[str] = []
     i = 0
@@ -732,20 +741,35 @@ def _align_assign_pass(text: str, opts: "FormatOptions") -> str:
             i += 1
             continue
 
-        # Build a run of consecutive assignment lines.
-        run: list[tuple[str, int, str]] = [(lines[i], info[0], info[1])]
+        # Build a run of consecutive assignment lines, allowing comment-only
+        # lines to pass through without breaking the run.
+        # Each entry: (line, pos_or_None, op_or_None)
+        run: list[tuple[str, "int | None", "str | None"]] = [
+            (lines[i], info[0], info[1])
+        ]
         j = i + 1
         while j < len(lines):
             info2 = _find_assign_op(lines[j])
             if info2 is not None:
                 run.append((lines[j], info2[0], info2[1]))
                 j += 1
+            elif _COMMENT_ONLY_RE.match(lines[j]):
+                # Comment line: include as passthrough, keep scanning.
+                run.append((lines[j], None, None))
+                j += 1
             else:
                 break
 
-        if len(run) >= 2:
+        # Strip trailing comment-only passthrough entries — they belong to
+        # the next block, not this run.
+        while run and run[-1][1] is None:
+            j -= 1
+            run.pop()
+
+        real_assigns = sum(1 for _, pos, _ in run if pos is not None)
+        if real_assigns >= 2:
             # Column where spaces-before-op begin for the longest LHS.
-            max_lhs_end = max(pos for _, pos, _ in run)
+            max_lhs_end = max(pos for _, pos, _ in run if pos is not None)
             # Step 1: establish the gap (spaces between longest LHS and its op).
             effective_gap = opts.align_assign_gap
             # Step 2: if tab-snap is on, round the gap up to the next multiple
@@ -755,12 +779,17 @@ def _align_assign_pass(text: str, opts: "FormatOptions") -> str:
             # Target column for every op in the run.
             op_col = max_lhs_end + effective_gap
             for line, pos, op in run:
-                lhs = line[:pos]                    # up to (not incl.) space before op
-                rhs_start = pos + 1 + len(op) + 1  # skip: space + op + space
-                rhs = line[rhs_start:]
-                out.append(lhs + ' ' * (op_col - pos) + op + ' ' + rhs)
+                if pos is None:
+                    # Comment-only passthrough.
+                    out.append(line)
+                else:
+                    lhs = line[:pos]                    # up to (not incl.) space before op
+                    rhs_start = pos + 1 + len(op) + 1  # skip: space + op + space
+                    rhs = line[rhs_start:]
+                    out.append(lhs + ' ' * (op_col - pos) + op + ' ' + rhs)
         else:
-            out.append(run[0][0])
+            for line, _, _ in run:
+                out.append(line)
 
         i = j
 

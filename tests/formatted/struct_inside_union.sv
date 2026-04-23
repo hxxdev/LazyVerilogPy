@@ -67,16 +67,16 @@ module my_module(  //- @my_mult defines/binding MyMult
         //- @my_union2 ref MyUnion2
         //- @b1 ref B1
         //- @in1 ref In1
-        my_union2.b1 <= in1;
+        my_union2.b1    <= in1;
         //- @out1 ref Out1
         //- @my_union2 ref MyUnion2
         //- @b2 ref B2
         //- @a1 ref A1
-        out1 <= my_union2.b2.a1;
+        out1            <= my_union2.b2.a1;
         //- @out2 ref Out2
         //- @my_union2 ref MyUnion2
         //- @b2 ref B2
         //- @a2 ref A2
-        out2 <= my_union2.b2.a2;
+        out2            <= my_union2.b2.a2;
     end
 endmodule

@@ -62,10 +62,10 @@ module my_module(  //- @out1 defines/binding Out1
         //- @out1 ref Out1
         //- @my_union ref MyUnion
         //- @b1 ref B1
-        out1 <= my_union.b1[0];
+        out1    <= my_union.b1[0];
         //- @out2 ref Out2
         //- @my_union ref MyUnion
         //- @b1 ref B1
-        out2 <= my_union.b1[1];
+        out2    <= my_union.b1[1];
     end
 endmodule

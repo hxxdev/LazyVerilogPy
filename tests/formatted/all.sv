@@ -584,9 +584,9 @@ module m2 #(parameter i = 1, localparam j = i, parameter type x_t = bit) (input 
                                                                                                     wildcard bins a                            = {[0:63], 65};
                                                                                                     bins b[]                                   = {[127:150], [148:191]};
                                                                                                     // note overlapping values
-                                                                                                    bins c[]         = {200, 201, 202};
-                                                                                                    bins d           = {[1000:$]};
-                                                                                                    bins others[]    = default;
+                                                                                                    bins c[]                                   = {200, 201, 202};
+                                                                                                    bins d                                     = {[1000:$]};
+                                                                                                    bins others[]                              = default;
 
                                                                                                     bins sa      = (4 = > 5 = > 6), ([7:9], 10 = > 11, 12);
                                                                                                     bins sb[]    = (12 = > 3[*1]);

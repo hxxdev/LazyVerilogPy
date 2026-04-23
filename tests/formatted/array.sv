@@ -46,9 +46,9 @@ module associative_arrays;
 
     initial begin
         //- @real_arr ref RealArr
-        real_arr[80] = 81;
+        real_arr[80]    = 81;
         //- @real_arr ref RealArr
-        real_arr[0] = 1;
+        real_arr[0]     = 1;
 
         //- @var1 defines/binding Var1
         //- @var2 defines/binding Var2
