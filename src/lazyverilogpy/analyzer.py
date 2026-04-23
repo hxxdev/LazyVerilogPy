@@ -263,6 +263,11 @@ class Analyzer:
         if info is not None:
             return info
 
+        # Fallback: check if word is a preprocessor macro (`define).
+        macro_info = self._find_macro(state.text, word, line, uri)
+        if macro_info is not None:
+            return macro_info
+
         # Fallback: word not found in compilation — if it is preceded by '.'
         # it is likely an undeclared named port in an instantiation.
         lines = state.text.splitlines()
@@ -304,6 +309,42 @@ class Analyzer:
         word = src_line[start:end]
         return word, (start, end)
 
+    # Regex to capture a `define directive: name and optional body.
+    # Multi-line macros use backslash-continuation; the body is everything after the name.
+    _DEFINE_RE = re.compile(
+        r"`define\s+(\w+)(?:\([^)]*\))?\s*((?:[^\n]*\\\n)*[^\n]*)",
+        re.MULTILINE,
+    )
+
+    @staticmethod
+    def _find_macro(text: str, name: str, cursor_line: int, uri: str) -> Optional["SymbolInfo"]:
+        """Search *text* for a ``\\`define NAME …`` directive matching *name*.
+
+        Returns a :class:`SymbolInfo` with kind ``"macro"`` and the macro body
+        as ``type_str``, or ``None`` if no matching define is found.
+        """
+        for m in Analyzer._DEFINE_RE.finditer(text):
+            if m.group(1) != name:
+                continue
+            body = m.group(2).strip()
+            # Normalise multi-line continuation (backslash-newline → space)
+            body = re.sub(r"\\\n\s*", " ", body)
+            def_line = text[: m.start()].count("\n")
+            def_col = m.start() - text.rfind("\n", 0, m.start()) - 1
+            def_col = max(def_col, 0)
+            def_range = SourceRange(
+                start=SourcePos(line=def_line, character=def_col),
+                end=SourcePos(line=def_line, character=def_col + len(name)),
+                uri=uri,
+            )
+            return SymbolInfo(
+                name=name,
+                kind="macro",
+                type_str=body if body else "(empty)",
+                definition_range=def_range,
+            )
+        return None
+
     def _find_symbol(self, state: DocumentState, name: str, uri: str) -> Optional[SymbolInfo]:
         """Find a symbol named *name* by visiting the full compiled instance hierarchy.
 
@@ -340,9 +381,10 @@ class Analyzer:
             "SymbolKind.InstanceBody": 1,   # module body = where module is declared
             "SymbolKind.Subroutine": 2,     # function / task definition
             "SymbolKind.Package": 3,
-            "SymbolKind.Variable": 4,
-            "SymbolKind.Net": 5,
-            "SymbolKind.FormalArgument": 6,
+            "SymbolKind.TypeAlias": 4,      # typedef declaration
+            "SymbolKind.Variable": 5,
+            "SymbolKind.Net": 6,
+            "SymbolKind.FormalArgument": 7,
             "SymbolKind.Instance": 99,      # instantiation site, not definition
         }
 
@@ -370,7 +412,17 @@ class Analyzer:
         In pyslang the type is exposed as the ``type`` property on ValueSymbol
         subclasses (PortSymbol, VariableSymbol, NetSymbol, …).  Falls back to
         the older getDeclaredType()/getType() method API for forward compat.
+        TypeAlias symbols expose their underlying type via ``canonicalType``.
         """
+        # TypeAlias (typedef): expose the underlying canonical type.
+        try:
+            if str(sym.kind) == "SymbolKind.TypeAlias":
+                s = str(sym.canonicalType)
+                if s and not s.startswith("<"):
+                    return Analyzer._norm_type(s)
+        except Exception:
+            pass
+
         had_error = False
         try:
             s = str(sym.type)
@@ -531,6 +583,10 @@ class Analyzer:
                     direction = ""
                 if direction:
                     type_str = f"{direction} {type_str}".strip() if type_str else direction
+
+        # --- TypeAlias: prefix type_str with "typedef" for clarity ---
+        if "TypeAlias" in kind and type_str:
+            type_str = f"typedef {type_str}"
 
         # --- doc: module preview for Instance / InstanceBody; subroutine preview ---
         doc = ""
