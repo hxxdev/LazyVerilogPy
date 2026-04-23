@@ -175,6 +175,13 @@ _END_KEYWORDS = _INDENT_CLOSE
 # Source: verilog-token.cc FTT::unary_operator mapping
 _ALWAYS_UNARY = frozenset(["~", "!", "~&", "~|", "~^", "^~", "++", "--"])
 
+# Preprocessor conditionals that take a condition on the same line
+# (`ifdef COND / `ifndef COND / `elsif COND)
+_PP_COND_WITH_EXPR = frozenset(["`ifdef", "`ifndef", "`elsif"])
+
+# Preprocessor conditionals that stand alone on their line
+_PP_COND_BARE = frozenset(["`else", "`endif"])
+
 # Always-binary operators
 _ALWAYS_BINARY = frozenset([
     "===", "!==", "==", "!=", ">=", "->", "<->",
@@ -1573,6 +1580,7 @@ def format_source(source: str, options: Optional[FormatOptions] = None) -> str:
     dim_depth = 0          # depth inside [ ] for compact_indexing
     pending_nl = False     # deferred newline (allows end-else lookahead)
     blank_pending = 0      # extra blank lines to emit at next line break
+    in_pp_cond = False     # True after `ifdef/`ifndef/`elsif, until condition emitted
 
     prev: Optional[_Tok] = None   # last non-whitespace, non-disabled token
 
@@ -1704,6 +1712,24 @@ def format_source(source: str, options: Optional[FormatOptions] = None) -> str:
             # (e.g. `define) that bypass _break_decision still get a
             # newline before them.
             pending_nl = True
+        elif tok.ftt == FTT.identifier:
+            tl = tok.lo
+            if tl in _PP_COND_BARE:
+                # `else / `endif — stand alone on their line
+                pending_nl = True
+                in_pp_cond = False
+            elif tl in _PP_COND_WITH_EXPR:
+                # `ifdef / `ifndef / `elsif — condition follows on same line,
+                # then newline is forced after the condition token.
+                in_pp_cond = True
+            elif in_pp_cond:
+                # Condition identifier after `ifdef/`ifndef/`elsif
+                pending_nl = True
+                in_pp_cond = False
+        elif in_pp_cond:
+            # Non-identifier condition token (e.g. keyword or number) after pp-cond
+            pending_nl = True
+            in_pp_cond = False
 
         prev = tok
         i += 1
