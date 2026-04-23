@@ -14,7 +14,7 @@ they find.
 |------|---------|
 | int  | `2`     |
 
-Number of spaces per indentation level.  Ignored when `use_tabs = true`.
+Number of spaces per indentation level.
 
 ```systemverilog
 // indent_size = 2
@@ -31,16 +31,6 @@ module foo;
     end
 endmodule
 ```
-
----
-
-### `use_tabs`
-| type | default |
-|------|---------|
-| bool | `false` |
-
-Use a hard tab character (`\t`) instead of spaces for each indent level.
-`indent_size` has no effect when this is `true`.
 
 ---
 
