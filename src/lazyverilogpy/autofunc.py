@@ -24,32 +24,17 @@ class AutoFuncOptions:
 
 
 def find_nearest_identifier(line: str, char: int) -> Optional[tuple[str, int, int]]:
-    """Find the identifier on *line* nearest to column *char*.
+    """Return the identifier only if *char* is inside it, else None.
 
     Returns ``(name, start_col, end_col)`` or ``None`` if no identifier
     is found on the line.  *end_col* is exclusive (one past the last
     character of the identifier).
     """
-    identifiers: list[tuple[str, int, int]] = []
     for m in re.finditer(r'\b([A-Za-z_]\w*)\b', line):
-        identifiers.append((m.group(1), m.start(), m.end()))
-
-    if not identifiers:
-        return None
-
-    # Pick the one whose span contains char, or is closest.
-    best = None
-    best_dist = float('inf')
-    for name, start, end in identifiers:
+        start, end = m.start(), m.end()
         if start <= char < end:
-            return (name, start, end)
-        dist = min(abs(char - start), abs(char - end))
-        if dist < best_dist:
-            best_dist = dist
-            best = (name, start, end)
-
-    return best
-
+            return (m.group(1), start, end)
+    return None
 
 def find_call_extent(line: str, ident_start: int, ident_end: int) -> tuple[int, int]:
     """Find the extent of existing call text starting from the identifier.
@@ -60,9 +45,10 @@ def find_call_extent(line: str, ident_start: int, ident_end: int) -> tuple[int, 
     start_col = ident_start
     end_col = ident_end
 
-    # Look for optional whitespace + '(' after the identifier
+    # Look for optional whitespace + '(' or ';' after the identifier
     rest = line[ident_end:]
-    m = re.match(r'\s*\(', rest)
+    # m = re.match(r'\s*\(', rest)
+    m = re.match(r'\s*[\(;]', rest)
     if m is None:
         return (start_col, end_col)
 
@@ -74,7 +60,7 @@ def find_call_extent(line: str, ident_start: int, ident_end: int) -> tuple[int, 
             depth += 1
         elif line[idx] == ')':
             depth -= 1
-            if depth == 0:
+            if depth <= 0:
                 end_col = idx + 1
                 # Also consume trailing semicolon if present
                 rest_after = line[end_col:].lstrip()
