@@ -49,9 +49,3 @@ vim.cmd([[
   endfunction
 ]])
 
---- Global Vimscript function so users can call :call AutoWirePreview()
-vim.cmd([[
-  function! AutoWirePreview() abort
-    call luaeval('require("lazyverilogpy").autowire_preview()')
-  endfunction
-]])

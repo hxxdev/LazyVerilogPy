@@ -47,14 +47,32 @@ _BUILTIN_TYPE_KWS = frozenset({
 
 # RHS expression SyntaxKinds that always yield a 1-bit result
 _ONE_BIT_RHS_KINDS = frozenset({
+    # Comparison operators
     "SyntaxKind.EqualityExpression",
     "SyntaxKind.InequalityExpression",
     "SyntaxKind.WildcardEqualityExpression",
     "SyntaxKind.WildcardInequalityExpression",
     "SyntaxKind.RelationalExpression",
+    # Logical operators
     "SyntaxKind.LogicalAndExpression",
     "SyntaxKind.LogicalOrExpression",
     "SyntaxKind.LogicalNotExpression",
+    # Reduction operators (unary, always 1-bit output)
+    "SyntaxKind.UnaryBitwiseAndExpression",
+    "SyntaxKind.UnaryBitwiseOrExpression",
+    "SyntaxKind.UnaryBitwiseXorExpression",
+    "SyntaxKind.UnaryBitwiseNandExpression",
+    "SyntaxKind.UnaryBitwiseNorExpression",
+    "SyntaxKind.UnaryBitwiseXnorExpression",
+})
+
+# Bitwise operators whose output width equals operand width (Rule 6).
+_BITWISE_RHS_KINDS = frozenset({
+    "SyntaxKind.BinaryAndExpression",
+    "SyntaxKind.BinaryOrExpression",
+    "SyntaxKind.BinaryXorExpression",
+    "SyntaxKind.BinaryXnorExpression",
+    "SyntaxKind.UnaryBitwiseNotExpression",  # ~a
 })
 
 
@@ -211,6 +229,13 @@ def _rhs_node_type(
     """
     k = str(rhs_node.kind)
 
+    # Unwrap parenthesized expressions transparently.
+    if k == "SyntaxKind.ParenthesizedExpression":
+        try:
+            return _rhs_node_type(rhs_node.expression, known_widths, known_func_types)
+        except Exception:
+            pass
+
     # Function call (positional or named args): look up return type
     if k == "SyntaxKind.InvocationExpression" and known_func_types:
         try:
@@ -220,7 +245,7 @@ def _rhs_node_type(
         except Exception:
             pass
 
-    # Comparison / equality / logical → 1-bit
+    # Comparison / equality / logical / reduction operators → 1-bit
     if k in _ONE_BIT_RHS_KINDS:
         return ("logic", "")
 
@@ -234,15 +259,35 @@ def _rhs_node_type(
                 return ("logic", f"[{width - 1}:0]")
         return ("logic", "")
 
-    # Simple identifier → copy known width
+    # Simple identifier → copy known width (unknown width → 1-bit scalar)
     if k == "SyntaxKind.IdentifierName":
         name = str(rhs_node).strip()
-        if name in known_widths:
-            return ("logic", known_widths[name])
-        return ("logic", "")
+        return ("logic", known_widths.get(name, ""))
 
-    # Fallback: text-based inference (handles arithmetic, bit-selects, etc.)
-    return ("logic", _infer_width_from_rhs(str(rhs_node).strip(), known_widths))
+    # Rule 6 — bitwise operators: output width = operand width.
+    # Requires at least one operand to be a known-width identifier; otherwise
+    # the width cannot be safely determined → mark as invalid.
+    if k in _BITWISE_RHS_KINDS:
+        try:
+            # Unary (~a): single operand
+            if k == "SyntaxKind.UnaryBitwiseNotExpression":
+                operand = str(rhs_node.operand).strip()
+                if operand in known_widths:
+                    return ("logic", known_widths[operand])
+            else:
+                # Binary: try left then right
+                left = str(rhs_node.left).strip()
+                if left in known_widths:
+                    return ("logic", known_widths[left])
+                right = str(rhs_node.right).strip()
+                if right in known_widths:
+                    return ("logic", known_widths[right])
+        except Exception:
+            pass
+        return ("__invalid__", "")
+
+    # Unsupported expression (arithmetic, ternary, etc.) → cannot safely infer.
+    return ("__invalid__", "")
 
 
 def _ast_extract_assign_signals(
@@ -657,11 +702,8 @@ def _infer_width_from_rhs(rhs: str, known_widths: dict[str, str]) -> str:
             return known_widths[inner]
         return ""
 
-    # Fallback: complex expression — 1-bit
-    logger.warning(
-        "[LazyVerilogPy] Inferring width of LHS as 1-bit for RHS: %s", rhs
-    )
-    return ""
+    # Unsupported expression — cannot safely infer width.
+    return "__invalid__"
 
 
 def _infer_type_from_rhs(
@@ -686,7 +728,10 @@ def _infer_type_from_rhs(
             if func_name in known_func_types:
                 return known_func_types[func_name]
 
-    return ("logic", _infer_width_from_rhs(rhs, known_widths))
+    dim = _infer_width_from_rhs(rhs, known_widths)
+    if dim == "__invalid__":
+        return ("__invalid__", "")
+    return ("logic", dim)
 
 
 def _extract_assign_signals(
@@ -699,14 +744,15 @@ def _extract_assign_signals(
     if tree is not None:
         return _ast_extract_assign_signals(tree, known_widths, known_func_types)
 
-    # Regex fallback
-    results: list[tuple[str, str, str, int]] = []
-    for m in _ASSIGN_RE.finditer(source):
-        name = m.group(1)
-        rhs = m.group(2)
-        type_kw, dim = _infer_type_from_rhs(rhs, known_widths, known_func_types)
-        results.append((name, type_kw, dim, m.start()))
-    return results
+    # Regex fallback (disabled — AST path is always available from the server)
+    # results: list[tuple[str, str, str, int]] = []
+    # for m in _ASSIGN_RE.finditer(source):
+    #     name = m.group(1)
+    #     rhs = m.group(2)
+    #     type_kw, dim = _infer_type_from_rhs(rhs, known_widths, known_func_types)
+    #     results.append((name, type_kw, dim, m.start()))
+    # return results
+    return []
 
 
 def _extract_always_comb_signals(
@@ -724,17 +770,18 @@ def _extract_always_comb_signals(
     if tree is not None:
         return _ast_extract_always_comb_signals(tree, known_widths, known_func_types)
 
-    # Regex fallback
-    results: list[tuple[str, str, str, int]] = []
-    for block_m in _ALWAYS_COMB_BLOCK_RE.finditer(source):
-        block_body = block_m.group(1)
-        block_start = block_m.start(1)
-        for m in _BLOCKING_ASSIGN_RE.finditer(block_body):
-            name = m.group(1)
-            rhs = m.group(2)
-            type_kw, dim = _infer_type_from_rhs(rhs, known_widths, known_func_types)
-            results.append((name, type_kw, dim, block_start + m.start()))
-    return results
+    # Regex fallback (disabled — AST path is always available from the server)
+    # results: list[tuple[str, str, str, int]] = []
+    # for block_m in _ALWAYS_COMB_BLOCK_RE.finditer(source):
+    #     block_body = block_m.group(1)
+    #     block_start = block_m.start(1)
+    #     for m in _BLOCKING_ASSIGN_RE.finditer(block_body):
+    #         name = m.group(1)
+    #         rhs = m.group(2)
+    #         type_kw, dim = _infer_type_from_rhs(rhs, known_widths, known_func_types)
+    #         results.append((name, type_kw, dim, block_start + m.start()))
+    # return results
+    return []
 
 
 _CONCAT_ASSIGN_RE = re.compile(
@@ -748,23 +795,24 @@ def _extract_concat_lhs_signals(source: str, tree=None) -> list[str]:
     if tree is not None:
         return _ast_extract_concat_lhs_signals(tree)
 
-    # Regex fallback
-    results: list[str] = []
-    seen: set[str] = set()
-    for block_m in _ALWAYS_COMB_BLOCK_RE.finditer(source):
-        for m in _CONCAT_ASSIGN_RE.finditer(block_m.group(1)):
-            for token in m.group(1).split(","):
-                name = token.strip()
-                if _SIMPLE_ID_RE.match(name) and name not in seen:
-                    seen.add(name)
-                    results.append(name)
-    for m in _CONCAT_ASSIGN_RE.finditer(source):
-        for token in m.group(1).split(","):
-            name = token.strip()
-            if _SIMPLE_ID_RE.match(name) and name not in seen:
-                seen.add(name)
-                results.append(name)
-    return results
+    # Regex fallback (disabled — AST path is always available from the server)
+    # results: list[str] = []
+    # seen: set[str] = set()
+    # for block_m in _ALWAYS_COMB_BLOCK_RE.finditer(source):
+    #     for m in _CONCAT_ASSIGN_RE.finditer(block_m.group(1)):
+    #         for token in m.group(1).split(","):
+    #             name = token.strip()
+    #             if _SIMPLE_ID_RE.match(name) and name not in seen:
+    #                 seen.add(name)
+    #                 results.append(name)
+    # for m in _CONCAT_ASSIGN_RE.finditer(source):
+    #     for token in m.group(1).split(","):
+    #         name = token.strip()
+    #         if _SIMPLE_ID_RE.match(name) and name not in seen:
+    #             seen.add(name)
+    #             results.append(name)
+    # return results
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -1161,7 +1209,13 @@ def autowire(
     inst_signals = _extract_instantiation_signals(source, compilation, tree)
     assign_signals = _extract_assign_signals(source, known_widths, known_func_types, tree)
     comb_signals = _extract_always_comb_signals(source, known_widths, known_func_types, tree)
-    concat_signals = _extract_concat_lhs_signals(source, tree)
+    # Signals whose RHS expression cannot be safely inferred (unsupported
+    # operators, invalid function return types, etc.) go to "Failed to add".
+    invalid_assign = [name for name, t, _, _ in assign_signals if t == "__invalid__"]
+    assign_signals = [(n, t, d, o) for n, t, d, o in assign_signals if t != "__invalid__"]
+    invalid_comb = [name for name, t, _, _ in comb_signals if t == "__invalid__"]
+    comb_signals = [(n, t, d, o) for n, t, d, o in comb_signals if t != "__invalid__"]
+    concat_signals = _extract_concat_lhs_signals(source, tree) + invalid_assign + invalid_comb
 
     seen: set[str] = set()
     all_decls: list[_SignalDecl] = []
@@ -1169,16 +1223,20 @@ def autowire(
     order = 0
 
     def _check_update(sig_name: str, type_kw: str, dim: str) -> None:
-        """If sig_name is declared with a different type, queue an update.
+        """If sig_name is declared with a different type or dimension, queue an update.
 
-        Only triggers when the inferred type is a non-primitive typedef name,
-        so ``wire`` vs ``logic`` differences are intentionally ignored.
+        - Primitive-type swaps (wire ↔ logic) are intentionally skipped.
+        - Dimension-only updates (logic → logic [7:0]) are always applied.
+        - Typedef promotions (logic → packet_t) are always applied.
         """
-        if type_kw in _BUILTIN_TYPE_KWS:
-            return  # Don't swap primitive types (wire ↔ logic, etc.)
         if sig_name not in decl_info:
             return
         decl_type, decl_dim, line_idx, orig_line = decl_info[sig_name]
+        # Don't swap between primitive types (wire ↔ logic, reg ↔ logic, etc.)
+        if type_kw in _BUILTIN_TYPE_KWS and type_kw != decl_type:
+            return
+        if decl_type == type_kw and decl_dim == dim:
+            return  # No change needed
         if decl_type != type_kw or decl_dim != dim:
             update_decls.append(
                 _UpdateDecl(
@@ -1247,12 +1305,20 @@ def autowire(
         order += 1
 
     failed_lines: list[str] = []
-    if concat_signals:
-        failed_lines = ["Failed to add:"] + concat_signals
+    # Exclude already-declared signals from the failed list and deduplicate.
+    seen_failed: set[str] = set()
+    undeclared_failed: list[str] = []
+    for s in concat_signals:
+        if s not in declared and s not in seen_failed:
+            seen_failed.add(s)
+            undeclared_failed.append(s)
+    if undeclared_failed:
+        failed_lines = ["Failed to add:"] + undeclared_failed
 
     if preview:
         lines_out: list[str] = []
         if all_decls:
+            lines_out += ["Will add:"]
             lines_out += _format_declarations(all_decls, options).splitlines()
         if update_decls:
             lines_out += ["", "Will update:"]

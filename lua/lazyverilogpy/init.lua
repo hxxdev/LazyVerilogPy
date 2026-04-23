@@ -503,43 +503,61 @@ local function _autowire_request(bufnr, command, label, retries, callback)
     end, bufnr)
 end
 
---- Automatically declare undeclared signals used in module instantiations.
+--- AutoWire: show a colored preview split, then prompt at cmdline with confirm().
 function M.autowire()
-    local bufnr = vim.api.nvim_get_current_buf()
-    _autowire_request(bufnr, "lazyverilogpy.autowire", "AutoWire", 3, function(result, client)
-        if result then
-            vim.lsp.util.apply_workspace_edit(result, client.offset_encoding)
-        end
-    end)
-end
-
---- Preview AutoWire declarations in a vertical split without modifying the file.
-function M.autowire_preview()
-    local bufnr = vim.api.nvim_get_current_buf()
-    _autowire_request(bufnr, "lazyverilogpy.autowirepreview", "AutoWirePreview", 3, function(result, _client)
+    local src_bufnr = vim.api.nvim_get_current_buf()
+    _autowire_request(src_bufnr, "lazyverilogpy.autowirepreview", "AutoWire", 3, function(result, _client)
         if not result or #result == 0 then
-            vim.notify("[LazyVerilogPy] AutoWire: no signals to declare", vim.log.levels.INFO)
+            vim.notify("[LazyVerilogPy] AutoWire: nothing to add or update", vim.log.levels.INFO)
             return
         end
         vim.schedule(function()
-            local lines = { "Will add:" }
-            for _, line in ipairs(result) do
-                table.insert(lines, line)
-            end
+            -- Build and open preview buffer.
             local buf = vim.api.nvim_create_buf(false, true)
             pcall(vim.api.nvim_buf_set_name, buf, "AutoWire Preview")
             vim.api.nvim_buf_set_option(buf, "buftype", "nofile")
             vim.api.nvim_buf_set_option(buf, "bufhidden", "wipe")
             vim.api.nvim_buf_set_option(buf, "buflisted", false)
             vim.api.nvim_buf_set_option(buf, "swapfile", false)
-            vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+            vim.api.nvim_buf_set_lines(buf, 0, -1, false, result)
             vim.api.nvim_buf_set_option(buf, "modifiable", false)
             vim.api.nvim_buf_set_option(buf, "readonly", true)
             vim.cmd("vsplit")
-            vim.api.nvim_win_set_buf(0, buf)
-            vim.keymap.set("n", "q", function()
-                vim.api.nvim_buf_delete(buf, { force = true })
-            end, { noremap = true, silent = true, buffer = buf })
+            local preview_win = vim.api.nvim_get_current_win()
+            vim.api.nvim_win_set_buf(preview_win, buf)
+
+            -- Apply colors to section headers.
+            local ns = vim.api.nvim_create_namespace("lazyverilogpy_autowire")
+            local section_hl = {
+                ["Will add:"]        = "DiagnosticOk",
+                ["Will update:"]     = "DiagnosticWarn",
+                ["Failed to add:"]   = "DiagnosticError",
+            }
+            for i, line in ipairs(result) do
+                local hl = section_hl[vim.trim(line)]
+                if hl then
+                    vim.api.nvim_buf_add_highlight(buf, ns, hl, i - 1, 0, -1)
+                end
+            end
+
+            local function close_preview()
+                if vim.api.nvim_buf_is_valid(buf) then
+                    vim.api.nvim_buf_delete(buf, { force = true })
+                end
+            end
+
+            -- Force redraw so the vsplit is visible before the cmdline prompt.
+            vim.cmd("redraw")
+            -- Prompt at cmdline; user can read the preview while answering.
+            local ans = vim.fn.input("Apply AutoWire? [Y]es/[N]o: ")
+            close_preview()
+            if ans:lower():sub(1, 1) == "y" then
+                _autowire_request(src_bufnr, "lazyverilogpy.autowire", "AutoWire", 3, function(edit, client)
+                    if edit then
+                        vim.lsp.util.apply_workspace_edit(edit, client.offset_encoding)
+                    end
+                end)
+            end
         end)
     end)
 end
