@@ -131,17 +131,22 @@ module m2 #(parameter i = 1, localparam j = i, parameter type x_t = bit) (input 
                     : foo
 
                     always_comb begin
-                        typedef union tagged {void Invalid;
-                        int Valid;
+                        typedef union tagged {
+                            void Invalid;
+                            int Valid;
                         } VInt;
 
-                        typedef union tagged {struct {bit [4:0] reg1, reg2, regd;
-                        } Add;
-                        union tagged {bit [9:0] JmpU;
-                        struct {bit [1:0] cc;
-                        bit [9:0] addr;
-                        } JmpC;
-                        } Jmp;
+                        typedef union tagged {
+                            struct {
+                                bit [4:0] reg1, reg2, regd;
+                            } Add;
+                            union tagged {
+                                bit [9:0] JmpU;
+                                struct {
+                                    bit             [1:0]           cc              ;
+                                    bit             [9:0]           addr            ;
+                                } JmpC;
+                            } Jmp;
                         } Instr;
 
                         VInt            v                                       ;
@@ -744,12 +749,14 @@ module m2 #(parameter i = 1, localparam j = i, parameter type x_t = bit) (input 
                                                                                                 endmodule
 
                                                                                                 module m13;
-                                                                                                    struct packed {int a;
-                                                                                                    logic b;
+                                                                                                    struct packed {
+                                                                                                        int             a           ;
+                                                                                                        logic           b           ;
                                                                                                     } x;
 
-                                                                                                    union packed {logic a;
-                                                                                                    bit b;
+                                                                                                    union packed {
+                                                                                                        logic           a           ;
+                                                                                                        bit             b           ;
                                                                                                     } y;
 
                                                                                                     chandle z;
@@ -764,8 +771,9 @@ module m2 #(parameter i = 1, localparam j = i, parameter type x_t = bit) (input 
                                                                                                     typedef class Base;
 
                                                                                                         class Base #(parameter p = 1);
-                                                                                                            typedef struct {real r;
-                                                                                                            bit [p-1:0] data;
+                                                                                                            typedef struct {
+                                                                                                                real r;
+                                                                                                                bit [p-1:0] data;
                                                                                                             } T;
 
                                                                                                             static function T Tsum(input T driver[]);
@@ -863,7 +871,8 @@ module m2 #(parameter i = 1, localparam j = i, parameter type x_t = bit) (input 
                                                                                                                         modport n(input b, clocking
                                                                                                                             cb);
 
-                                                                                                                            struct {int i;
+                                                                                                                            struct {
+                                                                                                                                int i;
                                                                                                                             } s;
                                                                                                                             modport o(input.q(s.i));
                                                                                                                         endinterface

@@ -4,8 +4,9 @@
 //- @data defines/binding Data
 //- X childof Data
 //- Y childof Data
-function f1(struct {int x;
-    int y;
+function f1(struct {
+        int             x           ;
+        int             y           ;
     } data);
     //- @sum defines/binding _
     //- @#0data ref Data
@@ -23,9 +24,11 @@ endfunction
 //- X1 childof Data1
 //- Y1 childof Data1
 //- H1  childof X1
-function f2(struct {union {int h;
-    } x;
-    int y;
+function f2(struct {
+        union {
+            int h;
+        } x;
+        int y;
     } data);
     //- @sum defines/binding _
     //- @#0data ref Data1

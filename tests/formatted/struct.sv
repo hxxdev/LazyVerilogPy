@@ -3,23 +3,25 @@
 
 //- @pkg defines/binding _
 package pkg;
-    struct {  //- @aa defines/binding AA1
-    //- @dd defines/binding _
-    byte                                    aa          , dd          ;
-    //- @bb defines/binding _
-    reg                                     bb          ;
-    //- @cc defines/binding CC1
-    shortint            unsigned            cc          ;
+    struct {
+        //- @aa defines/binding AA1
+        //- @dd defines/binding _
+        byte                                    aa          , dd          ;
+        //- @bb defines/binding _
+        reg                                     bb          ;
+        //- @cc defines/binding CC1
+        shortint            unsigned            cc          ;
     }  //- @local_struct defines/binding LocalStruct1
     //- @other_struct defines/binding OtherStruct
     local_struct = '{1, 2, 100}, other_struct;
 
-    typedef struct {  //- @xx defines/binding _
-    byte                                    xx          ;
-    //- @yy defines/binding _
-    reg                                     yy          ;
-    //- @zz defines/binding ZZ1
-    shortint            unsigned            zz          ;
+    typedef struct {
+        //- @xx defines/binding _
+        byte                                    xx          ;
+        //- @yy defines/binding _
+        reg                                     yy          ;
+        //- @zz defines/binding ZZ1
+        shortint            unsigned            zz          ;
     }  //- @my_struct1 defines/binding MyStruct1
     my_struct1;
 
@@ -40,23 +42,25 @@ package pkg;
 
 endpackage
 
-typedef struct {  //- @xx defines/binding XX
-byte                                    xx          ;
-//- @yy defines/binding YY
-reg                                     yy          ;
-//- @zz defines/binding ZZ
-shortint            unsigned            zz          ;
+typedef struct {
+    //- @xx defines/binding XX
+    byte                                    xx          ;
+    //- @yy defines/binding YY
+    reg                                     yy          ;
+    //- @zz defines/binding ZZ
+    shortint            unsigned            zz          ;
 }  //- @my_struct defines/binding MyStruct
 my_struct;
 
 //- @module_with_struct defines/binding _
 module module_with_struct;
-    struct {  //- @aa defines/binding AA
-    byte                                    aa          ;
-    //- @bb defines/binding BB
-    reg                                     bb          ;
-    //- @cc defines/binding CC
-    shortint            unsigned            cc          ;
+    struct {
+        //- @aa defines/binding AA
+        byte                                    aa          ;
+        //- @bb defines/binding BB
+        reg                                     bb          ;
+        //- @cc defines/binding CC
+        shortint            unsigned            cc          ;
     }  //- @local_struct defines/binding LocalStruct
     local_struct = '{1, 2, 100};
 

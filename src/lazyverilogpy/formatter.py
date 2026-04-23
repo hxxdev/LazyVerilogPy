@@ -1716,6 +1716,9 @@ def format_source(source: str, options: Optional[FormatOptions] = None) -> str:
     pending_nl = False     # deferred newline (allows end-else lookahead)
     blank_pending = 0      # extra blank lines to emit at next line break
     in_pp_cond = False     # True after `ifdef/`ifndef/`elsif, until condition emitted
+    after_disabled = False # True after disabled token that didn't end with \n
+    struct_open_pending = False  # True after struct/union keyword, until { is seen
+    brace_stack: list[str] = []  # "struct" or "other" per open {
 
     prev: Optional[_Tok] = None   # last non-whitespace, non-disabled token
 
@@ -1757,6 +1760,7 @@ def format_source(source: str, options: Optional[FormatOptions] = None) -> str:
             _flush_newline()
             out.append(tok.text)
             at_bol = tok.text.endswith("\n")
+            after_disabled = not at_bol
             i += 1
             # Don't update prev — disabled regions don't affect spacing
             continue
@@ -1764,6 +1768,9 @@ def format_source(source: str, options: Optional[FormatOptions] = None) -> str:
         # ── Whitespace token ──────────────────────────────────────────────
         if tok.ftt == FTT.whitespace:
             nl = tok.text.count("\n")
+            if after_disabled and nl >= 1:
+                pending_nl = True
+            after_disabled = False
             if nl > 1:
                 extra = min(nl - 1, opts.blank_lines_between_items)
                 blank_pending = max(blank_pending, extra)
@@ -1811,6 +1818,10 @@ def format_source(source: str, options: Optional[FormatOptions] = None) -> str:
         if tok.ftt == FTT.keyword and tok.lo in _INDENT_CLOSE:
             delta = indent_stack.pop() if indent_stack else 1
             indent_level = max(0, indent_level - delta)
+        elif tok.ftt == FTT.close_group and tok.text == "}" \
+                and brace_stack and brace_stack[-1] == "struct":
+            delta = indent_stack.pop() if indent_stack else 1
+            indent_level = max(0, indent_level - delta)
 
         # ── Emit token ───────────────────────────────────────────────────
         if tok.ftt == FTT.keyword:
@@ -1839,6 +1850,20 @@ def format_source(source: str, options: Optional[FormatOptions] = None) -> str:
                     pending_nl = True
             elif tok.lo in _INDENT_CLOSE:
                 pending_nl = True
+            elif tok.lo in {"struct", "union"}:
+                struct_open_pending = True
+        elif tok.ftt == FTT.open_group and tok.text == "{":
+            if struct_open_pending:
+                brace_stack.append("struct")
+                pending_nl = True
+                indent_level += 1
+                indent_stack.append(1)
+            else:
+                brace_stack.append("other")
+            struct_open_pending = False
+        elif tok.ftt == FTT.close_group and tok.text == "}":
+            if brace_stack:
+                brace_stack.pop()
         elif tok.ftt == FTT.semicolon:
             pending_nl = True
         elif tok.ftt in (FTT.eol_comment, FTT.include_directive):

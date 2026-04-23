@@ -207,7 +207,7 @@ class Analyzer:
 
             if bag is not None:
                 sm = pyslang.SourceManager()
-                state.tree = pyslang.SyntaxTree.fromText(state.text, sm, options=bag)
+                state.tree = pyslang.SyntaxTree.fromText(state.text, sm, "buffer.sv", options=bag)
             else:
                 state.tree = pyslang.SyntaxTree.fromText(state.text, "buffer.sv")
             compilation = pyslang.Compilation()
@@ -259,12 +259,12 @@ class Analyzer:
         if not word:
             return None
 
-        info = self._find_symbol(state, word, uri)
+        info = self._find_symbol(state, word, uri, cursor_line=line)
         if info is not None:
             return info
 
         # Fallback: check if word is a preprocessor macro (`define).
-        macro_info = self._find_macro(state.text, word, line, uri)
+        macro_info = self._find_macro(state.text, word, line, uri, state.tree)
         if macro_info is not None:
             return macro_info
 
@@ -317,39 +317,94 @@ class Analyzer:
     )
 
     @staticmethod
-    def _find_macro(text: str, name: str, cursor_line: int, uri: str) -> Optional["SymbolInfo"]:
-        """Search *text* for a ``\\`define NAME …`` directive matching *name*.
+    def _find_macro(text: str, name: str, cursor_line: int, uri: str, tree=None) -> Optional["SymbolInfo"]:
+        """Search for a ``\\`define NAME …`` directive matching *name*.
+
+        Tries pyslang trivia traversal first (accurate location, respects
+        preprocessor context).  Falls back to regex scan of raw text.
 
         Returns a :class:`SymbolInfo` with kind ``"macro"`` and the macro body
         as ``type_str``, or ``None`` if no matching define is found.
         """
-        for m in Analyzer._DEFINE_RE.finditer(text):
-            if m.group(1) != name:
-                continue
-            body = m.group(2).strip()
-            # Normalise multi-line continuation (backslash-newline → space)
-            body = re.sub(r"\\\n\s*", " ", body)
-            def_line = text[: m.start()].count("\n")
-            def_col = m.start() - text.rfind("\n", 0, m.start()) - 1
-            def_col = max(def_col, 0)
-            def_range = SourceRange(
-                start=SourcePos(line=def_line, character=def_col),
-                end=SourcePos(line=def_line, character=def_col + len(name)),
-                uri=uri,
-            )
-            return SymbolInfo(
-                name=name,
-                kind="macro",
-                type_str=body if body else "(empty)",
-                definition_range=def_range,
-            )
+        # --- pyslang trivia approach ---
+        if tree is not None:
+            try:
+                sm = tree.sourceManager
+                result: list = []
+
+                def _visitor(node) -> bool:
+                    if result:
+                        return False  # found already
+                    try:
+                        if hasattr(node, "trivia"):  # Token node
+                            for t in node.trivia:
+                                if "Directive" not in str(t.kind):
+                                    continue
+                                syn = t.syntax()
+                                if syn is None or "Define" not in str(syn.kind):
+                                    continue
+                                if syn.name.valueText != name:
+                                    continue
+                                # Build body string
+                                body_toks = list(syn.body) if syn.body else []
+                                body = "".join(str(t2) for t2 in body_toks).strip()
+                                # Normalize multi-line continuation
+                                body = re.sub(r"\\\n\s*", " ", body)
+                                # Source location of the name token
+                                name_loc = syn.name.location
+                                def_line = sm.getLineNumber(name_loc) - 1
+                                def_col = sm.getColumnNumber(name_loc) - 1
+                                def_range = SourceRange(
+                                    start=SourcePos(line=def_line, character=def_col),
+                                    end=SourcePos(line=def_line, character=def_col + len(name)),
+                                    uri=uri,
+                                )
+                                result.append(SymbolInfo(
+                                    name=name,
+                                    kind="macro",
+                                    type_str=body if body else "(empty)",
+                                    definition_range=def_range,
+                                ))
+                    except Exception:
+                        pass
+                    return True
+
+                tree.root.visit(_visitor)
+                if result:
+                    return result[0]
+            except Exception:
+                pass
+
+        # --- regex fallback ---
+        # for m in Analyzer._DEFINE_RE.finditer(text):
+        #     if m.group(1) != name:
+        #         continue
+        #     body = m.group(2).strip()
+        #     # Normalise multi-line continuation (backslash-newline → space)
+        #     body = re.sub(r"\\\n\s*", " ", body)
+        #     def_line = text[: m.start()].count("\n")
+        #     def_col = m.start() - text.rfind("\n", 0, m.start()) - 1
+        #     def_col = max(def_col, 0)
+        #     def_range = SourceRange(
+        #         start=SourcePos(line=def_line, character=def_col),
+        #         end=SourcePos(line=def_line, character=def_col + len(name)),
+        #         uri=uri,
+        #     )
+        #     return SymbolInfo(
+        #         name=name,
+        #         kind="macro",
+        #         type_str=body if body else "(empty)",
+        #         definition_range=def_range,
+        #     )
         return None
 
-    def _find_symbol(self, state: DocumentState, name: str, uri: str) -> Optional[SymbolInfo]:
+    def _find_symbol(self, state: DocumentState, name: str, uri: str, cursor_line: int = -1) -> Optional[SymbolInfo]:
         """Find a symbol named *name* by visiting the full compiled instance hierarchy.
 
         Uses pyslang's ``visit()`` API for a depth-first walk that correctly
         crosses file boundaries when extra files are loaded via the filelist.
+        When *cursor_line* is provided, Variable/Net candidates are narrowed to
+        those in the same module as the cursor (via ``sym.hierarchicalPath``).
         """
         compilation = state.compilation
         tree = state.tree
@@ -388,8 +443,50 @@ class Analyzer:
             "SymbolKind.Instance": 99,      # instantiation site, not definition
         }
 
+        # When cursor line is known, scope Variable/Net candidates to the
+        # module that contains the cursor.  This prevents cross-module leakage
+        # when two modules have identically-named local signals.
+        if cursor_line >= 0:
+            cursor_module = self._module_at_line(state.text, cursor_line)
+            if cursor_module:
+                def _sym_module(sym) -> str:
+                    try:
+                        path = str(sym.hierarchicalPath)
+                        return path.split(".")[0]
+                    except Exception:
+                        return ""
+
+                local = [s for s in candidates if _sym_module(s) == cursor_module]
+                if local:
+                    candidates = local
+                else:
+                    # No candidates in the cursor's module.  Keep only non-local
+                    # kinds (typedefs, subroutines, packages) that are legitimately
+                    # cross-scope.  Suppress Variable/Net — they belong to a module
+                    # scope and finding one from a different module is misleading.
+                    _MODULE_LOCAL_KINDS = {"SymbolKind.Variable", "SymbolKind.Net"}
+                    cross_scope = [s for s in candidates if str(s.kind) not in _MODULE_LOCAL_KINDS]
+                    if cross_scope:
+                        candidates = cross_scope
+                    else:
+                        return None
+
         best = min(candidates, key=lambda s: _KIND_PRIORITY.get(str(s.kind), 50))
         return self._build_info(best, tree, state.uri)
+
+    @staticmethod
+    def _module_at_line(text: str, line: int) -> str:
+        """Return the module name whose body contains *line* (0-indexed)."""
+        current_module = ""
+        for i, src_line in enumerate(text.splitlines()):
+            m = re.match(r"\s*module\s+(\w+)", src_line)
+            if m:
+                current_module = m.group(1)
+            if i == line:
+                return current_module
+            if re.match(r"\s*endmodule\b", src_line):
+                current_module = ""
+        return current_module
 
     # ------------------------------------------------------------------
     # Hover helpers
@@ -466,8 +563,24 @@ class Analyzer:
         """Normalise a pyslang type string for display.
 
         - Inserts a space between an identifier and ``[``: ``logic[3:0]`` → ``logic [3:0]``
+        - Expands struct/union body with indented members for readability.
         """
-        return re.sub(r"(\w)\[", r"\1 [", s)
+        s = re.sub(r"(\w)\[", r"\1 [", s)
+        # Expand struct/union bodies: "struct{a;b;}" → multi-line with indentation
+        def _expand_struct(m: re.Match) -> str:
+            preamble = m.group(1)  # e.g. "struct" or "struct packed"
+            body = m.group(2)      # members separated by ";"
+            suffix = m.group(3)    # anything after "}" (e.g. " name" or "")
+            # Strip pyslang internal anonymous type names like "s$3" or "u$12"
+            suffix = re.sub(r"\s*\w+\$\d+", "", suffix)
+            members = [x.strip() for x in body.split(";") if x.strip()]
+            lines = [preamble + "{"]
+            for member in members:
+                lines.append("    " + member + ";")
+            lines.append("}" + suffix)
+            return "\n".join(lines)
+        s = re.sub(r"((?:struct|union)\b[^{]*)\{([^}]*)\}(.*)", _expand_struct, s, flags=re.DOTALL)
+        return s
 
     @staticmethod
     def _subroutine_preview(sym, max_args: int = 5) -> str:
