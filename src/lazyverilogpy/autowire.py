@@ -183,6 +183,10 @@ def _ast_known_func_types(tree) -> dict[str, tuple[str, str]]:
             base_type = ret_str[: dim_m.start()].strip()
             if not base_type or base_type in _BUILTIN_TYPE_KWS:
                 base_type = "logic"
+            else:
+                # array-of-typedef return type (e.g. packet_t [2:0]) is not
+                # valid SystemVerilog syntax — skip this function.
+                return True
             types[func_name] = (base_type, dim_m.group(1))
         else:
             types[func_name] = (ret_str, "")
@@ -890,6 +894,10 @@ def _build_known_func_types(source: str, tree=None) -> dict[str, tuple[str, str]
             base_type = ret_str[: dim_m.start()].strip()
             if not base_type or base_type in _BUILTIN_TYPE_KWS:
                 base_type = "logic"
+            else:
+                # array-of-typedef return type (e.g. packet_t [2:0]) is not
+                # valid SystemVerilog syntax — skip this function.
+                continue
             types[func_name] = (base_type, dim_m.group(1))
         else:
             types[func_name] = (ret_str, "")
