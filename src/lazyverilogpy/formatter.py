@@ -1712,6 +1712,14 @@ def format_source(source: str, options: Optional[FormatOptions] = None) -> str:
             # (e.g. `define) that bypass _break_decision still get a
             # newline before them.
             pending_nl = True
+        elif tok.ftt == FTT.comment_block:
+            # If the next source token is whitespace containing a newline, the
+            # block comment was the last thing on its line (possibly alone).
+            # Preserve that line break so "/*comment*/\nstmt;" is not collapsed
+            # into "/*comment*/ stmt;".
+            if i + 1 < len(tokens) and tokens[i + 1].ftt == FTT.whitespace \
+                    and "\n" in tokens[i + 1].text:
+                pending_nl = True
         elif tok.ftt == FTT.identifier:
             tl = tok.lo
             if tl in _PP_COND_BARE:

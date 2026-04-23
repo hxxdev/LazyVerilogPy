@@ -5,9 +5,10 @@
 `define PRINT_STRING(str1) $display("%s\n", str1)
 
 //- @PRINT_3_STRINGS defines/binding Print3Strings
-`define PRINT_3_STRINGS(str1, str2, str3) \ `PRINT_STRING(str1);
-\ `PRINT_STRING(str2);
-\ `PRINT_STRING(str3);
+`define PRINT_3_STRINGS(str1, str2, str3) \
+    `PRINT_STRING(str1); \
+    `PRINT_STRING(str2); \
+    `PRINT_STRING(str3);
 
 //- @TEN defines/binding Ten
 `define TEN 10
