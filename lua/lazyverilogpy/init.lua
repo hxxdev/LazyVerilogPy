@@ -46,8 +46,12 @@ function M.setup(user_config)
     vim.api.nvim_create_autocmd("FileType", {
         group    = "LazyVerilogPy",
         pattern  = _cfg.filetypes,
-        callback = function()
-            if not vim.lsp.get_clients({ bufnr = bufnr, name = "lazyverilogpy" })[1] then
+        callback = function(ev)
+            -- vim.lsp.start() deduplicates: reuses an existing client with the same
+            -- name and root_dir, and attaches it to the current buffer.  We must call
+            -- it for EVERY matching buffer so that files opened later (e.g. via netrw)
+            -- also get didOpen / didChange / didSave events sent to the server.
+            if not vim.lsp.get_clients({ bufnr = ev.buf, name = "lazyverilogpy" })[1] then
                 lsp.start(_cfg)
             end
         end,

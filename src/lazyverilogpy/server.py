@@ -265,6 +265,25 @@ def did_change(ls: LanguageServer, params: types.DidChangeTextDocumentParams) ->
     _publish_diagnostics(ls, params.text_document.uri)
 
 
+# @server.feature(types.TEXT_DOCUMENT_DID_SAVE)
+# def did_save(ls: LanguageServer, params: types.DidSaveTextDocumentParams) -> None:
+#     uri = params.text_document.uri
+#     # Re-read the saved file from disk so the compilation is updated immediately,
+#     # without waiting for the editor's did_change debounce to expire.
+#     try:
+#         path = _uri_to_path(uri)
+#         text = path.read_text(encoding="utf-8")
+#     except Exception:
+#         return
+#     state = analyzer.get_state(uri)
+#     if state is None or state.text == text:
+#         return  # nothing changed or file not tracked
+#     # Simulate a full-document change with the saved content.
+#     from lsprotocol.types import TextDocumentContentChangeWholeDocument
+#     analyzer.change(uri, TextDocumentContentChangeWholeDocument(text=text))
+#     _publish_diagnostics(ls, uri)
+
+
 @server.feature(types.TEXT_DOCUMENT_DID_CLOSE)
 def did_close(ls: LanguageServer, params: types.DidCloseTextDocumentParams) -> None:
     analyzer.close(params.text_document.uri)
@@ -409,8 +428,27 @@ def execute_autoinst(
         return None
 
 
+_PORT_CONN_RE = re.compile(r"\.\s*(\w+)\s*\(([^)]*)\)")
+
+
+def _parse_existing_connections(source_text: str, line_start: int, line_end: int) -> dict[str, str]:
+    """Return a mapping of port_name → connection_content from existing instantiation lines."""
+    lines = source_text.splitlines()
+    existing: dict[str, str] = {}
+    for raw in lines[line_start : line_end + 1]:
+        for m in _PORT_CONN_RE.finditer(raw):
+            port_name = m.group(1)
+            conn = m.group(2).strip()
+            existing[port_name] = conn
+    return existing
+
+
 def _format_autoinst(result: dict, source_text: str) -> str:
-    """Build the formatted instantiation text from *result*."""
+    """Build the formatted instantiation text from *result*.
+
+    Existing port connections are preserved when the connection signal differs
+    from the port name (e.g. ``.address (addr)`` stays as ``addr``).
+    """
     module_name = result["module_name"]
     instance_name = result["instance_name"]
     ports = result["ports"]
@@ -418,9 +456,13 @@ def _format_autoinst(result: dict, source_text: str) -> str:
     # Detect indentation from the original line.
     lines = source_text.splitlines()
     line_start = result["line_start"]
+    line_end = result["line_end"]
     orig_line = lines[line_start] if line_start < len(lines) else ""
     base_indent = orig_line[: len(orig_line) - len(orig_line.lstrip())]
     port_indent = base_indent + "    "
+
+    # Parse existing connections so they are preserved.
+    existing = _parse_existing_connections(source_text, line_start, line_end)
 
     # Find longest port name for alignment.
     max_name_len = max(len(p["name"]) for p in ports) if ports else 0
@@ -430,7 +472,8 @@ def _format_autoinst(result: dict, source_text: str) -> str:
         name = port["name"]
         padded = name.ljust(max_name_len)
         comma = "," if i < len(ports) - 1 else ""
-        port_lines.append(f"{port_indent}.{padded} ({name}){comma}")
+        conn = existing.get(name, name)
+        port_lines.append(f"{port_indent}.{padded} ({conn}){comma}")
 
     header = f"{base_indent}{module_name} {instance_name} ("
     footer = f"{base_indent});"

@@ -21,6 +21,8 @@ from lazyverilogpy.autowire import (
     AutowireOptions,
     autowire,
     _find_declared_signals,
+    _find_decl_info_by_name,
+    _build_known_func_types,
     _find_insertion_line,
     _infer_width_from_rhs,
     _extract_assign_signals,
@@ -298,6 +300,49 @@ class TestAlreadyDeclared:
         result = _aw(src, extra)
         assert result.count("WIDTH") == src.count("WIDTH")
 
+    def test_skip_typedef_typed_declaration(self):
+        """AST path must detect typedef-typed declarations as already declared."""
+        src = (
+            "module top;\n"
+            "  pkt_t [3:0] c;\n"         # typedef-typed — regex misses this
+            "  always_comb begin\n"
+            "    c = some_func(x);\n"
+            "  end\n"
+            "endmodule\n"
+        )
+        result = _aw(src)
+        # c is already declared — must not be added again
+        decl_lines = [l for l in result.splitlines() if "c;" in l and "=" not in l]
+        assert len(decl_lines) == 1
+
+
+# ---------------------------------------------------------------------------
+# AST corner cases
+# ---------------------------------------------------------------------------
+
+
+class TestASTCornerCases:
+    """Corner cases that regex-based extraction cannot handle."""
+
+    def test_always_comb_without_begin_end(self):
+        """always_comb stmt (no begin/end) should be extracted via AST."""
+        src = "module top;\nalways_comb\n    out = 8'hFF;\nendmodule\n"
+        result = _aw(src)
+        assert "out" in result
+        out_line = next(l for l in result.splitlines() if "out;" in l and "=" not in l)
+        assert "[7:0]" in out_line
+
+    def test_named_arg_function_call_infers_typedef_type(self):
+        """sum(.i_a(x), .i_b(y)) → type from function return type, named args included."""
+        src = (
+            "function pkt_t[3:0] make_it(input i_a, input i_b);\nendfunction\n"
+            "module top;\nalways_comb begin\n    c = make_it(.i_a(3), .i_b(x));\nend\nendmodule\n"
+        )
+        comp, tree = _compile(src)
+        lines = autowire(src, compilation=comp, tree=tree, preview=True)
+        assert any("pkt_t" in l for l in lines)
+        assert any("[3:0]" in l for l in lines)
+
 
 # ---------------------------------------------------------------------------
 # Insertion location
@@ -426,6 +471,66 @@ class TestAssignAndAlwaysComb:
         src = "module top;\nwire valid;\nassign valid = 1'b1;\nendmodule\n"
         result = _aw(src)
         assert result == src
+
+    def test_typedef_return_type_with_dim(self):
+        """packet_t[3:0] sum(...) → c inferred as packet_t [3:0], not logic [3:0]."""
+        src = (
+            "typedef struct {logic [7:0] x;} pkt_t;\n"
+            "function pkt_t[3:0] make_pkts(input logic a);\nendfunction\n"
+            "module top;\nalways_comb begin\n    out = make_pkts(a);\nend\nendmodule\n"
+        )
+        types = _build_known_func_types(src)
+        assert types["make_pkts"] == ("pkt_t", "[3:0]")
+        result = _aw(src)
+        out_line = next(l for l in result.splitlines() if "out" in l and ";" in l and "=" not in l)
+        assert "pkt_t" in out_line
+        assert "[3:0]" in out_line
+
+    def test_builtin_return_type_with_dim_stays_logic(self):
+        """logic[3:0] f(...) → result inferred as logic [3:0]."""
+        src = (
+            "function logic[3:0] compute(input logic a);\nendfunction\n"
+            "module top;\nalways_comb begin\n    out = compute(a);\nend\nendmodule\n"
+        )
+        types = _build_known_func_types(src)
+        assert types["compute"] == ("logic", "[3:0]")
+
+    def test_update_wrong_existing_declaration(self):
+        """AutoWire updates logic [3:0] c to packet_t [3:0] c when inferred correctly."""
+        src = (
+            "function pkt_t[3:0] make_pkts(input logic a);\nendfunction\n"
+            "module top;\n"
+            "logic [3:0] c;\n"
+            "always_comb begin\n    c = make_pkts(a);\nend\nendmodule\n"
+        )
+        comp, tree = _compile(src)
+        result = autowire(src, compilation=comp, tree=tree)
+        c_line = next(l for l in result.splitlines() if "c;" in l and "=" not in l)
+        assert "pkt_t" in c_line
+        assert "[3:0]" in c_line
+
+    def test_update_preview_shows_will_update(self):
+        """Preview shows before/after type info for updated declarations."""
+        src = (
+            "function pkt_t[3:0] make_pkts(input logic a);\nendfunction\n"
+            "module top;\n"
+            "logic [3:0] c;\n"
+            "always_comb begin\n    c = make_pkts(a);\nend\nendmodule\n"
+        )
+        comp, tree = _compile(src)
+        lines = autowire(src, compilation=comp, tree=tree, preview=True)
+        assert any("Will update:" in l for l in lines)
+        update_line = next(l for l in lines if "c (" in l)
+        assert "before:" in update_line
+        assert "after:" in update_line
+        assert "pkt_t" in update_line
+
+    def test_no_update_for_primitive_type_swap(self):
+        """wire vs logic difference does NOT trigger an update."""
+        src = "module top;\nwire valid;\nassign valid = 1'b1;\nendmodule\n"
+        comp, tree = _compile(src)
+        lines = autowire(src, compilation=comp, tree=tree, preview=True)
+        assert not any("Will update:" in l for l in lines)
 
 
 # ---------------------------------------------------------------------------
