@@ -49,8 +49,9 @@ Two layers communicating over stdio via LSP:
 
 ## Project config (`lazyverilog.toml`)
 ```toml
-[codebase]
-vcode = "vcode.f"   # .f filelist of extra SV files for compilation
+[design]
+vcode = "vcode.f"           # .f filelist of extra SV files for compilation
+# define = ["RTL_SIM"]      # preprocessor defines passed to pyslang
 ```
 Missing filelist → `[LazyVerilogPy]` warning via `ls.show_message`.
 

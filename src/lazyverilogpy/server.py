@@ -76,7 +76,6 @@ def _load_fmt_options_from_toml(path: Path) -> FormatOptions:
 
         [formatter]
         indent_size = 4
-        use_tabs = false
         keyword_case = "lower"
         max_line_length = 120
         wrap_spaces = 4
@@ -86,8 +85,9 @@ def _load_fmt_options_from_toml(path: Path) -> FormatOptions:
         default_indent_level_inside_module_block = 1
         align_assign_operators = false
 
-        [codebase]
+        [design]
         vcode = "rtl/files.f"
+        # define = ["RTL_SIM"]
     """
     if tomllib is None:
         logger.warning(
@@ -269,23 +269,6 @@ def did_change(ls: LanguageServer, params: types.DidChangeTextDocumentParams) ->
     _publish_diagnostics(ls, params.text_document.uri)
 
 
-# @server.feature(types.TEXT_DOCUMENT_DID_SAVE)
-# def did_save(ls: LanguageServer, params: types.DidSaveTextDocumentParams) -> None:
-#     uri = params.text_document.uri
-#     # Re-read the saved file from disk so the compilation is updated immediately,
-#     # without waiting for the editor's did_change debounce to expire.
-#     try:
-#         path = _uri_to_path(uri)
-#         text = path.read_text(encoding="utf-8")
-#     except Exception:
-#         return
-#     state = analyzer.get_state(uri)
-#     if state is None or state.text == text:
-#         return  # nothing changed or file not tracked
-#     # Simulate a full-document change with the saved content.
-#     from lsprotocol.types import TextDocumentContentChangeWholeDocument
-#     analyzer.change(uri, TextDocumentContentChangeWholeDocument(text=text))
-#     _publish_diagnostics(ls, uri)
 
 
 @server.feature(types.TEXT_DOCUMENT_DID_CLOSE)

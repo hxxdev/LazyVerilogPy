@@ -7,7 +7,6 @@
 ---   require('lazyverilogpy').setup({
 ---     formatter = {
 ---       indent_size  = 2,
----       use_tabs     = false,
 ---       keyword_case = "lower",
 ---     },
 ---     on_attach = function(client, bufnr)

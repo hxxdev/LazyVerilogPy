@@ -259,6 +259,55 @@ very_long_name    = 3;  ← exactly 4 spaces before =
 
 ---
 
+## Module port-list formatting
+
+The formatter always expands **non-ANSI** module header port lists (lists of
+plain port names, no type keywords) to multi-line.  The two option pairs
+below control how many names appear per line.
+
+### `module_ports_per_line_enabled` / `module_ports_per_line`
+| option | type | default |
+|--------|------|---------|
+| `module_ports_per_line_enabled` | bool | `false` |
+| `module_ports_per_line` | int | `1` |
+
+When `module_ports_per_line_enabled` is `true`, `module_ports_per_line`
+port names are placed on each line.
+
+```systemverilog
+// module_ports_per_line_enabled = true, module_ports_per_line = 2
+module memory_top(
+  i_clk, i_data,
+  i_data2, i_data3
+);
+```
+
+---
+
+### `module_max_line_length_for_ports_enabled` / `module_max_line_length_for_ports`
+| option | type | default |
+|--------|------|---------|
+| `module_max_line_length_for_ports_enabled` | bool | `false` |
+| `module_max_line_length_for_ports` | int | `80` |
+
+When `module_max_line_length_for_ports_enabled` is `true`, port names are
+packed onto each line until the next name would exceed `module_max_line_length_for_ports`
+characters.
+
+When **both** enabled options are `false` (the default), one port name appears per line:
+
+```systemverilog
+// default (both options false)
+module memory_top(
+  i_clk,
+  i_data,
+  i_data2,
+  i_data3
+);
+```
+
+---
+
 ## Format-on-save control
 
 ### `disable_format_on_save`
