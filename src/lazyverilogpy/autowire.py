@@ -185,7 +185,6 @@ def _ast_known_func_types(tree) -> dict[str, tuple[str, str]]:
                 base_type = "logic"
             else:
                 # array-of-typedef return type (e.g. packet_t [2:0]) is not
-                # valid SystemVerilog syntax — skip this function.
                 return True
             types[func_name] = (base_type, dim_m.group(1))
         else:
