@@ -441,9 +441,18 @@ def _tokenize(source: str) -> list[_Tok]:
 _FMT_OFF = re.compile(r"//\s*verilog_format\s*:\s*off\b[^\n]*", re.IGNORECASE)
 _FMT_ON = re.compile(r"//\s*verilog_format\s*:\s*on\b[^\n]*", re.IGNORECASE)
 
+# `define macros — including multi-line ones with backslash continuation.
+# The body of a `define is preprocessor text and must never be reformatted.
+# Use non-greedy [^\n]*? so the \ before \n is not consumed by the first group.
+_DEFINE_RE = re.compile(r"`define\b(?:[^\n]*?\\\n)*[^\n]*")
+
 
 def _find_disabled(source: str) -> list[tuple[int, int]]:
     """Return (start, end) byte-offset pairs where formatting is disabled.
+
+    Disabled regions are:
+    - ``// verilog_format: off`` … ``// verilog_format: on`` blocks
+    - All ``\\`define`` macro definitions (body is preprocessor text)
 
     Source: DisableFormattingRanges() in formatter.cc / comment-controls.cc
     """
@@ -457,6 +466,11 @@ def _find_disabled(source: str) -> list[tuple[int, int]]:
         end = m_on.start() if m_on else len(source)
         out.append((m_off.start(), end))
         pos = end
+
+    for m in _DEFINE_RE.finditer(source):
+        out.append((m.start(), m.end()))
+
+    out.sort()
     return out
 
 
@@ -1683,6 +1697,12 @@ def format_source(source: str, options: Optional[FormatOptions] = None) -> str:
             elif tok.lo in _INDENT_CLOSE:
                 pending_nl = True
         elif tok.ftt == FTT.semicolon:
+            pending_nl = True
+        elif tok.ftt in (FTT.eol_comment, FTT.include_directive):
+            # eol_comment and include_directive always end their line.
+            # Setting pending_nl here ensures that even disabled tokens
+            # (e.g. `define) that bypass _break_decision still get a
+            # newline before them.
             pending_nl = True
 
         prev = tok
