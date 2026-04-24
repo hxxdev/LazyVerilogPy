@@ -276,11 +276,24 @@ class StatementOptions:
     align: bool = False
     """Align ``=`` and ``<=`` assignment operators vertically in consecutive lines."""
 
-    lhs_min_width: int = 1
-    """Minimum width of the LHS column when aligning assignment operators.
+    align_adaptive: bool = False
+    """Alignment mode when *align* is True.
 
-    The operator is placed at column ``max(longest_lhs_width, lhs_min_width) + 1``.
-    Shorter LHS strings are padded to reach that column.
+    False (default) — Mode A "fixed": all operators in a consecutive group align
+    to a single column: ``indent + max(lhs_min_width, max_lhs_width) + 1``.
+
+    True — Mode B "adaptive": each line is handled independently.  If
+    ``lhs_width <= lhs_min_width``, the operator is padded to
+    ``indent + lhs_min_width + 1``; otherwise exactly one space is kept so that
+    a long LHS never pushes other lines out.
+    """
+
+    lhs_min_width: int = 1
+    """Minimum LHS content width (character count, excluding leading indentation).
+
+    In Mode A: ``align_column = max(lhs_min_width, longest_lhs_width) + 1``.
+    In Mode B: if ``lhs_width <= lhs_min_width``,
+    ``spaces = lhs_min_width - lhs_width + 1``; else ``spaces = 1``.
     """
 
     wrap_end_else_clauses: bool = False
@@ -780,15 +793,52 @@ def _split_at_terminal_semi(line: str) -> "tuple[str, str] | None":
 
 
 def _align_assign_pass(text: str, opts: "FormatOptions") -> str:
-    """Align = and <= operators in runs of consecutive assignment lines.
+    """Align assignment operators (``=`` / ``<=``) within consecutive groups.
 
-    Comment-only lines (// …  or  /* … */) within a run are passed through
-    unchanged and do not break the run — they are treated as transparent
-    separators so assignments above and below a comment are still aligned
-    together.
+    Two modes controlled by ``opts.statement.align_adaptive``:
+
+    Mode A — fixed (default, ``align_adaptive=False``):
+        Consecutive lines that each contain an assignment are collected into a
+        group.  All operators in the group align to a single column:
+        ``indent + max(lhs_min_width, max_lhs_width) + 1``.
+
+    Mode B — adaptive (``align_adaptive=True``):
+        Each line is handled independently.  If ``lhs_width <= lhs_min_width``,
+        ``spaces = lhs_min_width - lhs_width + 1``; otherwise ``spaces = 1``
+        so that a long LHS never pushes other lines out.
+
+    In both modes ``spaces >= 1`` is guaranteed and exactly one space follows
+    the operator.
     """
+    min_w = opts.statement.lhs_min_width
+    adaptive = opts.statement.align_adaptive
     lines = text.split('\n')
     out: list[str] = []
+
+    def _reassemble(line: str, pos: int, op: str, spaces: int) -> str:
+        lhs = line[:pos]
+        rhs_start = pos + 1 + len(op) + 1  # skip: space + op + space
+        rhs = line[rhs_start:]
+        return lhs + ' ' * spaces + op + ' ' + rhs
+
+    if adaptive:
+        # Mode B: per-line, no grouping
+        for line in lines:
+            info = _find_assign_op(line)
+            if info is None:
+                out.append(line)
+                continue
+            pos, op = info
+            indent_len = len(line) - len(line.lstrip())
+            lhs_width = pos - indent_len
+            if lhs_width <= min_w:
+                spaces = min_w - lhs_width + 1
+            else:
+                spaces = 1
+            out.append(_reassemble(line, pos, op, spaces))
+        return '\n'.join(out)
+
+    # Mode A: fixed alignment, group consecutive assignment lines
     i = 0
     while i < len(lines):
         info = _find_assign_op(lines[i])
@@ -797,52 +847,24 @@ def _align_assign_pass(text: str, opts: "FormatOptions") -> str:
             i += 1
             continue
 
-        # Build a run of consecutive assignment lines, allowing comment-only
-        # lines to pass through without breaking the run.
-        # Each entry: (line, pos_or_None, op_or_None)
-        run: list[tuple[str, "int | None", "str | None"]] = [
-            (lines[i], info[0], info[1])
-        ]
-        j = i + 1
+        # Collect group of consecutive lines that each contain an assignment.
+        group: list[tuple[str, int, str, int]] = []  # (line, pos, op, lhs_width)
+        j = i
         while j < len(lines):
-            info2 = _find_assign_op(lines[j])
-            if info2 is not None:
-                run.append((lines[j], info2[0], info2[1]))
-                j += 1
-            elif _COMMENT_ONLY_RE.match(lines[j]):
-                # Comment line: include as passthrough, keep scanning.
-                run.append((lines[j], None, None))
-                j += 1
-            else:
+            info_j = _find_assign_op(lines[j])
+            if info_j is None:
                 break
+            pos_j, op_j = info_j
+            indent_len_j = len(lines[j]) - len(lines[j].lstrip())
+            group.append((lines[j], pos_j, op_j, pos_j - indent_len_j))
+            j += 1
 
-        # Strip trailing comment-only passthrough entries — they belong to
-        # the next block, not this run.
-        while run and run[-1][1] is None:
-            j -= 1
-            run.pop()
+        max_lhs = max(lw for _, _, _, lw in group)
+        align_col = max(min_w, max_lhs) + 1
 
-        real_assigns = sum(1 for _, pos, _ in run if pos is not None)
-        if real_assigns >= 2:
-            # Column where the LHS ends for the longest LHS.
-            max_lhs_end = max(pos for _, pos, _ in run if pos is not None)
-            # op sits one space after max(longest_lhs_width, lhs_min_width).
-            op_col = max(max_lhs_end, opts.statement.lhs_min_width) + 1
-            # If tab-snap is on, round op_col up to the next tab boundary.
-            if opts.tab_align and opts.indent_size > 0:
-                op_col = math.ceil(op_col / opts.indent_size) * opts.indent_size
-            for line, pos, op in run:
-                if pos is None:
-                    # Comment-only passthrough.
-                    out.append(line)
-                else:
-                    lhs = line[:pos]                    # up to (not incl.) space before op
-                    rhs_start = pos + 1 + len(op) + 1  # skip: space + op + space
-                    rhs = line[rhs_start:]
-                    out.append(lhs + ' ' * (op_col - pos) + op + ' ' + rhs)
-        else:
-            for line, _, _ in run:
-                out.append(line)
+        for gline, gpos, gop, glw in group:
+            spaces = max(1, align_col - glw)
+            out.append(_reassemble(gline, gpos, gop, spaces))
 
         i = j
 
