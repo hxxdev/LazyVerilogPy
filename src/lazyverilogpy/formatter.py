@@ -735,10 +735,6 @@ def _break_decision(
     if ll == "else" and rl == "begin":
         return SpacingDecision.kMustAppend
 
-    # 'end'+'while' → kMustAppend (do-while: "end while (cond)")
-    if ll == "end" and rl == "while":
-        return SpacingDecision.kMustAppend
-
     # ')'+'begin' → kMustAppend (line 866)
     if lx == ")" and rl == "begin":
         return SpacingDecision.kMustAppend
@@ -1998,6 +1994,7 @@ def format_source(source: str, options: Optional[FormatOptions] = None) -> str:
     at_bol = True          # at beginning of line
     dim_depth = 0          # depth inside [ ] for compact_indexing
     paren_depth = 0        # depth inside ( ) — semicolons inside don't end statements
+    do_depth = 0           # nesting depth of do...while blocks
     pending_nl = False     # deferred newline (allows end-else lookahead)
     blank_pending = 0      # extra blank lines to emit at next line break
     in_pp_cond = False     # True after `ifdef/`ifndef/`elsif, until condition emitted
@@ -2071,6 +2068,15 @@ def format_source(source: str, options: Optional[FormatOptions] = None) -> str:
             spaces = _spaces_required(prev, tok, opts, in_dim)
             decision = _break_decision(prev, tok, opts, in_dim)
 
+        # 'end while' — kMustAppend only inside a do...while block
+        if (prev is not None and prev.lo == "end"
+                and tok.ftt == FTT.keyword and tok.lo == "while"):
+            if do_depth > 0:
+                decision = SpacingDecision.kMustAppend
+                do_depth -= 1
+            else:
+                decision = SpacingDecision.kUndecided   # let pending_nl wrap
+
         # ── Apply break decision ──────────────────────────────────────────
         if decision == SpacingDecision.kMustWrap:
             # Force a new line; any pending_nl is satisfied by this.
@@ -2128,6 +2134,8 @@ def format_source(source: str, options: Optional[FormatOptions] = None) -> str:
 
         # ── Post-emit actions ─────────────────────────────────────────────
         if tok.ftt == FTT.keyword:
+            if tok.lo == "do":
+                do_depth += 1
             if tok.lo in _INDENT_OPEN:
                 if tok.lo in {"module", "macromodule"}:
                     delta = opts.default_indent_level_inside_module_block
