@@ -18,7 +18,7 @@ tab_align = true
 
 [formatter.statement]
 align = true                # align = and <= operators in consecutive assignments
-lhs_min_width = 5           # minimum width of the LHS column before the operator
+lhs_min_width = 6           # minimum width of the LHS column before the operator
 wrap_end_else_clauses = false
 wrap_spaces = 4
 
@@ -45,3 +45,13 @@ port_spacing_inside_paren = 10  # spaces between signal and )
 
 [autofunc]
 use_named_arguments = true
+
+[autoarg]
+indent_size = 4
+
+[autoinst]
+indent_size = 4
+
+[autowire]
+group_by_instance = false
+sort_by_name = false

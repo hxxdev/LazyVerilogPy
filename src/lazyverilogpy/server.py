@@ -13,6 +13,8 @@ from pygls.lsp.server import LanguageServer
 
 from .analyzer import Analyzer
 from .autofunc import AutoFuncOptions, find_func_or_task_ports, generate_func_call, find_nearest_identifier, find_call_extent, parse_existing_args
+from .autoarg import autoarg as autoarg_impl, format_autoarg, AutoargOptions
+from .autoinst import autoinst as autoinst_impl, format_autoinst, parse_existing_connections, AutoinstOptions
 from .autowire import AutowireOptions, autowire
 from .definition import provide_definition
 from .formatter import FormatOptions, format_source
@@ -44,6 +46,12 @@ _autowire_options = AutowireOptions()
 
 # Default autofunc options — overridden by config file
 _autofunc_options = AutoFuncOptions()
+
+# Default autoarg options — overridden by config file
+_autoarg_options = AutoargOptions()
+
+# Default autoinst options — overridden by config file
+_autoinst_options = AutoinstOptions()
 
 
 # ---------------------------------------------------------------------------
@@ -143,6 +151,30 @@ def _load_autofunc_options_from_toml(path: Path) -> AutoFuncOptions:
     return AutoFuncOptions.from_dict(cfg)
 
 
+def _load_autoarg_options_from_toml(path: Path) -> AutoargOptions:
+    """Parse *path* and return :class:`AutoargOptions` from ``[autoarg]``."""
+    if tomllib is None:
+        return AutoargOptions()
+
+    with path.open("rb") as fh:
+        data = tomllib.load(fh)
+
+    cfg = data.get("autoarg", {})
+    return AutoargOptions.from_dict(cfg)
+
+
+def _load_autoinst_options_from_toml(path: Path) -> AutoinstOptions:
+    """Parse *path* and return :class:`AutoinstOptions` from ``[autoinst]``."""
+    if tomllib is None:
+        return AutoinstOptions()
+
+    with path.open("rb") as fh:
+        data = tomllib.load(fh)
+
+    cfg = data.get("autoinst", {})
+    return AutoinstOptions.from_dict(cfg)
+
+
 def _parse_filelist(f_path: Path) -> list[Path]:
     """Parse a ``.f`` file and return a list of resolved :class:`Path` objects.
 
@@ -208,7 +240,7 @@ def _load_filelist_from_toml(path: Path) -> tuple[list[Path], list[str], str | N
 
 def _reload_config(start: Path, ls: LanguageServer | None = None) -> None:
     """Search for a config file starting at *start* and update ``_fmt_options``."""
-    global _fmt_options, _autowire_options, _autofunc_options
+    global _fmt_options, _autowire_options, _autofunc_options, _autoarg_options, _autoinst_options
     path = _find_config_toml(start)
     if path is not None:
         try:
@@ -223,6 +255,14 @@ def _reload_config(start: Path, ls: LanguageServer | None = None) -> None:
             _autofunc_options = _load_autofunc_options_from_toml(path)
         except Exception as exc:
             logger.warning("Failed to load autofunc options from %s: %s", path, exc)
+        try:
+            _autoarg_options = _load_autoarg_options_from_toml(path)
+        except Exception as exc:
+            logger.warning("Failed to load autoarg options from %s: %s", path, exc)
+        try:
+            _autoinst_options = _load_autoinst_options_from_toml(path)
+        except Exception as exc:
+            logger.warning("Failed to load autoinst options from %s: %s", path, exc)
         try:
             extra_files, defines, warn_msg = _load_filelist_from_toml(path)
             analyzer.set_extra_files(extra_files)
@@ -439,25 +479,20 @@ def execute_autoinst(
     ls: LanguageServer, *args
 ) -> Optional[types.WorkspaceEdit]:
     try:
-        # pygls unpacks arguments list directly into *args: (uri, line, character)
         if len(args) < 3:
             return None
         uri, line, character = str(args[0]), int(args[1]), int(args[2])
-
-        result = analyzer.autoinst(uri, line, character)
+        analyzer.refresh_if_stale(uri)
+        state = analyzer.get_state(uri)
+        if state is None or state.compilation is None:
+            return None
+        result = autoinst_impl(state, line, character)
         if result is None:
             return None
-
-        state = analyzer.get_state(uri)
-        if state is None:
-            return None
-
-        new_text = _format_autoinst(result, state.text)
-
+        new_text = format_autoinst(result, state.text, _autoinst_options)
         lines = state.text.splitlines()
         line_end = result["line_end"]
         end_char = len(lines[line_end]) if line_end < len(lines) else 0
-
         edit = types.TextEdit(
             range=types.Range(
                 start=types.Position(line=result["line_start"], character=0),
@@ -465,65 +500,10 @@ def execute_autoinst(
             ),
             new_text=new_text,
         )
-        return types.WorkspaceEdit(
-            changes={uri: [edit]},
-        )
+        return types.WorkspaceEdit(changes={uri: [edit]})
     except Exception as exc:
         logger.error("autoInst error: %s", exc, exc_info=True)
         return None
-
-
-_PORT_CONN_RE = re.compile(r"\.\s*(\w+)\s*\(([^)]*)\)")
-
-
-def _parse_existing_connections(source_text: str, line_start: int, line_end: int) -> dict[str, str]:
-    """Return a mapping of port_name → connection_content from existing instantiation lines."""
-    lines = source_text.splitlines()
-    existing: dict[str, str] = {}
-    for raw in lines[line_start : line_end + 1]:
-        for m in _PORT_CONN_RE.finditer(raw):
-            port_name = m.group(1)
-            conn = m.group(2).strip()
-            existing[port_name] = conn
-    return existing
-
-
-def _format_autoinst(result: dict, source_text: str) -> str:
-    """Build the formatted instantiation text from *result*.
-
-    Existing port connections are preserved when the connection signal differs
-    from the port name (e.g. ``.address (addr)`` stays as ``addr``).
-    """
-    module_name = result["module_name"]
-    instance_name = result["instance_name"]
-    ports = result["ports"]
-
-    # Detect indentation from the original line.
-    lines = source_text.splitlines()
-    line_start = result["line_start"]
-    line_end = result["line_end"]
-    orig_line = lines[line_start] if line_start < len(lines) else ""
-    base_indent = orig_line[: len(orig_line) - len(orig_line.lstrip())]
-    port_indent = base_indent + "    "
-
-    # Parse existing connections so they are preserved.
-    existing = _parse_existing_connections(source_text, line_start, line_end)
-
-    # Find longest port name for alignment.
-    max_name_len = max(len(p["name"]) for p in ports) if ports else 0
-
-    port_lines: list[str] = []
-    for i, port in enumerate(ports):
-        name = port["name"]
-        padded = name.ljust(max_name_len)
-        comma = "," if i < len(ports) - 1 else ""
-        conn = existing.get(name, name)
-        port_lines.append(f"{port_indent}.{padded} ({conn}){comma}")
-
-    header = f"{base_indent}{module_name} {instance_name} ("
-    footer = f"{base_indent});"
-
-    return header + "\n" + "\n".join(port_lines) + "\n" + footer
 
 
 # ---------------------------------------------------------------------------
@@ -542,15 +522,16 @@ def execute_autoarg(
             return None
         uri, line, character = str(args[0]), int(args[1]), int(args[2])
 
-        result = analyzer.autoarg(uri, line, character)
-        if result is None:
-            return None
-
+        analyzer.refresh_if_stale(uri)
         state = analyzer.get_state(uri)
         if state is None:
             return None
 
-        new_text = _format_autoarg(result)
+        result = autoarg_impl(state, line, character)
+        if result is None:
+            return None
+
+        new_text = format_autoarg(result, _autoarg_options)
 
         edit = types.TextEdit(
             range=types.Range(
@@ -565,17 +546,6 @@ def execute_autoarg(
     except Exception as exc:
         logger.error("autoArg error: %s", exc, exc_info=True)
         return None
-
-
-def _format_autoarg(result: dict) -> str:
-    """Build the formatted port-list text from *result*."""
-    port_names = result["port_names"]
-    lines: list[str] = []
-    for i, name in enumerate(port_names):
-        comma = "," if i < len(port_names) - 1 else ""
-        lines.append(f"  {name}{comma}")
-    lines.append(");")
-    return "(\n" + "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -805,7 +775,11 @@ def code_action(
         line = params.range.start.line
         character = params.range.start.character
 
-        result = analyzer.autoinst(uri, line, character)
+        analyzer.refresh_if_stale(uri)
+        state = analyzer.get_state(uri)
+        if state is None or state.compilation is None:
+            return None
+        result = autoinst_impl(state, line, character)
         if result is None:
             return None
 

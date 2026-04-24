@@ -507,8 +507,8 @@ class AutowireOptions:
     @classmethod
     def from_dict(cls, d: dict) -> "AutowireOptions":
         return cls(
-            group_by_instance=bool(d.get("autowire_group_by_instance", False)),
-            sort_by_name=bool(d.get("autowire_sort_by_name", False)),
+            group_by_instance=bool(d.get("group_by_instance", False)),
+            sort_by_name=bool(d.get("sort_by_name", False)),
         )
 
 
