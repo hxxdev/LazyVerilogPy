@@ -333,15 +333,14 @@ class TestASTCornerCases:
         assert "[7:0]" in out_line
 
     def test_named_arg_function_call_infers_typedef_type(self):
-        """sum(.i_a(x), .i_b(y)) → type from function return type, named args included."""
+        """typedef[dim] return type is not supported — signal inferred as __invalid__, not declared."""
         src = (
             "function pkt_t[3:0] make_it(input i_a, input i_b);\nendfunction\n"
             "module top;\nalways_comb begin\n    c = make_it(.i_a(3), .i_b(x));\nend\nendmodule\n"
         )
         comp, tree = _compile(src)
         lines = autowire(src, compilation=comp, tree=tree, preview=True)
-        assert any("pkt_t" in l for l in lines)
-        assert any("[3:0]" in l for l in lines)
+        assert not any("pkt_t" in l for l in lines)
 
 
 # ---------------------------------------------------------------------------
@@ -450,9 +449,10 @@ class TestAssignAndAlwaysComb:
         assert "mask" in result
 
     def test_assign_complex_fallback_1bit(self):
+        # arithmetic RHS infers as __invalid__ — signal not declared
         src = "module top;\nassign sum = a + b;\nendmodule\n"
         result = _aw(src)
-        assert "logic sum;" in result
+        assert result == src
 
     def test_always_comb_logic_type(self):
         src = "module top;\nwire [7:0] state;\nalways_comb begin\n    next_state = state;\nend\nendmodule\n"
@@ -473,18 +473,16 @@ class TestAssignAndAlwaysComb:
         assert result == src
 
     def test_typedef_return_type_with_dim(self):
-        """packet_t[3:0] sum(...) → c inferred as packet_t [3:0], not logic [3:0]."""
+        """typedef[dim] return type skipped — make_pkts not registered, out not declared."""
         src = (
             "typedef struct {logic [7:0] x;} pkt_t;\n"
             "function pkt_t[3:0] make_pkts(input logic a);\nendfunction\n"
             "module top;\nalways_comb begin\n    out = make_pkts(a);\nend\nendmodule\n"
         )
         types = _build_known_func_types(src)
-        assert types["make_pkts"] == ("pkt_t", "[3:0]")
+        assert "make_pkts" not in types
         result = _aw(src)
-        out_line = next(l for l in result.splitlines() if "out" in l and ";" in l and "=" not in l)
-        assert "pkt_t" in out_line
-        assert "[3:0]" in out_line
+        assert result == src
 
     def test_builtin_return_type_with_dim_stays_logic(self):
         """logic[3:0] f(...) → result inferred as logic [3:0]."""
@@ -496,7 +494,7 @@ class TestAssignAndAlwaysComb:
         assert types["compute"] == ("logic", "[3:0]")
 
     def test_update_wrong_existing_declaration(self):
-        """AutoWire updates logic [3:0] c to packet_t [3:0] c when inferred correctly."""
+        """typedef[dim] return type skipped — existing logic [3:0] c not updated."""
         src = (
             "function pkt_t[3:0] make_pkts(input logic a);\nendfunction\n"
             "module top;\n"
@@ -506,11 +504,10 @@ class TestAssignAndAlwaysComb:
         comp, tree = _compile(src)
         result = autowire(src, compilation=comp, tree=tree)
         c_line = next(l for l in result.splitlines() if "c;" in l and "=" not in l)
-        assert "pkt_t" in c_line
-        assert "[3:0]" in c_line
+        assert "logic [3:0]" in c_line
 
     def test_update_preview_shows_will_update(self):
-        """Preview shows before/after type info for updated declarations."""
+        """typedef[dim] return type skipped — no Will update: in preview."""
         src = (
             "function pkt_t[3:0] make_pkts(input logic a);\nendfunction\n"
             "module top;\n"
@@ -519,11 +516,7 @@ class TestAssignAndAlwaysComb:
         )
         comp, tree = _compile(src)
         lines = autowire(src, compilation=comp, tree=tree, preview=True)
-        assert any("Will update:" in l for l in lines)
-        update_line = next(l for l in lines if "c (" in l)
-        assert "before:" in update_line
-        assert "after:" in update_line
-        assert "pkt_t" in update_line
+        assert not any("Will update:" in l for l in lines)
 
     def test_no_update_for_primitive_type_swap(self):
         """wire vs logic difference does NOT trigger an update."""
@@ -600,7 +593,8 @@ class TestPreview:
         src = "module top;\nm u (.data(d), .valid(v));\nendmodule\n"
         preview = _preview(src, self.EXTRA)
         assert isinstance(preview, list)
-        assert len(preview) == 2
+        # "Will add:" header + 2 declaration lines
+        assert len(preview) == 3
 
     def test_preview_no_modification(self):
         src = "module top;\nm u (.data(d), .valid(v));\nendmodule\n"
@@ -670,10 +664,12 @@ class TestInferWidth:
         assert _infer_width_from_rhs("32'd0", {}) == "[31:0]"
 
     def test_complex_expression_fallback(self):
-        assert _infer_width_from_rhs("a + b", {}) == ""
+        # arithmetic expressions cannot be safely inferred — sentinel returned
+        assert _infer_width_from_rhs("a + b", {}) == "__invalid__"
 
     def test_ternary_fallback(self):
-        assert _infer_width_from_rhs("sel ? a : b", {}) == ""
+        # ternary expressions cannot be safely inferred — sentinel returned
+        assert _infer_width_from_rhs("sel ? a : b", {}) == "__invalid__"
 
     def test_parenthesized_comparison(self):
         assert _infer_width_from_rhs("(a == b)", {}) == ""

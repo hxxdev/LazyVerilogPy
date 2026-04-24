@@ -68,12 +68,12 @@ module my_module3();
     //- Y1Def.node/kind variable
     //- Y1Def.complete definition
     //- Y1Def childof MyModule3
-    wire            y           ;
+    wire                    y           ;
     //- @z defines/binding ZDef3
     //- ZDef3.node/kind variable
     //- ZDef3.complete definition
     //- ZDef3 childof MyModule3
-    wire            z           ;
+    wire                    z           ;
 
     //- @my_module ref MyModule
     my_module  //- @instance1 defines/binding Instance2Def

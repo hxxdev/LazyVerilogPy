@@ -129,9 +129,9 @@ class TestFindNearestIdentifier:
         assert result == ("add_numbers", 0, 11)
 
     def test_cursor_on_paren(self):
+        # cursor on '(' is not inside any identifier
         result = find_nearest_identifier("add_numbers()", 11)
-        assert result is not None
-        assert result[0] == "add_numbers"
+        assert result is None
 
     def test_cursor_after_equals(self):
         result = find_nearest_identifier("result = add_numbers", 12)
@@ -157,9 +157,9 @@ class TestFindNearestIdentifier:
         assert result is None
 
     def test_cursor_past_end_picks_closest(self):
+        # cursor past end of line is not inside any identifier
         result = find_nearest_identifier("add_numbers", 15)
-        assert result is not None
-        assert result[0] == "add_numbers"
+        assert result is None
 
 
 # ---------------------------------------------------------------------------

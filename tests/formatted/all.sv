@@ -42,8 +42,8 @@ module m2 #(parameter i = 1, localparam j = i, parameter type x_t = bit) (input 
             endprimitive
 
             macromodule m3;
-                wire            b           ;
-                logic           c           ;
+                wire                        b           ;
+                logic                       c           ;
                 I d (
                     .a          (           ),
                     .b          (           )
@@ -143,14 +143,14 @@ module m2 #(parameter i = 1, localparam j = i, parameter type x_t = bit) (input 
                             union tagged {
                                 bit [9:0] JmpU;
                                 struct {
-                                    bit             [1:0]           cc              ;
-                                    bit             [9:0]           addr            ;
+                                    bit                     [1:0]           cc              ;
+                                    bit                     [9:0]           addr            ;
                                 } JmpC;
                             } Jmp;
                         } Instr;
 
-                        VInt            v                                       ;
-                        Instr           instr = tagged Add'{reg1: 0             , reg2: 1                                 , regd: 3}                                ;
+                        VInt                        v                                       ;
+                        Instr                       instr = tagged Add'{reg1: 0             , reg2: 1                                 , regd: 3}                                ;
                         automatic int rf[]    = new[3];
                         static longint pc     = 'x;
 
@@ -273,8 +273,8 @@ module m2 #(parameter i = 1, localparam j = i, parameter type x_t = bit) (input 
                                                 cb;
                                                 default disable iff 1 dist {[1:2]: / 3, 2, default: / 4};
 
-                                                int             zz              ;
-                                                wire            clk2            ;
+                                                int                     zz              ;
+                                                wire                    clk2            ;
                                                 event ev3;
                                                 initial begin
                                                     ## (5 + 2) zz <= 1;
@@ -506,8 +506,8 @@ module m2 #(parameter i = 1, localparam j = i, parameter type x_t = bit) (input 
                                                                                                     endmodule
 
                                                                                                     class A;
-                                                                                                        integer             i = 1           ;
-                                                                                                        integer             j = 2           ;
+                                                                                                        integer                     i = 1           ;
+                                                                                                        integer                     j = 2           ;
                                                                                                         function integer f();
                                                                                                             f = i;
                                                                                                         endfunction
@@ -544,12 +544,12 @@ module m2 #(parameter i = 1, localparam j = i, parameter type x_t = bit) (input 
                                                                                                     endclass
 
                                                                                                     module m6;
-                                                                                                        A                   a = new                 ;
-                                                                                                        A                   b1 = B::new             ;
-                                                                                                        B                   b2 = new                ;
-                                                                                                        C2                  c = null                ;
-                                                                                                        int                 depth                   ;
-                                                                                                        integer             i = b1.f()              ;
+                                                                                                        A                           a = new                 ;
+                                                                                                        A                           b1 = B::new             ;
+                                                                                                        B                           b2 = new                ;
+                                                                                                        C2                          c = null                ;
+                                                                                                        int                         depth                   ;
+                                                                                                        integer                     i = b1.f()              ;
                                                                                                         initial begin
                                                                                                             b2.f();
                                                                                                             a      = b2;
@@ -577,9 +577,9 @@ module m2 #(parameter i = 1, localparam j = i, parameter type x_t = bit) (input 
 
                                                                                             class C3;
                                                                                                 enum {red, green, blue} color;
-                                                                                                bit             [3:0]           pixel_adr               , pixel_offset            , pixel_hue               ;
-                                                                                                logic                           clk                     , x                       , y                       , c                       ;
-                                                                                                logic                           arr [3]                 ;
+                                                                                                bit                         [3:0]           pixel_adr               , pixel_offset            , pixel_hue               ;
+                                                                                                logic                                       clk                     , x                       , y                       , c                       ;
+                                                                                                logic                                       arr [3]                 ;
 
                                                                                                 covergroup
                                                                                                     g2(string instComment) @(posedge clk);
@@ -660,9 +660,9 @@ module m2 #(parameter i = 1, localparam j = i, parameter type x_t = bit) (input 
                                                                                                 endmodule
 
                                                                                                 module m11(input clk);
-                                                                                                    int             a [4] = '{default: 1}           ;
-                                                                                                    int             b [] = '{3{1}}                  ;
-                                                                                                    int             c = $bits(int)                  ;
+                                                                                                    int                     a [4] = '{default: 1}           ;
+                                                                                                    int                     b [] = '{3{1}}                  ;
+                                                                                                    int                     c = $bits(int)                  ;
                                                                                                     localparam type T    = type (b);
 
                                                                                                     initial begin
@@ -675,12 +675,12 @@ module m2 #(parameter i = 1, localparam j = i, parameter type x_t = bit) (input 
                                                                                                 int unitVar;
 
                                                                                                 module m12;
-                                                                                                    int             i               , j               , k               ;
-                                                                                                    int             a []            ;
-                                                                                                    time            t               ;
+                                                                                                    int                     i               , j               , k               ;
+                                                                                                    int                     a []            ;
+                                                                                                    time                    t               ;
                                                                                                     shortreal sr;
-                                                                                                    shortint            si                  ;
-                                                                                                    int                 qq [$:3]            ;
+                                                                                                    shortint                    si                  ;
+                                                                                                    int                         qq [$:3]            ;
                                                                                                     final begin
                                                                                                         i    = j + k;
                                                                                                         i    = j - k;
@@ -750,13 +750,13 @@ module m2 #(parameter i = 1, localparam j = i, parameter type x_t = bit) (input 
 
                                                                                                 module m13;
                                                                                                     struct packed {
-                                                                                                        int             a           ;
-                                                                                                        logic           b           ;
+                                                                                                        int                         a           ;
+                                                                                                        logic                       b           ;
                                                                                                     } x;
 
                                                                                                     union packed {
-                                                                                                        logic           a           ;
-                                                                                                        bit             b           ;
+                                                                                                        logic                       a           ;
+                                                                                                        bit                         b           ;
                                                                                                     } y;
 
                                                                                                     chandle z;
@@ -790,17 +790,17 @@ module m2 #(parameter i = 1, localparam j = i, parameter type x_t = bit) (input 
                                                                                                         typedef Base #(64) MyBaseType;
                                                                                                         nettype MyBaseType::T wideTsum with MyBaseType::Tsum;
 
-                                                                                                        narrowTsum          net1            ;
+                                                                                                        narrowTsum                      net1            ;
                                                                                                         // data is 32 bits wide
-                                                                                                        wideTsum            net2            ;
+                                                                                                        wideTsum                        net2            ;
                                                                                                         // data is 64 bits wide
                                                                                                     endmodule
 
                                                                                                     module m14(input a, output b);
                                                                                                         specify
                                                                                                             pulsestyle_onevent b, b;
-                                                                                                            pulsestyle_ondetect             b           ;
-                                                                                                            showcancelled                   b           ;
+                                                                                                            pulsestyle_ondetect                     b           ;
+                                                                                                            showcancelled                           b           ;
                                                                                                             noshowcancelled b, b;
                                                                                                             ifnone(a = > b) = (1, 0);
                                                                                                         endspecify
@@ -813,9 +813,9 @@ module m2 #(parameter i = 1, localparam j = i, parameter type x_t = bit) (input 
                                                                                                     endmodule
 
                                                                                                     module m15(input a, clk, data, output b);
-                                                                                                        reg                             notify          ;
-                                                                                                        wire                            bar             ;
-                                                                                                        wire            [1:0]           w               ;
+                                                                                                        reg                                     notify          ;
+                                                                                                        wire                                    bar             ;
+                                                                                                        wire                    [1:0]           w               ;
 
                                                                                                         specify
                                                                                                             specparam tSU = 1, tHLD = 3: 4: 5;
@@ -834,8 +834,8 @@ module m2 #(parameter i = 1, localparam j = i, parameter type x_t = bit) (input 
                                                                                                             $nochange(posedge clk, negedge data, - 1, - 2);
                                                                                                         endspecify
 
-                                                                                                        wire            x = dclk            ;
-                                                                                                        wire            y = ~ddata          ;
+                                                                                                        wire                    x = dclk            ;
+                                                                                                        wire                    y = ~ddata          ;
                                                                                                     endmodule
 
                                                                                                     module m16(input wire clk, data, output reg b);

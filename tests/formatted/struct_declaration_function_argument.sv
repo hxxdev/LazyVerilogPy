@@ -5,8 +5,8 @@
 //- X childof Data
 //- Y childof Data
 function f1(struct {
-        int             x           ;
-        int             y           ;
+        int                     x           ;
+        int                     y           ;
     } data);
     //- @sum defines/binding _
     //- @#0data ref Data

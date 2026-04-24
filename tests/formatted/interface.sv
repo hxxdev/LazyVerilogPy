@@ -5,11 +5,11 @@
 //- MyInterface.node/kind interface
 interface MyInterface();
     //- @reset defines/binding _
-    wire                            reset           ;
+    wire                                        reset           ;
     //- @clk defines/binding _
-    wire                            clk             ;
+    wire                                        clk             ;
     //- @in defines/binding _
-    logic           [7:0]           in              ;
+    logic                       [7:0]           in              ;
 
     //- @MyNestedInterface defines/binding MyNestedInterface
     //- MyNestedInterface childof MyInterface

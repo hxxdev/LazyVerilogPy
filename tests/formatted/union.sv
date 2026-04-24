@@ -23,9 +23,9 @@ union {
 
 typedef union packed {
     //- @a1 defines/binding A1
-    logic           [3:0]               a1          ;
+    logic                       [3:0]               a1          ;
     //- @b1 defines/binding B1
-    logic           [1:0][1:0]          b1          ;
+    logic                       [1:0][1:0]          b1          ;
     //- @union_type defines/binding UnionType
     //- UnionType.node/kind record
 } union_type;
