@@ -14,7 +14,7 @@ program testcase(  //- @intf defines/binding Intf
         initial begin
             //- @env ref Env
             //- @intf ref Intf
-            env = new (intf);
+            env     = new (intf);
         end
         //- @testcase ref TestCase
     endprogram

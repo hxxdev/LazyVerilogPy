@@ -4,7 +4,7 @@
 class my_class;
     //- @my_class ref MyClass1
     //- @instance1 defines/binding Instance1
-    my_class instance1 = new ();
+    my_class instance1  = new ();
 
     //- @var1 defines/binding Var1
     int var1;
@@ -16,7 +16,7 @@ package pkg1;
     class my_class;
         //- @my_class ref MyClass2
         //- @instance2  defines/binding Instance2 
-        static my_class instance2 = new ();
+        static my_class instance2   = new ();
 
         //- @var2 defines/binding Var2
         static int var2;
@@ -29,7 +29,7 @@ module my_module();
 initial begin
     //- @my_class ref MyClass1
     //- @m_class defines/binding MClass
-    my_class m_class = new ();
+    my_class m_class    = new ();
 
     //- @m_class ref MClass
     //- @var1 ref Var1
@@ -56,7 +56,7 @@ initial begin
     //- @#1m_class ref MClass
     //- @#0var1 ref Var1
     //- @#1var1 ref Var1
-    m_class.var1 <= m_class.var1;
+    m_class.var1    <= m_class.var1;
 
 end
 

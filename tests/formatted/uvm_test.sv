@@ -32,9 +32,9 @@ initial clk     = 0;
 always #5 clk   = ~clk;
 
 initial begin
-    rst_n = 0;
+    rst_n   = 0;
     `uvm_info("TB_TOP", "Applying reset", UVM_NONE);
-    #20 rst_n = 1;
+    #20 rst_n   = 1;
     `uvm_info("TB_TOP", "Reset released", UVM_LOW);
     run_test();
 end

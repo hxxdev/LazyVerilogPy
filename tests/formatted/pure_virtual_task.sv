@@ -33,7 +33,7 @@ virtual class BaseClass;
             //- Y1 childof GetData
             virtual task getData(int x, int y);
                 //- @data ref Data
-                data = 15;
+                data    = 15;
             endtask
         endclass
 
@@ -45,7 +45,7 @@ virtual class BaseClass;
         ChildClass child;
         initial begin
             //- @child ref Child
-            child = new ();
+            child   = new ();
             //- @getData ref GetData
             //- @child ref Child
             child.getData(1, 2);

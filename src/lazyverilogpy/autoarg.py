@@ -9,23 +9,24 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+_TYPE_KWS = frozenset([
+    "wire", "uwire", "reg", "logic", "bit", "byte",
+    "shortint", "int", "longint", "integer", "time",
+    "tri", "tri0", "tri1", "wand", "triand", "wor", "trior", "trireg",
+    "supply0", "supply1", "signed", "unsigned", "var",
+])
 
-@dataclass
-class AutoargOptions:
-    indent_size: int = 2
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "AutoargOptions":
-        return cls(indent_size=int(d.get("indent_size", 2)))
+_PORT_DIR_RE = re.compile(r"^\s*(?:input|output|inout)\b", re.IGNORECASE)
 
 
 def _scan_port_names(text: str, mod_line: int) -> list[str]:
-    """Fallback for non-ANSI modules: scan port directions inside the body."""
-    _PORT_DIR_RE = re.compile(r"^\s*(?:input|output|inout)\b", re.IGNORECASE)
-    _TYPE_KWS = frozenset(["wire", "uwire", "reg", "logic", "bit", "byte",
-        "shortint", "int", "longint", "integer", "time",
-        "tri", "tri0", "tri1", "wand", "triand", "wor", "trior", "trireg",
-        "supply0", "supply1", "signed", "unsigned", "var"])
+    """Fallback for empty-header modules: scan input/output/inout declarations in the body.
+
+    Only used when portList is empty (module header has no port names, e.g. ``module foo()``
+    with ports declared only in the body).  Correctly skips user-defined type names by
+    peeking ahead: if the current identifier is followed by another identifier, it is a
+    type (e.g. ``packet_t`` in ``input packet_t i_clk``).
+    """
     lines = text.splitlines()
     seen: set[str] = set()
     names: list[str] = []
@@ -38,24 +39,30 @@ def _scan_port_names(text: str, mod_line: int) -> list[str]:
         code = re.sub(r';$', '', code).strip()
         tokens = re.findall(r'\[.*?\]|[\w]+|[=,]', code)
         idx = 0
+        # Skip direction keyword.
         if idx < len(tokens) and tokens[idx].lower() in ("input", "output", "inout"):
             idx += 1
+        # Skip built-in type keywords (logic, wire, signed, …).
         while idx < len(tokens) and tokens[idx].lower() in _TYPE_KWS:
             idx += 1
+        # Skip packed dimensions.
         while idx < len(tokens) and tokens[idx].startswith("["):
             idx += 1
-        # Skip potential user-defined type (e.g. "packet_t" in "input packet_t port_name").
-        # If current identifier is followed (past dims) by another identifier, it's a type.
+        # Skip user-defined type: if current identifier is followed (past dims) by
+        # another identifier, the current one is a type name (e.g. packet_t).
         if idx < len(tokens):
             tok = tokens[idx]
             if re.match(r'^[A-Za-z_]\w*$', tok) and tok.lower() not in _TYPE_KWS:
                 peek = idx + 1
                 while peek < len(tokens) and tokens[peek].startswith("["):
                     peek += 1
-                if peek < len(tokens) and re.match(r'^[A-Za-z_]\w*$', tokens[peek]) and tokens[peek].lower() not in _TYPE_KWS:
+                if (peek < len(tokens)
+                        and re.match(r'^[A-Za-z_]\w*$', tokens[peek])
+                        and tokens[peek].lower() not in _TYPE_KWS):
                     idx += 1  # skip user-defined type
                     while idx < len(tokens) and tokens[idx].startswith("["):
-                        idx += 1  # skip dims after type
+                        idx += 1
+        # Collect port name(s) — handles multi-name: output VDD, VSS.
         while idx < len(tokens):
             tok = tokens[idx]
             if re.match(r'^[A-Za-z_]\w*$', tok) and tok.lower() not in _TYPE_KWS:
@@ -74,6 +81,16 @@ def _scan_port_names(text: str, mod_line: int) -> list[str]:
             else:
                 idx += 1
     return names
+
+
+@dataclass
+class AutoargOptions:
+    indent_size: int = 2
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "AutoargOptions":
+        return cls(indent_size=int(d.get("indent_size", 2)))
+
 
 
 def find_module_ports_ast(state, module_name: str) -> Optional[list[str]]:
@@ -163,11 +180,9 @@ def autoarg(state, line: int, col: int) -> Optional[dict]:
         return None
     module_name = m.group(1)
 
-    # Try text scan first (only picks ports with explicit direction declarations).
-    # Fall back to AST for ANSI modules where text scan finds nothing.
+    # AST first — handles ANSI and non-ANSI modules with port names in header.
+    # Fallback to text scan for empty-header modules (``module foo()`` with ports in body).
     port_names = _scan_port_names(state.text, mod_line) or None
-    if not port_names:
-        port_names = find_module_ports_ast(state, module_name)
     if not port_names:
         return None
 

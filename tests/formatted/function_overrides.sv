@@ -71,15 +71,15 @@ import my_pkg::*;
 initial begin
     //- @my_class1 ref MyClass1
     //- @handle1 defines/binding Handle1
-    static my_class1 handle1 = new ();
+    static my_class1 handle1    = new ();
 
     //- @my_class2 ref MyClass2
     //- @handle2 defines/binding Handle2
-    static my_class2 handle2 = new ();
+    static my_class2 handle2    = new ();
 
     //- @handle1 ref Handle1
     //- @my_var ref MyVar
-    handle1.my_var = 10;
+    handle1.my_var  = 10;
 
     //- @handle1 ref Handle1
     //- @my_function ref MyFunction

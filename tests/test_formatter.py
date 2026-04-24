@@ -542,13 +542,15 @@ class TestDefaultIndentLevelInsideModuleBlock:
 
 class TestAlignAssignOperators:
     def test_blocking_assigns_aligned(self):
+        # lhs_min_width=12: "assign a" (8) and "assign bc" (9) both < 12 → both padded to same col
         src = "module foo;\nassign a = 1;\nassign bc = 2;\nendmodule\n"
-        result = fmt(src, statement=StatementOptions(align=True))
+        result = fmt(src, statement=StatementOptions(align=True, lhs_min_width=12))
         lines = [l for l in result.splitlines() if 'assign' in l]
         cols = [l.index('=') for l in lines]
         assert len(set(cols)) == 1, f"= not aligned: {lines}"
 
     def test_nonblocking_aligned(self):
+        # lhs_min_width=10: "a" (1) and "bc" (2) both < 10 → both padded to same col
         src = (
             "module foo;\n"
             "always_ff @(posedge clk) begin\n"
@@ -557,12 +559,28 @@ class TestAlignAssignOperators:
             "end\n"
             "endmodule\n"
         )
-        result = fmt(src, statement=StatementOptions(align=True))
+        result = fmt(src, statement=StatementOptions(align=True, lhs_min_width=10))
         nb_lines = [l for l in result.splitlines() if '<=' in l]
         cols = [l.index('<=') for l in nb_lines]
         assert len(set(cols)) == 1, f"<= not aligned: {nb_lines}"
 
+    def test_lhs_padded_to_min_width(self):
+        # indent=2, "assign a" content=8 < lhs_min_width=12
+        # align_col = max(12, 8) + 1 = 13; spaces = 13 - 8 = 5; = at index 2+8+5=15
+        src = "module foo;\nassign a = 1;\nendmodule\n"
+        result = fmt(src, statement=StatementOptions(align=True, lhs_min_width=12))
+        line = next(l for l in result.splitlines() if 'assign' in l)
+        assert line.index('=') == 15, f"unexpected column: {line!r}"
+
+    def test_lhs_exceeds_min_width_single_space(self):
+        # "assign very_long_name" content >> lhs_min_width=5 → keep 1 space, no padding
+        src = "module foo;\nassign very_long_name = 1;\nendmodule\n"
+        result_align = fmt(src, statement=StatementOptions(align=True, lhs_min_width=5))
+        result_noalign = fmt(src, statement=StatementOptions(align=False))
+        assert result_align == result_noalign, f"unexpected padding: {result_align!r}"
+
     def test_single_assign_unchanged(self):
+        # default lhs_min_width=1: any LHS >= 1 char → keep 1 space → no change
         src = "module foo;\nassign x = 1;\nendmodule\n"
         assert fmt(src, statement=StatementOptions(align=True)) == fmt(src, statement=StatementOptions(align=False))
 
@@ -571,8 +589,8 @@ class TestAlignAssignOperators:
 
     def test_idempotent(self):
         src = "module foo;\nassign a = 1;\nassign bc = 2;\nendmodule\n"
-        once = fmt(src, statement=StatementOptions(align=True))
-        twice = fmt(once, statement=StatementOptions(align=True))
+        once = fmt(src, statement=StatementOptions(align=True, lhs_min_width=12))
+        twice = fmt(once, statement=StatementOptions(align=True, lhs_min_width=12))
         assert once == twice, f"Not idempotent:\n1st: {once}\n2nd: {twice}"
 
 

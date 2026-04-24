@@ -14,10 +14,10 @@ int                                                 arr2                        
 
 //- @arr1 ref Arr1
 //- @mock_arr ref MockArr
-assign mock_arr[0] = arr1[0];
+assign mock_arr[0]  = arr1[0];
 
 //- @arr2 ref Arr2
-assign arr2[0][31] = 42;
+assign arr2[0][31]  = 42;
 endmodule
 
 //- @dynamic_arrays defines/binding _
@@ -27,14 +27,14 @@ bit [7:0] arr[];
 
 initial begin
     //- @arr ref Arr
-    arr = new[8];
+    arr     = new[8];
 
     //- @arr ref Arr
     $display("Array size: %d", arr.size());
 
     //- @#0arr ref Arr
     //- @#1arr ref Arr
-    arr = new[16](arr);
+    arr     = new[16](arr);
 end
 
 endmodule
@@ -52,7 +52,7 @@ initial begin
 
     //- @var1 defines/binding Var1
     //- @var2 defines/binding Var2
-    int var1 = 0, var2 = 0;
+    int var1    = 0, var2 = 0;
 
     //- @#1i defines/binding I
     //- @#3i ref I
@@ -62,13 +62,13 @@ initial begin
     //- @#1var2 ref Var2
     //- @j defines/binding _
     //- @m defines/binding _
-    for (int i = 0, j = 0, bit [var1:var2] m = var2;
+    for (int i  = 0, j = 0, bit [var1:var2] m = var2;
     i < 50;
     i++) begin
         //- @real_arr ref RealArr
         //- @#0i ref I
         //- @#1i ref I
-        real_arr[i] = i;
+        real_arr[i]     = i;
     end
 end
 endmodule

@@ -1,6 +1,6 @@
 //- @foo defines/binding Foo
 module foo #(  //- @baz defines/binding Baz
-parameter int baz = 2) ();
+parameter int baz   = 2) ();
 endmodule
 
 //- @m1 defines/binding _
@@ -26,8 +26,9 @@ if (x) begin
     //- @bar ref Bar1
     //- @#0baz ref Baz
     //- @#1baz ref Baz1
-    assign bar.baz = baz;
-end else if (x) begin
+    assign bar.baz  = baz;
+end
+else if (x) begin
     //- @foo ref Foo
     foo #(  //- @#0baz ref Baz
     //- @#1baz ref Baz1
@@ -37,8 +38,9 @@ end else if (x) begin
     //- @bar ref Bar2
     //- @#0baz ref Baz
     //- @#1baz ref Baz1
-    assign bar.baz = baz;
-end else begin
+    assign bar.baz  = baz;
+end
+else begin
     //- @foo ref Foo
     foo #(  //- @#0baz ref Baz
     //- @#1baz ref Baz1
@@ -48,12 +50,12 @@ end else begin
     //- @bar ref Bar3
     //- @#0baz ref Baz
     //- @#1baz ref Baz1
-    assign bar.baz = baz;
+    assign bar.baz  = baz;
 end
 
 //- @bar ref Bar0
 //- @#0baz ref Baz
 //- @#1baz ref Baz1
-assign bar.baz = baz;
+assign bar.baz  = baz;
 
 endmodule

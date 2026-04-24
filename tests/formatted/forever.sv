@@ -8,11 +8,11 @@ initial begin
         //- @temp defines/binding Temp8
         int temp;
         //- @temp ref Temp8
-        assign temp = 1;
+        assign temp     = 1;
     end
 end
 
 //- @temp ref Temp0
-assign temp = 1;
+assign temp     = 1;
 
 endmodule

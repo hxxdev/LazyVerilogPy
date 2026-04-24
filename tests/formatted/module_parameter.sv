@@ -3,7 +3,7 @@
 //- @param_name defines/binding ParamName
 //- ParamName.node/kind variable
 //- ParamName.complete definition
-parameter int param_name = 3;
+parameter int param_name    = 3;
 
 //- @my_module2 defines/binding MyModule2
 //- MyModule2.node/kind record
@@ -11,7 +11,7 @@ parameter int param_name = 3;
 //- MyModule2.complete definition
 module my_module2();
 //- @var1 defines/binding Var1
-parameter int var1 = 3;
+parameter int var1  = 3;
 
 //- @my_module3 ref MyModule3
 my_module3 #(  //- @var1 ref Var1
@@ -32,16 +32,16 @@ endmodule
 module my_module3();
 //- @DATA_WIDTH defines/binding DATA_WIDTH2
 //- DATA_WIDTH2 childof MyModule3
-parameter DATA_WIDTH = 8;
+parameter DATA_WIDTH    = 8;
 
 //- @ADDR_WIDTH defines/binding ADDR_WIDTH
 //- ADDR_WIDTH childof MyModule3
-parameter ADDR_WIDTH = 8;
+parameter ADDR_WIDTH    = 8;
 
 //- @RAM_DEPTH defines/binding RAM_DEPTH
 //- RAM_DEPTH childof MyModule3
 //- @ADDR_WIDTH ref ADDR_WIDTH
-parameter RAM_DEPTH = 1 << ADDR_WIDTH;
+parameter RAM_DEPTH     = 1 << ADDR_WIDTH;
 endmodule
 
 //- @my_module defines/binding MyModule

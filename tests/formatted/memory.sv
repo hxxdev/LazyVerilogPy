@@ -1,6 +1,5 @@
 module memory(
-    i_clk,
-    address,
+    i_clk, address,
     data_in,
     data_out,
     read_write,
@@ -19,8 +18,8 @@ always @(address or data_in or read_write or chip_en) if (read_write == 1 && chi
     /*test comment block = */
 end
 
-always @(read_write or chip_en or address) if (read_write == 0 && chip_en) data_out = mem[address];
-else data_out                                                                       = 0;
+always @(read_write or chip_en or address) if (read_write == 0 && chip_en) data_out     = mem[address];
+else data_out                                                                           = 0;
 
 always @(posedge  /* FIXME*/) begin
 end

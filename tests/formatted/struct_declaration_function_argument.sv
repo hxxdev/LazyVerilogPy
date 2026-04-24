@@ -13,7 +13,7 @@ function f1(struct {
     //- @#1data ref Data
     //- @x ref X
     //- @y ref Y
-    int sum = data.x + data.y;
+    int sum     = data.x + data.y;
 endfunction
 
 //- @f2 defines/binding _
@@ -36,5 +36,5 @@ function f2(struct {
     //- @x ref X1
     //- @y ref Y1
     //- @h ref H1
-    int sum = data.x.h + data.y;
+    int sum     = data.x.h + data.y;
 endfunction

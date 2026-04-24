@@ -416,7 +416,7 @@ def formatting(
     ls: LanguageServer, params: types.DocumentFormattingParams,
 ) -> Optional[list[types.TextEdit]]:
     try:
-        if _fmt_options.disable_format_on_save:
+        if not _fmt_options.enable_format_on_save:
             return []
         state = analyzer.get_state(params.text_document.uri)
         if state is None:

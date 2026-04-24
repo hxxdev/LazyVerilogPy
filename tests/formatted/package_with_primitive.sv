@@ -5,14 +5,14 @@
 //- @my_pkg1 defines/binding MyPkg1
 package my_pkg1;
     //- @my_integer defines/binding MyInteger
-    integer my_integer = 10;
+    integer my_integer  = 10;
 endpackage
 
 // Second package also defines my_integer.
 //- @my_pkg2 defines/binding MyPkg2
 package my_pkg2;
     //- @my_integer defines/binding MyInteger2
-    integer my_integer = 10;
+    integer my_integer  = 10;
 endpackage
 
 // First imported reference to the first package.

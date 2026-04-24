@@ -3,12 +3,12 @@ int                   k                             = j;
 int                   j                             = 1;
 
 `ifndef FOOBAR
-int blah = unknown;
+int blah    = unknown;
 `endif
 endmodule
 
 module unused;
-`pragma diagnostic warn = "-Wfoobaz"
+`pragma diagnostic warn     = "-Wfoobaz"
 endmodule
 
 `ifdef FOOBAR

@@ -27,25 +27,24 @@ task add_numbers(input int a, input int b, output int result);
 endtask
 
 module memory_top(
-    packet_t,
-    i_clk,
-    i_data,
+    i_clk, i_data,
     i_data2,
-    i_data3,
-    i_dd,
+    i_data3, i_dd,
     i_dd22222,
     i_d33333,
-    VDD,
+    i_d44333, VDD,
     VSS
 );
-input     packet_t signed                                      i_clk;
+input     packet_t                                             i_clk;
 input     logic signed                     [7:0]               i_data                        [7:0];
 input     var byte                                             i_data2;
 input                                                          i_data3;
 input                                                          i_dd;
 input                                                          i_dd22222;
 input                                                          i_d33333;
-output    logic unsigned                   [0:0]               VDD                                                         , VSS                           [0:0] = 1'b1[0:0] = 1'b0;
+input                                                          i_d44333;
+input                                                          i_d44334;
+output    logic unsigned                   [0:0]               VDD                           [0:0] = 1'b1                  , VSS                           [0:0] = 1'b0;
 logic                 [7:0]                         dout                          = 8'hFF;
 logic unsigned        [0:0]                         VDD                           [0:0] = 1, VSS                           [0:0] = 0;
 logic                 [`WIDTH-1:0]                  data                          ;
@@ -67,11 +66,11 @@ static int a;
 assign d = a + 1;
 
 memory u_memory (
-    .address                (addr                   ),
-    .data_in                (data_in                ),
-    .data_out               (dout                   ),
-    .read_write             (read_write             ),
-    .chip_en                (chip_en                )
+    .address             (addr                ),
+    .data_in             (data_in             ),
+    .data_out            (dout                ),
+    .read_write          (read_write          ),
+    .chip_en             (chip_en             )
 );
 
 `ifdef RTL_SIM
@@ -87,7 +86,48 @@ always_comb begin
     c       = sum(.i_a(i_a), .i_b(i_b));
     // tte
     d       = {1'b0, a};
-    dddd    = 3;
+    tddd    = 3;
+    ddddddd = 3;
+
+    if (a == 3) begin
+        tdddddddddddddddd = 3;
+        ddddddd           = 3;
+    end
+    else begin
+        tddd   += 4;
+    end
+
+    for (int i = 0;
+    i < 32;
+    i++) begin
+    end
+    while (i < 5) begin
+        $display("i = %0d", i);
+        i++;
+    end
+    do begin
+        $display("i = %0d", i);
+        i++;
+    end
+    while (i < 5);
+
+    foreach (arr[i]) begin
+        $display("arr[%0d] = %0d", i, arr[i]);
+    end
+
+    repeat (3) begin
+        $display("Hello");
+    end
+
+    forever begin
+        #10;
+        $display("Tick at time %0t", $time);
+    end
+end
+
+initial begin
+    forever #5 clk = ~clk;
+    // 10 time-unit period
 end
 
 endmodule

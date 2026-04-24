@@ -18,7 +18,7 @@ endclass
 class my_class2 extends my_class1;
     //- @instance2 defines/binding Instance2
     //- Instance2 childof MyClass2
-    my_class2 instance2 = new ();
+    my_class2 instance2     = new ();
 
     //- @var2 defines/binding Var2
     //- Var2 childof MyClass2
@@ -38,7 +38,7 @@ module my_module();
 //- @my_class2 ref MyClass2
 //- @instance1 defines/binding Instance1
 //- Instance1 childof MyModule
-my_class2 instance1 = new ();
+my_class2 instance1     = new ();
 
 initial begin
     //- @instance1 ref Instance1

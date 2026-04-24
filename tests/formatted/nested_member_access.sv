@@ -7,7 +7,7 @@ class nested_class2;
     //- Var1Def.node/kind variable
     //- Var1Def.complete definition
     //- Var1Def childof NestedClass2
-    int var1 = 1;
+    int var1    = 1;
 
     //- @nested_function defines/binding NestedFunctionNestedClass2
     //- NestedFunctionNestedClass2.node/kind function
@@ -29,7 +29,7 @@ class nested_class1;
     //- Handle2.node/kind variable
     //- Handle2.complete definition
     //- Handle2 childof NestedClass1
-    static nested_class2 handle2 = new ();
+    static nested_class2 handle2    = new ();
 
 endclass
 
@@ -43,7 +43,7 @@ class nested_class0;
     //- Handle1.node/kind variable
     //- Handle1.complete definition
     //- Handle1 childof NestedClass0
-    static nested_class1 handle1 = new ();
+    static nested_class1 handle1    = new ();
 
     //- @inner_class defines/binding InnerClass
     //- InnerClass.node/kind record

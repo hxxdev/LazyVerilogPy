@@ -23,13 +23,13 @@ if (MemBus.RWn)  //- @#0MemBus ref MemBus
 //- @#1MemBus ref MemBus
 //- @Addr ref Addr
 //- @mem ref Mem
-MemBus.Data = mem[MemBus.Addr];
+MemBus.Data     = mem[MemBus.Addr];
 else  //- @#0MemBus ref MemBus
 //- @Addr ref Addr
 //- @#1MemBus ref MemBus
 //- @Data ref Data
 //- @mem ref Mem
-mem[MemBus.Addr] = MemBus.Data;
+mem[MemBus.Addr]    = MemBus.Data;
 
 always @*  //- @MemBus2 ref MemBus2
 //- @RWn ref Rwn
@@ -38,11 +38,11 @@ if (MemBus2.RWn)  //- @#0MemBus2 ref MemBus2
 //- @#1MemBus2 ref MemBus2
 //- @Addr ref Addr
 //- @mem ref Mem
-MemBus2.Data = mem[MemBus2.Addr];
+MemBus2.Data    = mem[MemBus2.Addr];
 else  //- @#0MemBus2 ref MemBus2
 //- @Addr ref Addr
 //- @#1MemBus2 ref MemBus2
 //- @Data ref Data
 //- @mem ref Mem
-mem[MemBus2.Addr] = MemBus2.Data;
+mem[MemBus2.Addr]   = MemBus2.Data;
 endmodule

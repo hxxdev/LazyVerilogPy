@@ -71,7 +71,7 @@ import my_pkg::*;
 //- Handle1.node/kind variable
 //- Handle1.complete definition
 //- Handle1 childof MyModule
-static my_class1 handle1 = new ();
+static my_class1 handle1    = new ();
 
 //- @my_class1 ref MyClass1
 //- @handle3 defines/binding Handle3
@@ -82,7 +82,7 @@ static my_class1 handle1 = new ();
 //- Handle4.node/kind variable
 //- Handle4.complete definition
 //- Handle4 childof MyModule
-my_class1 handle3 = new (), handle4 = new ();
+my_class1 handle3   = new (), handle4 = new ();
 
 initial begin
     //- @handle1 ref Handle1

@@ -13,7 +13,7 @@ package pkg;
         shortint unsigned     cc                            ;
     }  //- @local_struct defines/binding LocalStruct1
     //- @other_struct defines/binding OtherStruct
-    local_struct = '{1, 2, 100}, other_struct;
+    local_struct    = '{1, 2, 100}, other_struct;
 
     typedef struct {
         //- @xx defines/binding _
@@ -62,16 +62,16 @@ struct {
     //- @cc defines/binding CC
     shortint unsigned     cc                            ;
 }  //- @local_struct defines/binding LocalStruct
-local_struct = '{1, 2, 100};
+local_struct    = '{1, 2, 100};
 
 //- @my_struct ref MyStruct
 //- @#0external_struct defines/binding ExternalStruct
 //- @external_struct2 defines/binding ExternalStruct2
-my_struct external_struct = '{1, 2, 100}, external_struct2;
+my_struct external_struct   = '{1, 2, 100}, external_struct2;
 
 //- @local_struct ref LocalStruct
 //- @cc ref CC
-assign local_struct.cc = 50;
+assign local_struct.cc  = 50;
 
 //- @local_struct ref LocalStruct
 //- @#0external_struct ref ExternalStruct
@@ -79,21 +79,21 @@ assign local_struct.cc = 50;
 //- @xx ref XX
 //- @external_struct2 ref ExternalStruct2
 //- @yy ref YY
-assign local_struct.bb = external_struct.xx + external_struct2.yy;
+assign local_struct.bb  = external_struct.xx + external_struct2.yy;
 
 //- @zz ref ZZ
 //- @cc ref CC
-assign local_struct.cc = external_struct.zz;
+assign local_struct.cc  = external_struct.zz;
 
 //- @xx ref XX
 //- @external_struct ref ExternalStruct
-assign external_struct.xx = 0;
+assign external_struct.xx   = 0;
 
 //- @aa ref AA
 //- @xx ref XX
-assign local_struct.aa = external_struct.xx;
+assign local_struct.aa  = external_struct.xx;
 
 //- @yy ref YY
 //- @bb ref BB
-assign external_struct.yy = local_struct.bb;
+assign external_struct.yy   = local_struct.bb;
 endmodule

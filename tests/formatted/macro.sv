@@ -97,7 +97,7 @@ module macro;
 `define MacroModule 10
 
 //- @"TEN" ref/expands TEN
-parameter int x = `TEN;
+parameter int x     = `TEN;
 initial begin
 
     //- @"PRINT_3_STRINGS" ref/expands PRINT_3_STRINGS

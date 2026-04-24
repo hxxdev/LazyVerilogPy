@@ -33,7 +33,7 @@ virtual class BaseClass;
             //- Y1 childof GetData
             virtual function int getData(int x, int y);
                 //- @data ref Data
-                data = 15;
+                data    = 15;
                 //- @data ref Data
                 return data;
             endfunction
@@ -47,7 +47,7 @@ virtual class BaseClass;
         ChildClass child;
         initial begin
             //- @child ref Child
-            child = new ();
+            child   = new ();
             //- @getData ref GetData
             //- @child ref Child
             $display(child.getData(1, 2));

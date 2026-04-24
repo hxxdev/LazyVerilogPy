@@ -1,7 +1,7 @@
 timeunit 1ns / 1ps;
 timeprecision 1ps;
 
-(* foo = 1 *) package static p;
+(* foo  = 1 *) package static p;
     timeunit 1ns;
     parameter int x     = 1;
     parameter type y_t  = logic [x:0];
@@ -16,12 +16,12 @@ package pack2;
 endpackage
 
 module automatic m1 import p::*, p::x;
-#(int i = 1) (a, b,, .c({a, b[0]}));
+#(int i     = 1) (a, b,, .c({a, b[0]}));
 input                         a;
 output    [1:0]               b;
 endmodule
 
-module m2 #(parameter i = 1, localparam j = i, parameter type x_t = bit) (input int a[], (* bar = "asdf" *) output logic b = 1, ref c, interface.mod d, .e());
+module m2 #(parameter i     = 1, localparam j = i, parameter type x_t = bit) (input int a[], (* bar = "asdf" *) output logic b = 1, ref c, interface.mod d, .e());
 endmodule
 
 extern interface I(input a, output b);
@@ -59,35 +59,36 @@ extern interface I(input a, output b);
     assign (supply0, weak1) #(1: 0: 1, 2: 1: 0) w   = 2;
 
     wor u, v;
-    alias{u, v} = w;
+    alias{u, v}     = w;
 
     logic f, z;
     event ev;
     initial begin
         byte q, r, x;
 
-        repeat (3) @(negedge b) f = #2 1;
+        repeat (3) @(negedge b) f   = #2 1;
         wait (f)++f;
         wait fork
             ;
             wait_order (m3.ev) f++;
 
             fork
-                : fkb static int i = 1;
+                : fkb static int i  = 1;
                 disable fork
                     ;
                 join_none
 
                 disable m3.foo;
 
-                assign z = 1;
+                assign z    = 1;
                 deassign z;
 
-                force z = 1;
+                force z     = 1;
                 release z;
 
                 if (1) begin
-                end else begin
+                end
+                else begin
                 end
 
                 unique0 casex
@@ -105,8 +106,8 @@ extern interface I(input a, output b);
                 12'h800: x          = 4;
             endcase
 
-            f   <= #1step 1;
-            f   <= repeat (3) @(ev) 1;
+            f       <= #1step 1;
+            f       <= repeat (3) @(ev) 1;
         end
 
         logic ww[3][2];
@@ -115,9 +116,9 @@ extern interface I(input a, output b);
             forever break;
             repeat (f + 2) continue;
             while (1);
-            for (int i = 0, j = i;
+            for (int i  = 0, j = i;
             i < 10;
-            i += 2, j += i) begin
+            i       += 2, j += i) begin
             end
             foreach (w[q]) begin
             end
@@ -163,18 +164,19 @@ extern interface I(input a, output b);
                 (instr) matches tagged Add.s: case
                     (s) matches'{. *, . *, 0}: ;
                     // no op
-                    '{.r1, .r2, .rd}: rf[rd] = rf[r1] + rf[r2];
+                    '{.r1, .r2, .rd}: rf[rd]    = rf[r1] + rf[r2];
                 endcase
                 tagged Jmp.j: case
-                    (j) matches tagged JmpU.a: pc       = pc + a;
-                    tagged JmpC'{.c, .a}: if (rf[c]) pc = a;
+                    (j) matches tagged JmpU.a: pc           = pc + a;
+                    tagged JmpC'{.c, .a}: if (rf[c]) pc     = a;
                 endcase
             endcase
 
             if (instr matches (tagged Jmp.j) && &j matches (tagged JmpC'{cc:.c, addr:.a})) begin
-                pc  = c[0] & a[0];
-                pc  = instr matches (tagged Jmp.j) && &j matches (tagged JmpC'{cc:.c, addr:.a}) ? c[0] & a[0]: 0;
-            end else begin
+                pc      = c[0] & a[0];
+                pc      = instr matches (tagged Jmp.j) && &j matches (tagged JmpC'{cc:.c, addr:.a}) ? c[0] & a[0]: 0;
+            end
+            else begin
             end
         end
 
@@ -184,9 +186,9 @@ extern interface I(input a, output b);
         end
 
         genvar j;
-        for (genvar i = 0;
+        for (genvar i   = 0;
         i < 10;
-        i += 2) if (i == 7) begin
+        i       += 2) if (i == 7) begin
         end
 
         ;
@@ -226,7 +228,7 @@ extern interface I(input a, output b);
             property
                 p3(s);
                 int r;
-                @(posedge clk) strong ((a, r = 1) intersect first_match (b, r = 2)) and not sync_accept_on(c) case
+                @(posedge clk) strong ((a, r    = 1) intersect first_match (b, r = 2)) and not sync_accept_on(c) case
                     (e) 2'd0: a && b;
                     2'd1: a ## 2 b;
                     2'd2: a ## 4 b;
@@ -257,12 +259,12 @@ extern interface I(input a, output b);
                                 prim prim_inst(q, r);
                                 rcmos #1step(q, r, s, t);
 
-                                defparam m3.m.i = 1: 1: 1;
+                                defparam m3.m.i     = 1: 1: 1;
 
                                 clocking
                                     cb @(r or s);
                                     default input posedge #3ps;
-                                    input a = t;
+                                    input a     = t;
                                 endclocking
 
                                 global clocking
@@ -277,7 +279,7 @@ extern interface I(input a, output b);
                                     wire                  clk2                          ;
                                     event ev3;
                                     initial begin
-                                        ## (5 + 2) zz <= 1;
+                                        ## (5 + 2) zz   <= 1;
 
                                         -> > ev3;
 
@@ -311,17 +313,17 @@ extern interface I(input a, output b);
                                             output q;
                                             reg q;
                                             input s, r;
-                                            initial q = 1'b1;
+                                            initial q   = 1'b1;
                                             table (10) 0: ? : 1;
                                         endtable
                                     endprimitive
 
-                                    (* attr = 3.14 *) bind m3.m m1 #(1) bound('x,,,);
+                                    (* attr     = 3.14 *) bind m3.m m1 #(1) bound('x,,,);
                                     bind m2: m3.m m1 #(2) bound2('x,,,);
 
                                     config
                                         cfg;
-                                        localparam i = 1;
+                                        localparam i    = 1;
                                         design work.m3;
                                         default liblist a b;
                                         cell m3 use work.m3;
@@ -382,24 +384,24 @@ extern interface I(input a, output b);
                                                             Iface i2();
                                                             n n2(i2.m);
 
-                                                            localparam int baz = 3;
+                                                            localparam int baz  = 3;
                                                             task i1.t2;
-                                                                static int i = baz;
+                                                                static int i    = baz;
                                                             endtask
 
                                                             task i2.t2;
-                                                                static int i = baz;
+                                                                static int i    = baz;
                                                             endtask
                                                             endmodule
 
                                                             typedef enum {cover_none, cover_all} coverage_level;
                                                             checker
-                                                                assert_window1(logic test_expr, untyped start_event, untyped end_event, event clock = $inferred_clock, logic reset = $inferred_disable, string error_msg = "violation", coverage_level clevel = cover_all);
+                                                                assert_window1(logic test_expr, untyped start_event, untyped end_event, event clock     = $inferred_clock, logic reset = $inferred_disable, string error_msg = "violation", coverage_level clevel = cover_all);
                                                                 default clocking
                                                                     @clock;
                                                                 endclocking
                                                                 default disable iff reset;
-                                                                bit window = 1'b0, next_window = 1'b1;
+                                                                bit window  = 1'b0, next_window = 1'b1;
                                                                 rand bit q;
 
                                                                 always_comb begin
@@ -408,11 +410,11 @@ extern interface I(input a, output b);
                                                                     else next_window                                = window;
                                                                 end
 
-                                                                always_ff @clock window <= next_window;
+                                                                always_ff @clock window     <= next_window;
 
                                                                 property
                                                                     p_window;
-                                                                    start_event && !window |= > test_expr[+] ## 0 end_event;
+                                                                    start_event && !window  |= > test_expr[+] ## 0 end_event;
                                                                 endproperty
 
                                                                 a_window: assert property
@@ -464,19 +466,19 @@ extern interface I(input a, output b);
                                                                         endmodule
 
                                                                         class C;
-                                                                            int i = 5ns;
+                                                                            int i   = 5ns;
                                                                             static int j;
-                                                                            extern function int foo(int bar, int baz = 1);
+                                                                            extern function int foo(int bar, int baz    = 1);
                                                                             endclass
 
                                                                             class D;
                                                                                 extern static function real foo;
                                                                                 endclass
 
-                                                                                localparam int k = 5;
+                                                                                localparam int k    = 5;
 
                                                                                 function int C::foo(int bar, int baz    = 1);
-                                                                                    i                                   = j + longint'(k) + bar + baz;
+                                                                                    i       = j + longint'(k) + bar + baz;
                                                                                 endfunction
 
                                                                                 function real D::foo;
@@ -509,24 +511,24 @@ extern interface I(input a, output b);
                                                                                             integer               i                             = 1;
                                                                                             integer               j                             = 2;
                                                                                             function integer f();
-                                                                                                f = i;
+                                                                                                f       = i;
                                                                                             endfunction
                                                                                         endclass
 
                                                                                         class B extends A;
-                                                                                            integer i = 2;
+                                                                                            integer i   = 2;
                                                                                             function void f();
-                                                                                                i       = j;
-                                                                                                super.i = super.j;
-                                                                                                j       = super.f();
-                                                                                                j       = this.super.f();
+                                                                                                i           = j;
+                                                                                                super.i     = super.j;
+                                                                                                j           = super.f();
+                                                                                                j           = this.super.f();
                                                                                             endfunction
                                                                                         endclass
 
                                                                                         class C2 extends B;
                                                                                             function void g();
                                                                                                 f();
-                                                                                                i = j + C::j + A::f();
+                                                                                                i       = j + C::j + A::f();
                                                                                             endfunction
 
                                                                                             rand bit [63:0] value;
@@ -552,11 +554,11 @@ extern interface I(input a, output b);
                                                                                         integer               i                             = b1.f();
                                                                                         initial begin
                                                                                             b2.f();
-                                                                                            a   = b2;
-                                                                                            c.i = c.j;
+                                                                                            a       = b2;
+                                                                                            c.i     = c.j;
 
                                                                                             randsequence (main) main: first second;
-                                                                                            first: add | dec: = (1 + 1);
+                                                                                            first: add | dec:   = (1 + 1);
                                                                                             second: repeat ($urandom_range(2, 6)) first;
                                                                                             add: if (depth < 2) first
                                                                                             else second;
@@ -569,7 +571,7 @@ extern interface I(input a, output b);
                                                                                             third: rand
                                                                                         join
                                                                                         first second;
-                                                                                        fourth(string s = "done"): {if (depth) break;
+                                                                                        fourth(string s     = "done"): {if (depth) break;
                                                                                         };
                                                                                         endsequence
                                                                                     end
@@ -588,15 +590,15 @@ extern interface I(input a, output b);
                                                                                         AxC: cross color, pixel_adr;
                                                                                         all: cross color, Hue, Offset;
 
-                                                                                        option.comment = instComment;
+                                                                                        option.comment  = instComment;
 
-                                                                                        e: coverpoint x iff (clk){option.weight = 2;
-                                                                                        wildcard bins a                         = {[0:63], 65};
-                                                                                        bins b[]                                = {[127:150], [148:191]};
+                                                                                        e: coverpoint x iff (clk){option.weight     = 2;
+                                                                                        wildcard bins a                             = {[0:63], 65};
+                                                                                        bins b[]                                    = {[127:150], [148:191]};
                                                                                         // note overlapping values
-                                                                                        bins c[]                                = {200, 201, 202};
-                                                                                        bins d                                  = {[1000:$]};
-                                                                                        bins others[]                           = default;
+                                                                                        bins c[]                                    = {200, 201, 202};
+                                                                                        bins d                                      = {[1000:$]};
+                                                                                        bins others[]                               = default;
 
                                                                                         bins sa     = (4 = > 5 = > 6), ([7:9], 10 = > 11, 12);
                                                                                         bins sb[]   = (12 = > 3[*1]);
@@ -613,7 +615,7 @@ extern interface I(input a, output b);
                                                                                     endgroup
 
                                                                                     function new;
-                                                                                        g2 = new ("SDF");
+                                                                                        g2      = new ("SDF");
                                                                                     endfunction
 
                                                                                     function foo;
@@ -633,7 +635,7 @@ extern interface I(input a, output b);
                                                                                     endclass
 
                                                                                     module m9;
-                                                                                    logic [3:0] a = {4{1'b1}};
+                                                                                    logic [3:0] a   = {4{1'b1}};
                                                                                     endmodule
 
                                                                                     module m10;
@@ -646,7 +648,7 @@ extern interface I(input a, output b);
                                                                                         constraint G{len > 1;
                                                                                         payload.size == len;
                                                                                         } function void post_randomize;
-                                                                                            crc = payload.sum;
+                                                                                            crc     = payload.sum;
                                                                                         endfunction
                                                                                     endclass
 
@@ -682,68 +684,68 @@ extern interface I(input a, output b);
                                                                                     shortint              si                            ;
                                                                                     int                   qq                            [$:3];
                                                                                     final begin
-                                                                                        i   = j + k;
-                                                                                        i   = j - k;
-                                                                                        i   = j * k;
-                                                                                        i   = j / k;
-                                                                                        i   = j % k;
-                                                                                        i   = j | k;
-                                                                                        i   = j & k;
-                                                                                        i   = j ^ k;
-                                                                                        i   = j ** k;
-                                                                                        i   = j^~k;
-                                                                                        i   = j << k;
-                                                                                        i   = j <<< k;
-                                                                                        i   = j >> k;
-                                                                                        i   = j >>> k;
-                                                                                        i   = j -> k;
-                                                                                        i   = j <-> k;
-                                                                                        i += j;
-                                                                                        i -= j;
-                                                                                        i *= j;
-                                                                                        i /= j;
-                                                                                        i %= k;
-                                                                                        i &= k;
-                                                                                        i |= k;
-                                                                                        i ^= k;
-                                                                                        i <<= j;
-                                                                                        i <<<= j;
-                                                                                        i >>= j;
-                                                                                        i >>>= j;
-                                                                                        i   = j === k;
-                                                                                        i   = j !== k;
-                                                                                        i   = j == ? k;
-                                                                                        i   = j != ? k;
-                                                                                        i   = j > k;
-                                                                                        i   = j >= k;
-                                                                                        i   = j < k;
-                                                                                        i   = j <= k;
-                                                                                        i   = +j;
-                                                                                        i   = -j;
-                                                                                        i   = !j;
-                                                                                        i   = ~j;
-                                                                                        i   = &j;
-                                                                                        i   = ~&j;
-                                                                                        i   = |j;
-                                                                                        i   = ~|j;
-                                                                                        i   = ^j;
-                                                                                        i   = ~^j;
-                                                                                        i   = ^~j;
+                                                                                        i       = j + k;
+                                                                                        i       = j - k;
+                                                                                        i       = j * k;
+                                                                                        i       = j / k;
+                                                                                        i       = j % k;
+                                                                                        i       = j | k;
+                                                                                        i       = j & k;
+                                                                                        i       = j ^ k;
+                                                                                        i       = j ** k;
+                                                                                        i       = j^~k;
+                                                                                        i       = j << k;
+                                                                                        i       = j <<< k;
+                                                                                        i       = j >> k;
+                                                                                        i       = j >>> k;
+                                                                                        i       = j -> k;
+                                                                                        i       = j <-> k;
+                                                                                        i       += j;
+                                                                                        i       -= j;
+                                                                                        i       *= j;
+                                                                                        i       /= j;
+                                                                                        i       %= k;
+                                                                                        i       &= k;
+                                                                                        i       |= k;
+                                                                                        i       ^= k;
+                                                                                        i       <<= j;
+                                                                                        i       <<<= j;
+                                                                                        i       >>= j;
+                                                                                        i       >>>= j;
+                                                                                        i       = j === k;
+                                                                                        i       = j !== k;
+                                                                                        i       = j == ? k;
+                                                                                        i       = j != ? k;
+                                                                                        i       = j > k;
+                                                                                        i       = j >= k;
+                                                                                        i       = j < k;
+                                                                                        i       = j <= k;
+                                                                                        i       = +j;
+                                                                                        i       = -j;
+                                                                                        i       = !j;
+                                                                                        i       = ~j;
+                                                                                        i       = &j;
+                                                                                        i       = ~&j;
+                                                                                        i       = |j;
+                                                                                        i       = ~|j;
+                                                                                        i       = ^j;
+                                                                                        i       = ~^j;
+                                                                                        i       = ^~j;
                                                                                         ++i;
                                                                                         i++;
                                                                                         --i;
                                                                                         i--;
-                                                                                        i   = signed'(j);
-                                                                                        i   = a.or;
-                                                                                        i   = a.and;
-                                                                                        i   = a.xor;
-                                                                                        i   = a.unique ()[0];
-                                                                                        i   = j[0];
-                                                                                        i   = j[3:2];
-                                                                                        i   = j[3-:1];
-                                                                                        i   = $unit::unitVar;
-                                                                                        i   = $root.m12.j;
-                                                                                        a   = {};
+                                                                                        i       = signed'(j);
+                                                                                        i       = a.or;
+                                                                                        i       = a.and;
+                                                                                        i       = a.xor;
+                                                                                        i       = a.unique ()[0];
+                                                                                        i       = j[0];
+                                                                                        i       = j[3:2];
+                                                                                        i       = j[3-:1];
+                                                                                        i       = $unit::unitVar;
+                                                                                        i       = $root.m12.j;
+                                                                                        a       = {};
                                                                                         void'(a.find(x) with (x > 5).unique);
                                                                                     end
                                                                                     endmodule
@@ -770,17 +772,17 @@ extern interface I(input a, output b);
 
                                                                                     typedef class Base;
 
-                                                                                        class Base #(parameter p = 1);
+                                                                                        class Base #(parameter p    = 1);
                                                                                             typedef struct {
                                                                                                 real r;
                                                                                                 bit [p-1:0] data;
                                                                                             } T;
 
                                                                                             static function T Tsum(input T driver[]);
-                                                                                                Tsum.r      = 0.0;
-                                                                                                Tsum.data   = 0;
-                                                                                                foreach (driver[i]) Tsum.data += driver[i].data;
-                                                                                                Tsum.r = $itor(Tsum.data);
+                                                                                                Tsum.r                          = 0.0;
+                                                                                                Tsum.data                       = 0;
+                                                                                                foreach (driver[i]) Tsum.data   += driver[i].data;
+                                                                                                Tsum.r                          = $itor(Tsum.data);
                                                                                             endfunction
                                                                                         endclass
 
@@ -802,14 +804,14 @@ extern interface I(input a, output b);
                                                                                         pulsestyle_ondetect   b                             ;
                                                                                         showcancelled         b                             ;
                                                                                         noshowcancelled b, b;
-                                                                                        ifnone(a = > b) = (1, 0);
+                                                                                        ifnone(a    = > b) = (1, 0);
                                                                                     endspecify
 
                                                                                     m13 instArr[3:1][2:5]();
 
                                                                                     (* maybe_unknown *) unknowninst ui(1, 2);
 
-                                                                                    let eq(x, y = b) = x == y;
+                                                                                    let eq(x, y     = b) = x == y;
                                                                                     endmodule
 
                                                                                     module m15(input a, clk, data, output b);
@@ -818,7 +820,7 @@ extern interface I(input a, output b);
                                                                                     wire                  [1:0]                         w                             ;
 
                                                                                     specify
-                                                                                        specparam tSU = 1, tHLD = 3: 4: 5;
+                                                                                        specparam tSU   = 1, tHLD = 3: 4: 5;
                                                                                         $setup(posedge clk && &a, data, 42);
                                                                                         $hold(posedge clk, data, 42,);
                                                                                         $setuphold(posedge clk, data, tSU, tHLD, notify, 0: 1: 0, bar, dclk, ddata);
@@ -844,7 +846,7 @@ extern interface I(input a, output b);
                                                                                         $recrem(posedge clk, data, 1, 2,,,, dclk,);
                                                                                     endspecify
 
-                                                                                    function void func(int a = 1, b = 2);
+                                                                                    function void func(int a    = 1, b = 2);
                                                                                     endfunction
 
                                                                                     initial begin
@@ -854,7 +856,7 @@ extern interface I(input a, output b);
                                                                                     endmodule
 
                                                                                     import "DPI-C" context \ begin
-                                                                                        = function void dpi_f1(input, output logic []);
+                                                                                                = function void dpi_f1(input, output logic []);
 
                                                                                             function dpi_e1;
                                                                                             endfunction
@@ -884,7 +886,7 @@ extern interface I(input a, output b);
                                                                                                     wire clk;
                                                                                                     J j(. *);
 
-                                                                                                    virtual interface J jvi = j;
+                                                                                                    virtual interface J jvi     = j;
 
                                                                                                         trireg (large) logic #(0, 0, 0) cap1;
                                                                                                         pullup (strong1) p1(neta), p2(netb);
@@ -893,7 +895,7 @@ extern interface I(input a, output b);
                                                                                                             rand integer x;
                                                                                                         endclass
                                                                                                         function int F(C obj, integer x);
-                                                                                                            F = obj.randomize () with {x < local::x;
+                                                                                                            F       = obj.randomize () with {x < local::x;
                                                                                                             };
                                                                                                         endfunction
                                                                                                     endmodule
@@ -917,7 +919,7 @@ extern interface I(input a, output b);
                                                                                                             function new (int size, default);
                                                                                                                 super.new (default);
                                                                                                                 // Optional explicit use of super.new
-                                                                                                                this.size = size;
+                                                                                                                this.size   = size;
                                                                                                             endfunction
                                                                                                             : new
                                                                                                         endclass

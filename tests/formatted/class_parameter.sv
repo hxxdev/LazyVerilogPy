@@ -4,7 +4,7 @@ class Stack #(parameter type T  = int);
     //- @T ref T
     //- @items defines/binding _
     //- @idx defines/binding _
-    T items[64], idx            = 0;
+    T items[64], idx    = 0;
 
     //- @T ref T
     //- @val defines/binding _
@@ -14,7 +14,7 @@ endclass
 
 //- @Vector defines/binding Vector
 //- @WIDTH defines/binding WIDTH
-class Vector #(parameter WIDTH = 1);
+class Vector #(parameter WIDTH  = 1);
     //- @WIDTH ref WIDTH
     //- @data defines/binding _
     bit [WIDTH-1:0] data;
@@ -24,17 +24,17 @@ endclass
 module my_module();
 //- @Stack ref Stack
 //- @real_stack defines/binding _
-Stack #(real) real_stack = new ();
+Stack #(real) real_stack    = new ();
 
 //- @#0Stack ref Stack
 //- @#1Stack ref Stack
 //- @instance1 defines/binding _
-Stack #(Stack #(int)) instance1 = new;
+Stack #(Stack #(int)) instance1     = new;
 
 //- @#0Vector ref Vector
 //- @#1Vector ref Vector
 //- @instance2 defines/binding _
-Vector #(Vector #(int)) instance2 = new;
+Vector #(Vector #(int)) instance2   = new;
 
 //- @Vector ref Vector
 //- @v1 defines/binding _
@@ -45,7 +45,7 @@ int                   x1                            ;
 //- @v2 defines/binding _
 //- @x1 ref X1
 //- @WIDTH ref WIDTH
-Vector #(.WIDTH(x1)) v2 = new ();
+Vector #(.WIDTH(x1)) v2     = new ();
 endmodule
 
 //- @uvm_sequence_item defines/binding UvmSequenceItem
@@ -56,7 +56,7 @@ endclass
 package M;
     //- @uvm_sequence defines/binding UvmSequence
     //- @T defines/binding T1
-    class uvm_sequence #(parameter type T = int);
+    class uvm_sequence #(parameter type T   = int);
     endclass
 endpackage
 
@@ -69,17 +69,17 @@ endpackage
 //- @#2uvm_sequence ref UvmSequence
 //- @T ref T1
 //- @#1REQ ref REQ
-class core_base_seq #(type REQ = uvm_sequence_item, Y = uvm_sequence_item) extends M::uvm_sequence #(.T(REQ));
+class core_base_seq #(type REQ  = uvm_sequence_item, Y = uvm_sequence_item) extends M::uvm_sequence #(.T(REQ));
 endclass
 
 //- @foo_c defines/binding FooC
 class foo_c #(  //- @A defines/binding A
-    parameter int A = 1,  //- @B defines/binding B
-    parameter int B = 0);
+    parameter int A     = 1,  //- @B defines/binding B
+    parameter int B     = 0);
     //- @bar_c defines/binding BarC
     class bar_c #(  //- @X defines/binding X
-        parameter int X = 1,  //- @W defines/binding W
-        parameter int W = 0);
+        parameter int X     = 1,  //- @W defines/binding W
+        parameter int W     = 0);
         //- @get2 defines/binding Get2
         function static int get2();
         endfunction

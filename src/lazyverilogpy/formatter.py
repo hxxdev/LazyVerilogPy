@@ -299,8 +299,22 @@ class StatementOptions:
     wrap_end_else_clauses: bool = False
     """Split ``end`` and ``else`` onto separate lines (Verible default: False)."""
 
-    wrap_spaces: int = 4
-    """Extra spaces added for continuation-indent (line wrapping)."""
+
+@dataclass
+class PortOptions:
+    """Options for non-ANSI module port-list formatting."""
+
+    non_ansi_port_per_line_enabled: bool = False
+    """When ``True``, place exactly ``non_ansi_port_per_line`` names per line."""
+
+    non_ansi_port_per_line: int = 1
+    """Number of port names per line when ``non_ansi_port_per_line_enabled`` is True."""
+
+    non_ansi_port_max_line_length_enabled: bool = False
+    """When ``True``, fill each line up to ``non_ansi_port_max_line_length`` columns."""
+
+    non_ansi_port_max_line_length: int = 80
+    """Maximum line length for port-list lines when length-based mode is active."""
 
 
 @dataclass
@@ -312,7 +326,6 @@ class FormatOptions:
     """
     # BasicFormatStyle fields
     indent_size: int = 2           # indentation_spaces
-    max_line_length: int = 100     # column_limit (not yet enforced)
 
     compact_indexing_and_selections: bool = True
     """Compact binary expressions inside ``[…]`` (Verible default: True)."""
@@ -327,8 +340,8 @@ class FormatOptions:
     tab_align: bool = False
     """Round alignment columns up to the nearest multiple of ``indent_size``."""
 
-    disable_format_on_save: bool = False
-    """When ``True``, LSP returns no edits for ``textDocument/formatting``."""
+    enable_format_on_save: bool = False
+    """When ``True``, LSP returns edits for ``textDocument/formatting``."""
 
     align_punctuation: bool = False
     """When ``True``, align terminal ``;`` across consecutive same-indent lines."""
@@ -338,12 +351,7 @@ class FormatOptions:
     port_declaration: PortDeclarationOptions = None  # type: ignore[assignment]
     var_declaration: VarDeclarationOptions = None    # type: ignore[assignment]
     instance: InstanceOptions = None        # type: ignore[assignment]
-
-    # Module port-list formatting
-    module_ports_per_line_enabled: bool = False
-    module_ports_per_line: int = 1
-    module_max_line_length_for_ports_enabled: bool = False
-    module_max_line_length_for_ports: int = 80
+    port: PortOptions = None                # type: ignore[assignment]
 
     def __post_init__(self) -> None:
         if self.statement is None:
@@ -354,6 +362,8 @@ class FormatOptions:
             self.var_declaration = VarDeclarationOptions()
         if self.instance is None:
             self.instance = InstanceOptions()
+        if self.port is None:
+            self.port = PortOptions()
 
     @classmethod
     def from_dict(cls, d: dict) -> "FormatOptions":
@@ -362,6 +372,7 @@ class FormatOptions:
             "port_declaration": PortDeclarationOptions,
             "var_declaration": VarDeclarationOptions,
             "instance": InstanceOptions,
+            "port": PortOptions,
         }
         obj = cls()
         for k, v in d.items():
@@ -739,7 +750,7 @@ def _break_decision(
 # Assign-operator alignment pass
 # ---------------------------------------------------------------------------
 
-_BLOCKING_ASSIGN_RE = re.compile(r' = ')
+_BLOCKING_ASSIGN_RE = re.compile(r' ((?:[+\-*/%&|^]|<<|>>|<<<|>>>)?=)(?!=) ')
 _NONBLOCKING_ASSIGN_RE = re.compile(r' <= ')
 _BLOCK_COMMENT_RE = re.compile(r'/\*.*?\*/', re.DOTALL)
 
@@ -759,11 +770,13 @@ def _find_assign_op(line: str) -> "tuple[int, str] | None":
     m1 = _BLOCKING_ASSIGN_RE.search(code)
     m2 = _NONBLOCKING_ASSIGN_RE.search(code)
     if m1 and m2:
-        return (m2.start(), '<=') if m2.start() < m1.start() else (m1.start(), '=')
+        if m2.start() < m1.start():
+            return (m2.start(), '<=')
+        return (m1.start(), m1.group(1))
     if m2:
         return (m2.start(), '<=')
     if m1:
-        return (m1.start(), '=')
+        return (m1.start(), m1.group(1))
     return None
 
 
@@ -838,6 +851,9 @@ def _align_assign_pass(text: str, opts: "FormatOptions") -> str:
             out.append(_reassemble(line, pos, op, spaces))
         return '\n'.join(out)
 
+    tab_align = opts.tab_align
+    tab_size = opts.indent_size
+
     # Mode A: fixed alignment, group consecutive assignment lines
     i = 0
     while i < len(lines):
@@ -847,24 +863,63 @@ def _align_assign_pass(text: str, opts: "FormatOptions") -> str:
             i += 1
             continue
 
-        # Collect group of consecutive lines that each contain an assignment.
-        group: list[tuple[str, int, str, int]] = []  # (line, pos, op, lhs_width)
+        # Reference indent for the group.
+        indent_i = len(lines[i]) - len(lines[i].lstrip())
+
+        # Collect group: assignment lines at same indent, with comment-only lines
+        # as pass-through.  Blank lines or indent changes terminate the group.
+        group: list[tuple[str, "int | None", "str | None", "int | None"]] = []
         j = i
         while j < len(lines):
-            info_j = _find_assign_op(lines[j])
-            if info_j is None:
+            line_j = lines[j]
+            stripped_j = line_j.lstrip()
+
+            if not stripped_j:          # blank line — end group
                 break
+
+            indent_j = len(line_j) - len(stripped_j)
+            if indent_j != indent_i:    # indent change — end group
+                break
+
+            if _COMMENT_ONLY_RE.match(line_j):  # comment at same indent — pass-through
+                group.append((line_j, None, None, None))
+                j += 1
+                continue
+
+            info_j = _find_assign_op(line_j)
+            if info_j is None:          # non-assignment, non-comment — end group
+                break
+
             pos_j, op_j = info_j
-            indent_len_j = len(lines[j]) - len(lines[j].lstrip())
-            group.append((lines[j], pos_j, op_j, pos_j - indent_len_j))
+            group.append((line_j, pos_j, op_j, pos_j - indent_i))
             j += 1
 
-        max_lhs = max(lw for _, _, _, lw in group)
-        align_col = max(min_w, max_lhs) + 1
+        assign_entries = [(p, o, w) for _, p, o, w in group if p is not None]
+        if not assign_entries:
+            for entry in group:
+                out.append(entry[0])
+            i = j
+            continue
 
-        for gline, gpos, gop, glw in group:
-            spaces = max(1, align_col - glw)
-            out.append(_reassemble(gline, gpos, gop, spaces))
+        max_lhs = max(w for _, _, w in assign_entries)
+
+        if tab_align and tab_size > 0:
+            raw_op_col = indent_i + max(min_w, max_lhs) + 1
+            align_col_abs = (raw_op_col // tab_size + 1) * tab_size
+            for gline, gpos, gop, glw in group:
+                if gpos is None:
+                    out.append(gline)
+                else:
+                    spaces = max(1, align_col_abs - indent_i - glw)
+                    out.append(_reassemble(gline, gpos, gop, spaces))
+        else:
+            align_col = max(min_w, max_lhs) + 1
+            for gline, gpos, gop, glw in group:
+                if gpos is None:
+                    out.append(gline)
+                else:
+                    spaces = max(1, align_col - glw)
+                    out.append(_reassemble(gline, gpos, gop, spaces))
 
         i = j
 
@@ -1801,8 +1856,8 @@ def _format_module_portlist_pass(text: str, opts: "FormatOptions") -> str:
 
     Non-ANSI port lists (names only, no type keywords) are split across
     multiple lines according to *opts*:
-    - ``module_ports_per_line_enabled``: N names per line
-    - ``module_max_line_length_for_ports_enabled``: fill up to column limit
+    - ``port.non_ansi_port_per_line_enabled``: N names per line
+    - ``port.non_ansi_port_max_line_length_enabled``: fill up to column limit
     - both False (default): one name per line
 
     ANSI-style ports that contain type keywords or brackets are left unchanged.
@@ -1827,18 +1882,18 @@ def _format_module_portlist_pass(text: str, opts: "FormatOptions") -> str:
         leading_ws = lead_m.group(1) if lead_m else ""
         port_indent = leading_ws + indent_unit
 
-        if opts.module_ports_per_line_enabled and opts.module_ports_per_line > 0:
-            n = opts.module_ports_per_line
+        if opts.port.non_ansi_port_per_line_enabled and opts.port.non_ansi_port_per_line > 0:
+            n = opts.port.non_ansi_port_per_line
             groups = [ports[i:i + n] for i in range(0, len(ports), n)]
             port_lines: list[str] = []
             for gi, grp in enumerate(groups):
                 comma = "," if gi < len(groups) - 1 else ""
                 port_lines.append(port_indent + ", ".join(grp) + comma)
         elif (
-            opts.module_max_line_length_for_ports_enabled
-            and opts.module_max_line_length_for_ports > 0
+            opts.port.non_ansi_port_max_line_length_enabled
+            and opts.port.non_ansi_port_max_line_length > 0
         ):
-            max_len = opts.module_max_line_length_for_ports
+            max_len = opts.port.non_ansi_port_max_line_length
             port_lines = []
             current: list[str] = []
             for pi, port in enumerate(ports):

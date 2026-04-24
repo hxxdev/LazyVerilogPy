@@ -9,18 +9,18 @@ show_file = true             # show "[rtl/cpu.sv]" after module name
 [formatter]
 indent_size = 4
 keyword_case = "lower"          # "lower" | "upper" | "preserve"
-max_line_length = 120
 compact_indexing_and_selections = true
 blank_lines_between_items = 1
 default_indent_level_inside_module_block = 0
-tab_align = true
+tab_align = false
 # align_punctuation = false
+enable_format_on_save = true
 
 [formatter.statement]
-align = true                # align = and <= operators in consecutive assignments
+align = true              # align = and <= operators in consecutive assignments
+align_adaptive = false
 lhs_min_width = 6           # minimum width of the LHS column before the operator
-wrap_end_else_clauses = false
-wrap_spaces = 4
+wrap_end_else_clauses = true
 
 [formatter.port_declaration]
 align = true
@@ -36,6 +36,12 @@ section1_min_width = 22
 section2_min_width = 30
 section3_min_width = 30
 section4_min_width = 10
+
+[formatter.port]
+non_ansi_port_per_line_enabled = false
+non_ansi_port_per_line = 3
+non_ansi_port_max_line_length_enabled = true
+non_ansi_port_max_line_length = 18
 
 [formatter.instance]
 align = true
