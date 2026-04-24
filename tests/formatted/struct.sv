@@ -6,22 +6,22 @@ package pkg;
     struct {
         //- @aa defines/binding AA1
         //- @dd defines/binding _
-        byte              aa, dd;
+        byte                  aa                            , dd                            ;
         //- @bb defines/binding _
-        reg               bb;
+        reg                   bb                            ;
         //- @cc defines/binding CC1
-        shortint unsigned cc;
+        shortint unsigned     cc                            ;
     }  //- @local_struct defines/binding LocalStruct1
     //- @other_struct defines/binding OtherStruct
     local_struct = '{1, 2, 100}, other_struct;
 
     typedef struct {
         //- @xx defines/binding _
-        byte              xx;
+        byte                  xx                            ;
         //- @yy defines/binding _
-        reg               yy;
+        reg                   yy                            ;
         //- @zz defines/binding ZZ1
-        shortint unsigned zz;
+        shortint unsigned     zz                            ;
     }  //- @my_struct1 defines/binding MyStruct1
     my_struct1;
 
@@ -44,56 +44,56 @@ endpackage
 
 typedef struct {
     //- @xx defines/binding XX
-    byte              xx;
+    byte                  xx                            ;
     //- @yy defines/binding YY
-    reg               yy;
+    reg                   yy                            ;
     //- @zz defines/binding ZZ
-    shortint unsigned zz;
+    shortint unsigned     zz                            ;
 }  //- @my_struct defines/binding MyStruct
 my_struct;
 
 //- @module_with_struct defines/binding _
 module module_with_struct;
-    struct {
-        //- @aa defines/binding AA
-        byte              aa;
-        //- @bb defines/binding BB
-        reg               bb;
-        //- @cc defines/binding CC
-        shortint unsigned cc;
-    }  //- @local_struct defines/binding LocalStruct
-    local_struct = '{1, 2, 100};
+struct {
+    //- @aa defines/binding AA
+    byte                  aa                            ;
+    //- @bb defines/binding BB
+    reg                   bb                            ;
+    //- @cc defines/binding CC
+    shortint unsigned     cc                            ;
+}  //- @local_struct defines/binding LocalStruct
+local_struct = '{1, 2, 100};
 
-    //- @my_struct ref MyStruct
-    //- @#0external_struct defines/binding ExternalStruct
-    //- @external_struct2 defines/binding ExternalStruct2
-    my_struct external_struct = '{1, 2, 100}, external_struct2;
+//- @my_struct ref MyStruct
+//- @#0external_struct defines/binding ExternalStruct
+//- @external_struct2 defines/binding ExternalStruct2
+my_struct external_struct = '{1, 2, 100}, external_struct2;
 
-    //- @local_struct ref LocalStruct
-    //- @cc ref CC
-    assign local_struct.cc = 50;
+//- @local_struct ref LocalStruct
+//- @cc ref CC
+assign local_struct.cc = 50;
 
-    //- @local_struct ref LocalStruct
-    //- @#0external_struct ref ExternalStruct
-    //- @bb ref BB
-    //- @xx ref XX
-    //- @external_struct2 ref ExternalStruct2
-    //- @yy ref YY
-    assign local_struct.bb = external_struct.xx + external_struct2.yy;
+//- @local_struct ref LocalStruct
+//- @#0external_struct ref ExternalStruct
+//- @bb ref BB
+//- @xx ref XX
+//- @external_struct2 ref ExternalStruct2
+//- @yy ref YY
+assign local_struct.bb = external_struct.xx + external_struct2.yy;
 
-    //- @zz ref ZZ
-    //- @cc ref CC
-    assign local_struct.cc = external_struct.zz;
+//- @zz ref ZZ
+//- @cc ref CC
+assign local_struct.cc = external_struct.zz;
 
-    //- @xx ref XX
-    //- @external_struct ref ExternalStruct
-    assign external_struct.xx = 0;
+//- @xx ref XX
+//- @external_struct ref ExternalStruct
+assign external_struct.xx = 0;
 
-    //- @aa ref AA
-    //- @xx ref XX
-    assign local_struct.aa = external_struct.xx;
+//- @aa ref AA
+//- @xx ref XX
+assign local_struct.aa = external_struct.xx;
 
-    //- @yy ref YY
-    //- @bb ref BB
-    assign external_struct.yy = local_struct.bb;
+//- @yy ref YY
+//- @bb ref BB
+assign external_struct.yy = local_struct.bb;
 endmodule

@@ -16,8 +16,8 @@ function f4(int [var1:var2] t1[var3:var4]);
     //- @y defines/binding Y
     //- @data defines/binding Data
     struct {
-        int x;
-        int y;
+        int                   x                             ;
+        int                   y                             ;
     } data;
     //- @sum defines/binding _
     //- @#0data ref Data

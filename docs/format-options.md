@@ -316,37 +316,16 @@ blank lines, comment-only lines, non-port lines, and preprocessor directives.
 
 ### Section layout
 
-| Section | Content | Column option |
-|---------|---------|---------------|
-| 1 | Direction keyword (`input` / `output` / `inout`) | always at indent — no column option |
-| 2 | Data type + signing (`logic`, `wire`, `reg`, user-defined type, `signed`/`unsigned`) | `port_declaration_section2_column` |
-| 3 | Packed dimension (`[7:0]`, `[W-1:0]`, …) | `port_declaration_section3_column` |
-| 4 | Port name(s) (identifier or comma-separated identifiers) | `port_declaration_section4_column` |
-| 5 | Unpacked dimension and default value | `port_declaration_section5_column` |
+| Section | Content |
+|---------|---------|
+| 1 | Direction keyword (`input` / `output` / `inout`) — always at indent |
+| 2 | Net/var type + datatype + signing (`logic`, `wire`, `reg`, user-defined type, `signed`/`unsigned`) |
+| 3 | Packed dimension (`[7:0]`, `[W-1:0]`, …) |
+| 4 | Port name(s) (identifier or comma-separated identifiers) |
+| 5 | Unpacked dimension and default value |
 
-Section 1 (direction) always starts at the current indent level and cannot be
-moved by a column option.  Within each section, all lines in the block are
-padded to the widest entry so that the *next* section starts at a consistent
-column.
-
-### Column option semantics
-
-For sections 2–5, the corresponding `_column` option is an **absolute
-1-based column number**:
-
-- `0` (default) — natural spacing: one space after the previous section.
-- `N > 0` — the section content starts at column N (1-based).  If a line
-  would already be at or past column N, one space is inserted instead.
-
-```systemverilog
-// port_declaration_section2_column = 0  (natural spacing)
-    input              i_clk;
-    input logic [7:0]  i_data;
-
-// port_declaration_section2_column = 20  (datatype starts at column 20)
-    input              i_clk;
-    input          logic [7:0]  i_data;
-```
+Section positions are relative to section 1 start.  Each section width =
+`max(section_min_width, actual_content_length + 1)`.
 
 ### `align_port_declarations`
 | type | default |
@@ -359,44 +338,37 @@ single-space separation.
 
 ---
 
-### `port_declaration_section2_column`
-| type | default |
-|------|---------|
-| int  | `0`     |
+### `[formatter.port_declaration]`
 
-Absolute 1-based starting column of section 2 (data type + signing).
-`0` means one space after the direction keyword.
+Nested sub-table controlling minimum section widths for port declaration alignment.
 
----
+```toml
+[formatter.port_declaration]
+section1_min_width = 10   # direction keyword (input/output/inout)
+section2_min_width = 20   # net/var type + datatype + signing
+section3_min_width = 20   # packed dimension
+section4_min_width = 30   # port name(s)
+section5_min_width = 30   # unpacked dimension + default value
+```
 
-### `port_declaration_section3_column`
-| type | default |
-|------|---------|
-| int  | `0`     |
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `section1_min_width` | int | `10` | Minimum width of section 1 (direction) |
+| `section2_min_width` | int | `20` | Minimum width of section 2 (datatype + signing) |
+| `section3_min_width` | int | `20` | Minimum width of section 3 (packed dimension) |
+| `section4_min_width` | int | `30` | Minimum width of section 4 (port name) |
+| `section5_min_width` | int | `30` | Minimum width of section 5 (unpacked dim + default) |
 
-Absolute 1-based starting column of section 3 (packed dimension).
-`0` means one space after the data type.
+Each section's actual width = `max(section_min_width, widest_content_in_block + 1)`.
+If no line in the block has content for a section (e.g. no packed dimension), that
+section is omitted entirely and contributes no padding.
 
----
-
-### `port_declaration_section4_column`
-| type | default |
-|------|---------|
-| int  | `0`     |
-
-Absolute 1-based starting column of section 4 (port name / identifier).
-`0` means one space after the packed dimension (or data type when no dimension
-is present).
-
----
-
-### `port_declaration_section5_column`
-| type | default |
-|------|---------|
-| int  | `0`     |
-
-Absolute 1-based starting column of section 5 (unpacked dimension and default
-value).  `0` means one space after the port name.
+```systemverilog
+// [formatter.port_declaration] section2_min_width = 20, section3_min_width = 20
+    input             logic               [7:0]               i_data;
+    input             i_clk;
+    output            logic signed        [15:0]              o_result;
+```
 
 ---
 
@@ -404,19 +376,26 @@ value).  `0` means one space after the port name.
 
 Variable declarations (lines starting with a type keyword such as `logic`,
 `wire`, `reg`, `bit`, etc., or a user-defined type name) in contiguous blocks
-are aligned into up to three sections.
+are aligned into sections.
 
 ### Section layout
 
-| Section | Content | Column option |
-|---------|---------|---------------|
-| 1 | Type keyword + optional signing (`logic`, `wire signed`, user-defined type) | always at indent — no column option |
-| 2 | Packed dimension (`[7:0]`, …) | `var_declaration_section2_column` |
-| 3 | Variable name(s) | `var_declaration_section3_column` |
-| 4 | Unpacked dimension and initializer | `var_declaration_section4_column` |
+| Section | Content |
+|---------|---------|
+| 1 | Type keyword + optional signing (`logic`, `wire signed`, user-defined type) — always at indent |
+| 2 | Packed dimension (`[7:0]`, …) |
+| 3 | Declarator(s): `identifier [unpacked_dim] [= init]` — repeatable |
 
-Section 1 (type keyword) always starts at the current indent level.  All lines
-in a block are padded to the widest entry in each section.
+Section 1 (type keyword) always starts at the current indent level.
+
+The N-th declarator slot across multiple lines starts at the same column.
+Width of each declarator slot = `max(section3_min_width, actual_text_length + 1)`.
+
+```systemverilog
+// logic [7:0] a,   bb[3], ccc = 1;
+// logic [7:0] d,   e,     f   = 1;
+//             ^    ^      ^  — each slot aligned
+```
 
 ### `align_variable_declarations`
 | type | default |
@@ -428,34 +407,23 @@ the base formatter.
 
 ---
 
-### `var_declaration_section2_column`
-| type | default |
-|------|---------|
-| int  | `0`     |
+### `[formatter.var_declaration]`
 
-Absolute 1-based starting column of section 2 (packed dimension).
-`0` means one space after the type keyword.
+Nested sub-table controlling minimum section widths for variable declaration alignment.
 
----
+```toml
+[formatter.var_declaration]
+section2_min_width = 30   # packed dimension
+section3_min_width = 30   # declarator slot width
+```
 
-### `var_declaration_section3_column`
-| type | default |
-|------|---------|
-| int  | `0`     |
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `section2_min_width` | int | `30` | Minimum width of section 2 (packed dimension) |
+| `section3_min_width` | int | `30` | Minimum width of each declarator slot |
 
-Absolute 1-based starting column of section 3 (variable name).
-`0` means one space after the packed dimension (or type when no dimension is
-present).
-
----
-
-### `var_declaration_section4_column`
-| type | default |
-|------|---------|
-| int  | `0`     |
-
-Absolute 1-based starting column of section 4 (unpacked dimension and
-initializer).  `0` means one space after the variable name.
+Each section's actual width = `max(section_min_width, widest_content_in_block + 1)`.
+If no line in the block has a packed dimension, section 2 is omitted.
 
 ---
 

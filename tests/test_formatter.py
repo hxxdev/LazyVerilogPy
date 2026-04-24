@@ -18,6 +18,8 @@ from lazyverilogpy.formatter import (
     FTT,
     SpacingDecision,
     FormatOptions,
+    PortDeclarationOptions,
+    VarDeclarationOptions,
     _Tok,
     _tokenize,
     _find_disabled,
@@ -575,9 +577,10 @@ class TestAlignAssignOperators:
 class TestAlignPortDeclarations:
     """Tests for the align_port_declarations pass."""
 
-    def _align(self, text: str) -> str:
+    def _align(self, text: str, **kw) -> str:
         from lazyverilogpy.formatter import _align_port_declarations_pass
-        return _align_port_declarations_pass(text)
+        port_opts = PortDeclarationOptions(**kw) if kw else None
+        return _align_port_declarations_pass(text, port_opts)
 
     def test_four_columns_aligned(self):
         text = (
@@ -774,13 +777,17 @@ class TestAlignVariableDeclarations:
 
     def _align(self, text: str, **kw) -> str:
         from lazyverilogpy.formatter import _align_variable_declarations_pass
-        tab_align = kw.pop("tab_align", False)
-        indent_size = kw.pop("indent_size", 4)
-        m1 = kw.pop("var_col1_margin", 1)
-        m2 = kw.pop("var_col2_margin", 1)
-        m3 = kw.pop("var_col3_margin", 1)
-        m4 = kw.pop("var_col4_margin", 0)
-        return _align_variable_declarations_pass(text, tab_align, indent_size, (m1, m2, m3, m4))
+        s1_min = kw.pop("section1_min_width", 0)
+        s2_min = kw.pop("section2_min_width", 0)
+        s3_min = kw.pop("section3_min_width", 0)
+        s4_min = kw.pop("section4_min_width", 0)
+        var_opts = VarDeclarationOptions(
+            section1_min_width=s1_min,
+            section2_min_width=s2_min,
+            section3_min_width=s3_min,
+            section4_min_width=s4_min,
+        )
+        return _align_variable_declarations_pass(text, var_opts)
 
     def _name_col(self, line: str) -> int:
         """Return column index of the first signal name on the line."""

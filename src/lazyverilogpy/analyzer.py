@@ -921,27 +921,62 @@ class Analyzer:
         Scans from *mod_line* to the first ``endmodule`` and returns signal names
         in declaration order, preserving duplicates-free order.
         """
-        _PORT_RE = re.compile(
-            r"^\s*(?:input|output|inout)\b"          # direction keyword
-            r"(?:\s+(?:wire|reg|logic|tri"
-            r"|signed|unsigned|var))*"               # optional type keywords
-            r"(?:\s*\[[^\]]*\])?"                    # optional packed width
-            r"\s*([\w]+(?:\s*,\s*[\w]+)*)",          # one or more names
+        _PORT_DIR_RE = re.compile(
+            r"^\s*(?:input|output|inout)\b",
             re.IGNORECASE,
         )
+        # Type keywords to skip after the direction keyword.
+        _TYPE_KWS = frozenset([
+            "wire", "uwire", "reg", "logic", "bit", "byte",
+            "shortint", "int", "longint", "integer", "time",
+            "tri", "tri0", "tri1", "wand", "triand", "wor", "trior", "trireg",
+            "supply0", "supply1",
+            "signed", "unsigned", "var",
+        ])
         lines = text.splitlines()
         seen: set[str] = set()
         names: list[str] = []
         for raw in lines[mod_line:]:
             if re.match(r"\s*endmodule\b", raw, re.IGNORECASE):
                 break
-            m = _PORT_RE.match(raw)
-            if m:
-                for name in re.split(r"\s*,\s*", m.group(1).strip()):
-                    name = name.strip()
-                    if name and name not in seen:
-                        seen.add(name)
-                        names.append(name)
+            if not _PORT_DIR_RE.match(raw):
+                continue
+            # Tokenize the line: strip comments, split on whitespace and brackets.
+            code = re.sub(r'//.*$', '', raw).strip()
+            code = re.sub(r';$', '', code).strip()
+            tokens = re.findall(r'\[.*?\]|[\w]+|[=,]', code)
+            idx = 0
+            # Skip direction keyword.
+            if idx < len(tokens) and tokens[idx].lower() in ("input", "output", "inout"):
+                idx += 1
+            # Skip type keywords.
+            while idx < len(tokens) and tokens[idx].lower() in _TYPE_KWS:
+                idx += 1
+            # Skip packed dimension(s).
+            while idx < len(tokens) and tokens[idx].startswith("["):
+                idx += 1
+            # Extract port names: identifiers at current position, skipping
+            # unpacked dims ([...]), default values (= ...), and commas.
+            while idx < len(tokens):
+                tok = tokens[idx]
+                if re.match(r'^[A-Za-z_]\w*$', tok) and tok.lower() not in _TYPE_KWS:
+                    if tok not in seen:
+                        seen.add(tok)
+                        names.append(tok)
+                    idx += 1
+                    # Skip unpacked dimensions after the name.
+                    while idx < len(tokens) and tokens[idx].startswith("["):
+                        idx += 1
+                    # Skip default value (= expr).
+                    if idx < len(tokens) and tokens[idx] == "=":
+                        idx += 1
+                        # Skip value tokens until comma or end.
+                        while idx < len(tokens) and tokens[idx] != ",":
+                            idx += 1
+                elif tok == ",":
+                    idx += 1
+                else:
+                    idx += 1
         return names
 
     def _find_instance_at_line(self, state: DocumentState, target_line: int):

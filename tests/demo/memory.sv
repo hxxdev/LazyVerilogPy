@@ -1,4 +1,4 @@
-module memory(i_clk, address, data_in, data_out, read_write, chip_en);
+module memory(address, data_in, data_out, read_write, chip_en);
     input                                                           i_clk     ;
     input           wire                            [7:0]           address   , data_in   ;
     output          reg             signed          [7:0]           data_out  ;

@@ -19,18 +19,24 @@ align_assign_operators = true
 tab_align = true
 # align_assign_gap = 20
 align_port_declarations = true
-port_declaration_section2_column = 0  # 0 = natural spacing; non-zero = absolute 1-based column
-port_declaration_section3_column = 39
-port_declaration_section4_column = 0
-port_declaration_section5_column = 0
 align_instance_ports = true
 instance_port_indent_level = 1 # indent levels for port lines relative to module instantiation
 instance_port_spacing_before_paren = 10 # spaces between port name and (
 instance_port_spacing_inside_paren = 10 # spaces between signal and )
 align_variable_declarations = true
-var_declaration_section2_column = 0  # 0 = natural spacing; non-zero = absolute 1-based column
-var_declaration_section3_column = 40
-var_declaration_section4_column = 0
+
+[formatter.port_declaration]
+section1_min_width = 10
+section2_min_width = 33
+section3_min_width = 20
+section4_min_width = 30
+section5_min_width = 30
+
+[formatter.var_declaration]
+section1_min_width = 22
+section2_min_width = 30
+section3_min_width = 30
+section4_min_width = 10
 
 [autofunc]
 use_named_arguments = true

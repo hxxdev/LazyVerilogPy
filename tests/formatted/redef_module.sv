@@ -6,7 +6,7 @@ module mux_primitive(
     A,
     B
 );
-    output Y;
-    input  S, A, B;
-    assign Y = S ? B: A;
+output    Y;
+input     S, A, B;
+assign Y = S ? B: A;
 endmodule

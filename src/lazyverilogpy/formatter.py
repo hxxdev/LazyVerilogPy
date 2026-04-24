@@ -204,6 +204,49 @@ _FLOW_KEYWORDS = frozenset([
 # ---------------------------------------------------------------------------
 
 @dataclass
+class PortDeclarationOptions:
+    """Min-width configuration for port declaration section alignment.
+
+    Each section starts at ``sum(prev_section_widths)`` from section1.
+    Width of each section = ``max(section_min_width, actual_content_length + 1)``.
+    """
+    section1_min_width: int = 10
+    """Minimum width of section 1 (direction keyword)."""
+
+    section2_min_width: int = 20
+    """Minimum width of section 2 (net/var type + datatype + signing)."""
+
+    section3_min_width: int = 20
+    """Minimum width of section 3 (packed dimension)."""
+
+    section4_min_width: int = 30
+    """Minimum width of section 4 (port name / identifier)."""
+
+    section5_min_width: int = 30
+    """Minimum width of section 5 (unpacked dimension + default value)."""
+
+
+@dataclass
+class VarDeclarationOptions:
+    """Min-width configuration for variable declaration section alignment.
+
+    Each section starts at ``sum(prev_section_widths)`` from section1.
+    Width of each section = ``max(section_min_width, actual_content_length + 1)``.
+    """
+    section1_min_width: int = 0
+    """Minimum width of section 1 (lifetime + qualifier + datatype + signing)."""
+
+    section2_min_width: int = 30
+    """Minimum width of section 2 (packed dimension)."""
+
+    section3_min_width: int = 30
+    """Minimum width of section 3 (identifier name)."""
+
+    section4_min_width: int = 0
+    """Minimum width of section 4 (unpacked dimension + default value)."""
+
+
+@dataclass
 class FormatOptions:
     """Formatter configuration.
 
@@ -258,21 +301,8 @@ class FormatOptions:
     aligned line.
     """
 
-    port_declaration_section2_column: int = 0
-    """Absolute starting column of section 2 (data type + signing).
-    When 0 (default), natural spacing is used (1 space after section 1)."""
-
-    port_declaration_section3_column: int = 0
-    """Absolute starting column of section 3 (packed dimension).
-    When 0 (default), natural spacing is used (1 space after section 2)."""
-
-    port_declaration_section4_column: int = 0
-    """Absolute starting column of section 4 (port name / identifier).
-    When 0 (default), natural spacing is used (1 space after section 3)."""
-
-    port_declaration_section5_column: int = 0
-    """Absolute starting column of section 5 (unpacked dimension + default value).
-    When 0 (default), natural spacing is used."""
+    port_declaration: PortDeclarationOptions = None  # type: ignore[assignment]
+    """Nested min-width options for port declaration section alignment."""
 
     align_instance_ports: bool = False
     """Expand module instance port connections into a multi-line aligned block.
@@ -301,18 +331,8 @@ class FormatOptions:
     each aligned line.  Also applies to declarations inside typedef struct/union.
     """
 
-    var_declaration_section2_column: int = 0
-    """Absolute starting column (1-based) of section 2 (packed dimension).
-    When 0 (default), natural spacing is used (1 space after section 1)."""
-
-    var_declaration_section3_column: int = 0
-    """Absolute starting column (1-based) of section 3 (identifier / variable name).
-    When 0 (default), natural spacing is used (1 space after section 2)."""
-
-    var_declaration_section4_column: int = 0
-    """Absolute starting column (1-based) of section 4
-    (unpacked dimension + initializer).
-    When 0 (default), natural spacing is used."""
+    var_declaration: VarDeclarationOptions = None  # type: ignore[assignment]
+    """Nested min-width options for variable declaration section alignment."""
 
     disable_format_on_save: bool = False
     """When ``True``, the LSP server returns no edits for
@@ -336,11 +356,29 @@ class FormatOptions:
     """Column limit for wrapping port names in a module header port list.
     Only used when ``module_max_line_length_for_ports_enabled`` is ``True``."""
 
+    def __post_init__(self) -> None:
+        if self.port_declaration is None:
+            self.port_declaration = PortDeclarationOptions()
+        if self.var_declaration is None:
+            self.var_declaration = VarDeclarationOptions()
+
     @classmethod
     def from_dict(cls, d: dict) -> "FormatOptions":
         obj = cls()
         for k, v in d.items():
-            if hasattr(obj, k):
+            if k == "port_declaration" and isinstance(v, dict):
+                pd = PortDeclarationOptions()
+                for pk, pv in v.items():
+                    if hasattr(pd, pk):
+                        setattr(pd, pk, pv)
+                obj.port_declaration = pd
+            elif k == "var_declaration" and isinstance(v, dict):
+                vd = VarDeclarationOptions()
+                for vk, vv in v.items():
+                    if hasattr(vd, vk):
+                        setattr(vd, vk, vv)
+                obj.var_declaration = vd
+            elif hasattr(obj, k) and not isinstance(getattr(obj, k), (PortDeclarationOptions, VarDeclarationOptions)):
                 setattr(obj, k, v)
         return obj
 
@@ -827,6 +865,21 @@ _PORT_BUILTIN_TYPES = frozenset([
     "event", "var",
 ])
 
+# Net-type keywords that can precede a data type in a port declaration.
+# e.g. "supply0 logic unsigned [0:0] VDD" — supply0 is net_or_var_type,
+# logic is datatype, unsigned is signing.  All belong in section 2.
+_PORT_NET_TYPES = frozenset([
+    "var", "wire", "uwire", "tri", "tri0", "tri1",
+    "wand", "triand", "wor", "trior", "trireg",
+    "supply0", "supply1",
+])
+
+# Datatype keywords that can follow a net_or_var_type keyword in section 2.
+_PORT_DATA_TYPES = frozenset([
+    "logic", "reg", "bit", "byte", "shortint", "int", "longint",
+    "integer", "time",
+])
+
 # Sign qualifiers that occupy column 3 (between data type and dimension).
 _PORT_QUALIFIERS = frozenset(["signed", "unsigned"])
 
@@ -893,9 +946,10 @@ def _parse_port_line(
     idx = 1
 
     # Optional data type (col 2). Qualifiers (signed/unsigned) are excluded here.
-    # "var" is a lifetime/variable keyword that can precede a type (e.g. "var logic").
-    # When "var" is the first type token, consume any following builtin type keyword
-    # into the same dtype column so "var logic" is treated as a single type token.
+    # net_or_var_type keywords (var, wire, supply0, tri, …) can precede a datatype
+    # keyword (logic, reg, bit, …).  When a net_or_var_type is the first type token,
+    # consume any following datatype keyword into the same dtype column so
+    # "supply0 logic" is treated as a single section-2 token.
     dtype = ""
     if idx < len(tokens):
         candidate = tokens[idx]
@@ -908,14 +962,14 @@ def _parse_port_line(
             if is_builtin or is_user_type:
                 dtype = candidate
                 idx += 1
-                # If "var" was consumed, check for a following builtin type keyword
-                # (e.g. "var logic", "var wire") and merge it into dtype.
-                if candidate.lower() == "var" and idx < len(tokens):
+                # If a net_or_var_type was consumed, check for a following datatype
+                # keyword (e.g. "supply0 logic", "var byte", "wire reg") and merge
+                # it into dtype so all of section 2 stays together.
+                if candidate.lower() in _PORT_NET_TYPES and idx < len(tokens):
                     next_cand = tokens[idx]
                     if (not next_cand.startswith("[")
                             and next_cand.lower() not in _PORT_QUALIFIERS
-                            and next_cand.lower() in _PORT_BUILTIN_TYPES
-                            and next_cand.lower() != "var"):
+                            and next_cand.lower() in _PORT_DATA_TYPES):
                         dtype = dtype + " " + next_cand
                         idx += 1
 
@@ -943,35 +997,23 @@ def _parse_port_line(
         return None
 
     # Remaining tokens are port name(s) — comma-separated for multi-name lines.
+    # Each name entry is split into (identifier, trailing) where trailing is
+    # any unpacked dimension or default value after the identifier.
     remaining = " ".join(tokens[idx:])
-    names = [n.strip() for n in remaining.split(",") if n.strip()]
-    if not names:
+    raw_names = [n.strip() for n in remaining.split(",") if n.strip()]
+    if not raw_names:
         return None
 
+    names: list[tuple[str, str]] = []
+    for rn in raw_names:
+        parts = rn.split(None, 1)
+        if len(parts) == 1:
+            names.append((parts[0], ""))
+        else:
+            # Check if the trailing part starts with [ or = (unpacked dim or default)
+            names.append((parts[0], parts[1]))
+
     return (indent, direction, dtype, qualifier, dim, names, terminator, comment)
-
-
-def _place_section(line: str, content: str, target_col: int, block_max_width: int) -> str:
-    """Append *content* to *line*, padding to reach *target_col* (1-based) if needed.
-
-    If *target_col* is 0, a single space separator is used (natural spacing).
-    If the line is already at or past *target_col*, one space is used as minimum.
-    *block_max_width* is the width of the widest content in this section across
-    the block; the content is left-justified to that width before appending.
-    """
-    if not content and block_max_width == 0:
-        return line
-    padded = content.ljust(block_max_width)
-    if target_col <= 0:
-        return line + " " + padded
-    # Convert 1-based target_col to 0-based length
-    target_len = target_col - 1
-    current_len = len(line)
-    if current_len < target_len:
-        line = line + " " * (target_len - current_len) + padded
-    else:
-        line = line + " " + padded
-    return line
 
 
 def _reassemble_port_line(
@@ -980,69 +1022,58 @@ def _reassemble_port_line(
     dtype: str,
     qualifier: str,
     dim: str,
-    names: "list[str]",
+    names: "list[tuple[str, str]]",
     terminator: str,
     comment: str,
-    dir_width: int,
-    type_width: int,
-    qual_width: int,
-    dim_width: int,
-    name_width: int,
-    section_cols: "tuple[int,int,int,int]",
+    s1_w: int,
+    s2_w: int,
+    s3_w: int,
+    s4_w: int = 0,
+    s5_w: int = 0,
 ) -> str:
-    """Rebuild a port declaration line with column alignment applied.
+    """Rebuild a port declaration line with min-width section alignment.
 
-    Each name in *names* is padded to *name_width* so that the name column
-    aligns across all lines in the block, including multi-name declarations.
-
-    *section_cols* is a 4-tuple of absolute 1-based starting columns for each
-    section: (datatype+signing, packed_dim, port_name, unpacked+default).
-    A value of 0 means "use natural 1-space separation".
-
-    Section 1 (direction) is always placed at the indent position.
+    Sections are placed left-to-right, each padded to its block width:
+      - Section 1 (direction): at indent, padded to *s1_w*
+      - Section 2 (dtype + qualifier): follows s1, padded to *s2_w*
+      - Section 3 (packed dim): follows s2, padded to *s3_w*
+      - Section 4 (port name(s)): follows s3, padded to *s4_w*
+      - Section 5 (unpacked dim + default): follows s4, padded to *s5_w*
     """
-    s2, s3, s4, s5 = section_cols
+    # Section 1: direction — always at indent position
+    line = indent + direction.ljust(s1_w)
 
-    # Section 1: direction — start at indent (s1 ignored; indent is authoritative)
-    line = indent + direction.ljust(dir_width)
-
-    # Section 2: datatype + signing (dtype and qualifier merged into one section)
-    # Combined width: type_width + (1 + qual_width if qualifier present)
-    if type_width > 0 or qual_width > 0:
-        # Build the combined type+sign token padded to max combined width
-        if qual_width > 0:
-            type_part = dtype.ljust(type_width) + " " + qualifier.ljust(qual_width)
-            combined_w = type_width + 1 + qual_width
+    # Section 2: datatype + optional signing qualifier, padded to s2_w
+    if s2_w > 0:
+        if qualifier:
+            type_part = (dtype + " " + qualifier) if dtype else qualifier
         else:
-            type_part = dtype.ljust(type_width)
-            combined_w = type_width
-        line = _place_section(line, type_part, s2, combined_w)
+            type_part = dtype
+        line = line + type_part.ljust(s2_w)
+
+    # Section 3: packed dimension, padded to s3_w
+    if s3_w > 0:
+        line = line + dim.ljust(s3_w)
+
+    # Section 4: port name(s) — build the full names string, then pad.
+    # Section 5: unpacked dim + default value — appended after names.
+    names_parts: list[str] = []
+    trailing_parts: list[str] = []
+    for k, (name, trailing) in enumerate(names):
+        names_parts.append(name)
+        if trailing:
+            trailing_parts.append(trailing)
+
+    names_str = ", ".join(names_parts)
+    trailing_str = " ".join(trailing_parts) if trailing_parts else ""
+
+    if s4_w > 0:
+        line = line + names_str.ljust(s4_w)
     else:
-        # No type/qualifier section for this block; still need to advance
-        # so that section 3 aligns correctly
-        pass
+        line = line + names_str
 
-    # Section 3: packed dimension
-    if dim_width > 0:
-        line = _place_section(line, dim.ljust(dim_width), s3, dim_width)
-
-    # Section 4: port name(s).
-    # Advance to target column, then emit names padded to name_width.
-    if s4 > 0:
-        target_len = s4 - 1
-        current_len = len(line)
-        if current_len < target_len:
-            line = line + " " * (target_len - current_len)
-        else:
-            line = line + " "
-    else:
-        line = line + " "
-
-    for k, name in enumerate(names):
-        if k == 0:
-            line = line + name
-        else:
-            line = line + ", " + name
+    if trailing_str:
+        line = line + trailing_str
 
     line = line.rstrip() + terminator
 
@@ -1057,7 +1088,7 @@ _PORT_DIR_RE = re.compile(r"^\s*(?:input|output|inout)\b", re.IGNORECASE)
 
 def _align_port_declarations_pass(
     text: str,
-    section_cols: "tuple[int,int,int,int]" = (0, 0, 0, 0),
+    port_opts: "Optional[PortDeclarationOptions]" = None,
 ) -> str:
     """Post-processing pass: align contiguous port declaration blocks.
 
@@ -1067,15 +1098,15 @@ def _align_port_declarations_pass(
     padded to the same *name_width* (the longest individual name across the
     whole block), so names form a consistent column.
 
-    *section_cols* is a 4-tuple of absolute 1-based starting columns for each
-    section: (datatype+signing, packed_dim, port_name, unpacked+default).
-    A value of 0 means "use natural 1-space separation after previous section".
-    Section 1 (direction) always starts at the indent position and has no
-    column parameter.
+    Section positions are relative to section1 start.  Each section width =
+    ``max(section_min_width, actual_content_length + 1)``.
 
     The block resets only at blank lines, comment-only lines, non-port lines,
     and preprocessor directives.
     """
+    if port_opts is None:
+        port_opts = PortDeclarationOptions()
+
     lines = text.split("\n")
     out: list[str] = []
     i = 0
@@ -1103,12 +1134,52 @@ def _align_port_declarations_pass(
             for orig, _ in block:
                 out.append(orig)
         else:
-            dir_w  = max(len(p[1]) for p in parseable)
-            type_w = max(len(p[2]) for p in parseable)
-            qual_w = max(len(p[3]) for p in parseable)
-            dim_w  = max(len(p[4]) for p in parseable)
-            # name_w: longest individual name across all lines (incl. multi-name).
-            name_w = max(len(n) for p in parseable for n in p[5])
+            # Compute actual max content widths across block.
+            max_dir   = max(len(p[1]) for p in parseable)
+            max_dtype = max(len(p[2]) for p in parseable)
+            max_qual  = max(len(p[3]) for p in parseable)
+            max_dim   = max(len(p[4]) for p in parseable)
+
+            # Section 1 width: max(min_width, actual + 1)
+            s1_w = max(port_opts.section1_min_width, max_dir + 1)
+
+            # Section 2 width: covers dtype + optional qualifier.
+            # Max combined content = max(dtype + " " + qual) across lines.
+            max_s2_content = 0
+            for p in parseable:
+                combined = p[2] + (" " + p[3] if p[3] else "")
+                max_s2_content = max(max_s2_content, len(combined))
+            if max_s2_content > 0:
+                s2_w = max(port_opts.section2_min_width, max_s2_content + 1)
+            else:
+                s2_w = 0  # no type/qualifier in any line of this block
+
+            # Section 3 width: packed dimension.
+            if max_dim > 0:
+                s3_w = max(port_opts.section3_min_width, max_dim + 1)
+            else:
+                s3_w = 0  # no dimension in any line of this block
+
+            # Section 4 width: port name(s) — full comma-separated string.
+            max_names_len = 0
+            for p in parseable:
+                names_str = ", ".join(n for n, _ in p[5])
+                max_names_len = max(max_names_len, len(names_str))
+            if max_names_len > 0:
+                s4_w = max(port_opts.section4_min_width, max_names_len + 1)
+            else:
+                s4_w = 0
+
+            # Section 5 width: unpacked dimension + default value.
+            max_trailing = 0
+            for p in parseable:
+                trailing_parts = [t for _, t in p[5] if t]
+                if trailing_parts:
+                    max_trailing = max(max_trailing, len(" ".join(trailing_parts)))
+            if max_trailing > 0:
+                s5_w = max(port_opts.section5_min_width, max_trailing + 1)
+            else:
+                s5_w = 0
 
             for orig, parsed in block:
                 if parsed is None:
@@ -1118,8 +1189,7 @@ def _align_port_declarations_pass(
                     out.append(_reassemble_port_line(
                         indent, direction, dtype, qualifier, dim, names,
                         terminator, comment,
-                        dir_w, type_w, qual_w, dim_w, name_w,
-                        section_cols,
+                        s1_w, s2_w, s3_w, s4_w, s5_w,
                     ))
 
         i = j
@@ -1263,6 +1333,10 @@ def _parse_var_line(
         return None
 
     # Remaining tokens are comma-separated signal names.
+    # Each declarator may have an unpacked dimension and/or default value:
+    #   name [unpacked_dim] [= init]
+    # We split each into (identifier, trailing) where trailing is everything
+    # after the identifier (unpacked dim + default value).
     remaining = " ".join(tokens[idx:])
     raw_names = [n.strip() for n in remaining.split(",") if n.strip()]
     if not raw_names:
@@ -1275,13 +1349,18 @@ def _parse_var_line(
     if not all(re.match(r'^[A-Za-z_]', n) for n in raw_names):
         return None
 
-    # Build (name, delimiter) pairs: all but last get ",", last gets ";".
-    name_delims: list[tuple[str, str]] = []
-    for k, name in enumerate(raw_names):
-        delim = "," if k < len(raw_names) - 1 else ";"
-        name_delims.append((name, delim))
+    # Build (id, trailing) pairs: split each declarator into identifier and
+    # any trailing unpacked dimension / default value.
+    declarators: list[tuple[str, str]] = []
+    for rn in raw_names:
+        # Match identifier, then optional trailing (starts with [ or =, or space then [ or =)
+        m_decl = re.match(r'^([A-Za-z_]\w*)\s*(.*)', rn)
+        if m_decl:
+            declarators.append((m_decl.group(1), m_decl.group(2).strip()))
+        else:
+            declarators.append((rn, ""))
 
-    return (indent, type_kw, qualifier, dim, name_delims, comment, leading_comment)
+    return (indent, type_kw, qualifier, dim, declarators, comment, leading_comment)
 
 
 def _reassemble_var_line(
@@ -1289,83 +1368,76 @@ def _reassemble_var_line(
     type_kw: str,
     qualifier: str,
     dim: str,
-    name_delims: "list[tuple[str,str]]",
-    type_w: int,
-    qual_w: int,
-    dim_w: int,
-    name_w: int,
-    section_cols: "tuple[int,int,int]",
+    declarators: "list[tuple[str, str]]",
+    s1_w: int,
+    s2_w: int,
+    id_widths: "list[int]",
+    trailing_widths: "list[int]",
 ) -> str:
-    """Rebuild a variable declaration line with column alignment applied.
+    """Rebuild a variable declaration line with min-width section alignment.
 
-    *section_cols* is a 3-tuple of absolute 1-based starting columns for each
-    section: (packed_dim, name, unpacked+initializer).
-    A value of 0 means "use natural 1-space separation after previous section".
+    Sections are placed left-to-right:
+      - Section 1 (type + optional qualifier): at indent, padded to *s1_w*
+      - Section 2 (packed dim): follows s1, padded to *s2_w* (0 = skip)
+      - Section 3+4 (per-slot identifier + trailing): each slot *k* has
+        identifier padded to *id_widths[k]* and trailing (unpacked dim +
+        default + delimiter) padded to *trailing_widths[k]*.
 
-    Section 1 (type keyword) is always placed at the indent position.
+    The last slot's trailing is not padded.
     """
-    s2, s3, s4 = section_cols
-
-    # Section 1: type keyword + optional qualifier — always at indent position.
-    # Combined into one token for section-column purposes.
-    if qual_w > 0:
-        combined_w = type_w + 1 + qual_w
-        type_part = type_kw.ljust(type_w) + " " + qualifier.ljust(qual_w)
+    # Section 1: type keyword + optional qualifier
+    if qualifier:
+        type_part = type_kw + " " + qualifier
     else:
-        combined_w = type_w
-        type_part = type_kw.ljust(type_w)
+        type_part = type_kw
+    line = indent + type_part.ljust(s1_w)
 
-    line = indent + type_part
+    # Section 2: packed dimension
+    if s2_w > 0:
+        line = line + dim.ljust(s2_w)
 
-    # Section 2: packed dimension (absent lines still need to occupy block width
-    # so that section 3 names land on the same column).
-    if dim_w > 0:
-        # Pad this line's dim to the block max width
-        line = _place_section(line, dim.ljust(dim_w), s2, dim_w)
+    # Section 3+4: per-slot (identifier, trailing) pairs
+    num_decls = len(declarators)
+    for k, (name, trailing) in enumerate(declarators):
+        is_last = k == num_decls - 1
+        delim = ";" if is_last else ","
 
-    # Section 3: variable name(s).
-    # Place names at the target column; each name is padded to name_w so that
-    # multi-name declarations align with single-name declarations in the block.
-    # Advance line to section-3 column first, then emit names + delimiters.
-    s3_target = s3
-    if s3_target > 0:
-        target_len = s3_target - 1
-        current_len = len(line)
-        if current_len < target_len:
-            line = line + " " * (target_len - current_len)
+        # Pad identifier to its slot width
+        if k < len(id_widths):
+            line = line + name.ljust(id_widths[k])
         else:
-            line = line + " "
-    else:
-        line = line + " "
-
-    for k, (name, delim) in enumerate(name_delims):
-        if k == 0:
             line = line + name
+
+        # Build trailing text: unpacked_dim + default + delimiter
+        trail_text = (trailing + delim) if trailing else delim
+
+        if not is_last and k < len(trailing_widths):
+            line = line + trail_text.ljust(trailing_widths[k])
         else:
-            line = line + " " + name
-        line = line + delim
+            line = line + trail_text
 
     return line.rstrip()
 
 
 def _align_variable_declarations_pass(
     text: str,
-    section_cols: "tuple[int,int,int]" = (0, 0, 0),
+    var_opts: "Optional[VarDeclarationOptions]" = None,
 ) -> str:
     """Post-processing pass: align contiguous variable declaration blocks.
 
     A "block" is a run of lines that each start with a variable type keyword or
     user-defined type.  Multi-name declarations such as ``logic a, b;`` are
-    fully aligned: every name is padded to the same *name_width*.
+    aligned so that the N-th declarator across all lines starts at the same
+    column.
 
-    *section_cols* is a 3-tuple of absolute 1-based starting columns for each
-    section: (packed_dim, name, unpacked+initializer).
-    A value of 0 means "use natural 1-space separation after previous section".
-    Section 1 (type keyword) always starts at the indent position and has no
-    column parameter.
+    Section positions are relative to section1 start.  Each section width =
+    ``max(section_min_width, actual_content_length + 1)``.
 
     Also applies to declarations inside typedef struct/union blocks.
     """
+    if var_opts is None:
+        var_opts = VarDeclarationOptions()
+
     lines = text.split("\n")
     out: list[str] = []
     i = 0
@@ -1412,22 +1484,61 @@ def _align_variable_declarations_pass(
             for orig, _ in block:
                 out.append(orig)
         else:
-            type_w = max(len(p[1]) for p in parseable)
-            qual_w = max(len(p[2]) for p in parseable)
-            dim_w  = max(len(p[3]) for p in parseable)
-            name_w = max(len(name) for p in parseable for name, _ in p[4])
+            # Section 1: type keyword + optional qualifier
+            max_s1_content = 0
+            for p in parseable:
+                s1_content = p[1] + (" " + p[2] if p[2] else "")
+                max_s1_content = max(max_s1_content, len(s1_content))
+            s1_w = max(var_opts.section1_min_width, max_s1_content + 1)
+
+            # Section 2: packed dimension
+            max_dim = max(len(p[3]) for p in parseable)
+            if max_dim > 0:
+                s2_w = max(var_opts.section2_min_width, max_dim + 1)
+            else:
+                s2_w = 0
+
+            # Section 3+4: per-slot identifier widths and trailing widths.
+            # Each declarator slot has an identifier (group 3) and trailing
+            # text = unpacked_dim + default + delimiter (group 4).
+            # Width of id slot k = max(section3_min_width, max id length + 1)
+            # Width of trailing slot k = max(section4_min_width, max trailing+delim length + 1)
+            # Last slot's trailing is never padded.
+            max_slots = max(len(p[4]) for p in parseable)
+            id_widths: list[int] = []
+            trailing_widths: list[int] = []
+            for slot in range(max_slots):
+                id_entries: list[int] = []
+                trail_entries: list[int] = []
+                for p in parseable:
+                    if slot < len(p[4]):
+                        name, trailing = p[4][slot]
+                        id_entries.append(len(name))
+                        is_last = slot == len(p[4]) - 1
+                        delim = ";" if is_last else ","
+                        trail_text = (trailing + delim) if trailing else delim
+                        trail_entries.append(len(trail_text))
+                if id_entries:
+                    id_w = max(var_opts.section3_min_width, max(id_entries) + 1)
+                else:
+                    id_w = var_opts.section3_min_width
+                id_widths.append(id_w)
+                if trail_entries:
+                    trail_w = max(var_opts.section4_min_width, max(trail_entries) + 1)
+                else:
+                    trail_w = var_opts.section4_min_width
+                trailing_widths.append(trail_w)
 
             for orig, parsed in block:
                 if parsed is None:
                     out.append(orig)
                 else:
-                    indent, type_kw, qualifier, dim, name_delims, comment, leading_comment = parsed
+                    indent, type_kw, qualifier, dim, declarators, comment, leading_comment = parsed
                     if leading_comment:
                         out.append(indent + leading_comment)
                     assembled = _reassemble_var_line(
-                        indent, type_kw, qualifier, dim, name_delims,
-                        type_w, qual_w, dim_w, name_w,
-                        section_cols,
+                        indent, type_kw, qualifier, dim, declarators,
+                        s1_w, s2_w, id_widths, trailing_widths,
                     )
                     if comment:
                         assembled = assembled + comment
@@ -1928,24 +2039,9 @@ def format_source(source: str, options: Optional[FormatOptions] = None) -> str:
     if opts.align_assign_operators:
         result = _align_assign_pass(result, opts)
     if opts.align_port_declarations:
-        result = _align_port_declarations_pass(
-            result,
-            (
-                opts.port_declaration_section2_column,
-                opts.port_declaration_section3_column,
-                opts.port_declaration_section4_column,
-                opts.port_declaration_section5_column,
-            ),
-        )
+        result = _align_port_declarations_pass(result, opts.port_declaration)
     if opts.align_variable_declarations:
-        result = _align_variable_declarations_pass(
-            result,
-            (
-                opts.var_declaration_section2_column,
-                opts.var_declaration_section3_column,
-                opts.var_declaration_section4_column,
-            ),
-        )
+        result = _align_variable_declarations_pass(result, opts.var_declaration)
     if opts.align_instance_ports:
         result = _align_instance_ports_pass(result, opts)
     result = _format_module_portlist_pass(result, opts)
