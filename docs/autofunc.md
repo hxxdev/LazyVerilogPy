@@ -11,9 +11,6 @@ Add to `lazyverilog.toml`:
 ```toml
 [autofunc]
 use_named_arguments = true   # true (default) = .port(signal) style; false = positional
-
-[autotask]
-use_named_arguments = true
 ```
 
 ## Named vs positional output

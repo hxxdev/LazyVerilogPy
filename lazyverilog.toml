@@ -41,5 +41,3 @@ section4_min_width = 10
 [autofunc]
 use_named_arguments = true
 
-[autotask]
-use_named_arguments = true
