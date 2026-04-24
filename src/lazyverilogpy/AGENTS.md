@@ -12,6 +12,8 @@ LSP server over stdio via `pygls` + `pyslang` as the SV compiler backend.
 | `formatter.py` | Token-based SV formatter ported from Verible; `format_source(source, options)` |
 | `hover.py` | Calls `analyzer.symbol_at()`, returns Markdown hover |
 | `definition.py` | Calls `analyzer.definition_of()`, returns LSP `Location` |
+| `autowire.py` | AutoWire — infers and inserts undeclared signal declarations; uses pyslang AST or regex fallback |
+| `autofunc.py` | AutoFunc — generates function/task call-sites with named or positional arguments |
 
 ## Rules
 - `format_source` must be **idempotent**: `format(format(x)) == format(x)`
