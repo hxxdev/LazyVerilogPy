@@ -174,6 +174,23 @@ long_name <= 2;
 
 ---
 
+### `align_adaptive`
+| type | default |
+|------|---------|
+| bool | `false` |
+
+**Requires `align = true`.**
+
+When `false` (default, Mode A "fixed"), all operators in a consecutive group
+align to a single column: `indent + max(lhs_min_width, max_lhs_width) + 1`.
+
+When `true` (Mode B "adaptive"), each line is handled independently.  If
+`lhs_width <= lhs_min_width`, the operator is padded to
+`indent + lhs_min_width + 1`; otherwise exactly one space is kept so that a
+long LHS never pushes other lines out.
+
+---
+
 ### `lhs_min_width`
 | type | default |
 |------|---------|
@@ -181,12 +198,14 @@ long_name <= 2;
 
 **Requires `align = true`.**
 
-Spaces between the last character of the **longest** LHS in a run and its
-assignment operator.  All shorter lines receive extra padding so all operators
-stay on the same column.
+Minimum LHS content width (character count, excluding leading indentation).
 
-**Interaction with `tab_align`**: when `tab_align` is also `true`,
-`lhs_min_width` is rounded up to the next multiple of `indent_size`.
+- Mode A: `align_column = max(lhs_min_width, longest_lhs_width) + 1`.
+- Mode B: if `lhs_width <= lhs_min_width`, `spaces = lhs_min_width - lhs_width + 1`; else `spaces = 1`.
+
+**Interaction with `tab_align`**: when `tab_align` is also `true`, the
+computed operator column is rounded up to the nearest multiple of
+`indent_size`.
 
 ---
 
@@ -360,31 +379,41 @@ Spaces between the signal and the closing `)`.
 
 ---
 
-## Module port-list formatting
+## `[formatter.port]`
+
+Options for non-ANSI module header port-list formatting.
 
 The formatter always expands **non-ANSI** module header port lists (lists of
 plain port names, no type keywords) to multi-line.
 
-### `module_ports_per_line_enabled` / `module_ports_per_line`
+```toml
+[formatter.port]
+non_ansi_port_per_line_enabled = false
+non_ansi_port_per_line = 1
+non_ansi_port_max_line_length_enabled = false
+non_ansi_port_max_line_length = 80
+```
+
+### `non_ansi_port_per_line_enabled` / `non_ansi_port_per_line`
 | option | type | default |
 |--------|------|---------|
-| `module_ports_per_line_enabled` | bool | `false` |
-| `module_ports_per_line` | int | `1` |
+| `non_ansi_port_per_line_enabled` | bool | `false` |
+| `non_ansi_port_per_line` | int | `1` |
 
-When `module_ports_per_line_enabled` is `true`, `module_ports_per_line` port
+When `non_ansi_port_per_line_enabled` is `true`, `non_ansi_port_per_line` port
 names are placed on each line.
 
 ---
 
-### `module_max_line_length_for_ports_enabled` / `module_max_line_length_for_ports`
+### `non_ansi_port_max_line_length_enabled` / `non_ansi_port_max_line_length`
 | option | type | default |
 |--------|------|---------|
-| `module_max_line_length_for_ports_enabled` | bool | `false` |
-| `module_max_line_length_for_ports` | int | `80` |
+| `non_ansi_port_max_line_length_enabled` | bool | `false` |
+| `non_ansi_port_max_line_length` | int | `80` |
 
-When `module_max_line_length_for_ports_enabled` is `true`, port names are
-packed onto each line until the next name would exceed
-`module_max_line_length_for_ports` characters.
+When `non_ansi_port_max_line_length_enabled` is `true`, port names are packed
+onto each line until the next name would exceed `non_ansi_port_max_line_length`
+characters.
 
 When **both** enabled options are `false` (the default), one port name appears
 per line:
@@ -402,17 +431,17 @@ module memory_top(
 
 ## Format-on-save control
 
-### `disable_format_on_save`
+### `enable_format_on_save`
 | type | default |
 |------|---------|
 | bool | `false` |
 
-When `true`, the LSP server returns no edits for automatic
-`textDocument/formatting` requests (i.e. format-on-save is suppressed).
-The `:Format` command and any other explicit format invocations are
-**not** affected.
+When `true`, the LSP server returns edits for automatic
+`textDocument/formatting` requests (format-on-save is active).
+When `false` (default), format-on-save is suppressed; explicit `:Format`
+commands are **not** affected.
 
 ```toml
 [formatter]
-disable_format_on_save = true
+enable_format_on_save = true
 ```
