@@ -150,7 +150,7 @@ extern interface I(input a, output b);
             } Instr;
 
             VInt                  v                             ;
-            Instr                 instr                         = tagged Add'{reg1: 0, reg2                          : 1, regd                          : 3};
+            Instr                 instr                         = tagged Add'{reg1: 0, reg2                          : 1,      regd                          : 3};
             automatic int rf[]    = new[3];
             static longint pc     = 'x;
 
@@ -577,8 +577,8 @@ extern interface I(input a, output b);
 
                                                                                 class C3;
                                                                                     enum {red, green, blue} color;
-                                                                                    bit                   [3:0]                         pixel_adr                     ,    pixel_offset                  , pixel_hue                     ;
-                                                                                    logic                                               clk                           ,    x                             , y                             , c                             ;
+                                                                                    bit                   [3:0]                         pixel_adr                     ,         pixel_offset                  , pixel_hue                     ;
+                                                                                    logic                                               clk                           ,         x                             , y                             , c                             ;
                                                                                     logic                                               arr                           [3];
 
                                                                                     covergroup
@@ -675,7 +675,7 @@ extern interface I(input a, output b);
                                                                                     int unitVar;
 
                                                                                     module m12;
-                                                                                    int                   i                             ,   j                             , k                             ;
+                                                                                    int                   i                             ,         j                             , k                             ;
                                                                                     int                   a                             [];
                                                                                     time                  t                             ;
                                                                                     shortreal sr;

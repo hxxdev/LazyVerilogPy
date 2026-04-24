@@ -1055,25 +1055,33 @@ def _reassemble_port_line(
     if s3_w > 0:
         line = line + dim.ljust(s3_w)
 
-    # Section 4: port name(s) — build the full names string, then pad.
-    # Section 5: unpacked dim + default value — appended after names.
-    names_parts: list[str] = []
-    trailing_parts: list[str] = []
-    for k, (name, trailing) in enumerate(names):
-        names_parts.append(name)
-        if trailing:
-            trailing_parts.append(trailing)
-
-    names_str = ", ".join(names_parts)
-    trailing_str = " ".join(trailing_parts) if trailing_parts else ""
-
-    if s4_w > 0:
-        line = line + names_str.ljust(s4_w)
+    # Sections 4 + 5.
+    # When s5_w == 0 (no trailing in the block): join all names into one string and pad.
+    # When s5_w > 0: expand per-slot — each name padded to s4_w, non-last trailing
+    # padded to s5_w, slots separated by ", ".
+    if s5_w == 0:
+        names_str = ", ".join(n for n, _ in names)
+        if s4_w > 0:
+            line = line + names_str.ljust(s4_w)
+        else:
+            line = line + names_str
     else:
-        line = line + names_str
-
-    if trailing_str:
-        line = line + trailing_str
+        num_names = len(names)
+        for k, (name, trailing) in enumerate(names):
+            is_last = k == num_names - 1
+            if s4_w > 0:
+                line = line + name.ljust(s4_w)
+            else:
+                line = line + name
+            if not is_last:
+                if s5_w > 0:
+                    line = line + trailing.ljust(s5_w)
+                elif trailing:
+                    line = line + trailing
+                line = line + ", "
+            else:
+                if trailing:
+                    line = line + trailing
 
     line = line.rstrip() + terminator
 
@@ -1160,26 +1168,33 @@ def _align_port_declarations_pass(
             else:
                 s3_w = 0  # no dimension in any line of this block
 
-            # Section 4 width: port name(s) — full comma-separated string.
-            max_names_len = 0
-            for p in parseable:
-                names_str = ", ".join(n for n, _ in p[5])
-                max_names_len = max(max_names_len, len(names_str))
-            if max_names_len > 0:
-                s4_w = max(port_opts.section4_min_width, max_names_len + 1)
-            else:
-                s4_w = 0
-
-            # Section 5 width: unpacked dimension + default value.
+            # Section 5 width: max individual trailing length across all slots on all lines.
+            # Compute this first so we know which s4 mode to use.
             max_trailing = 0
             for p in parseable:
-                trailing_parts = [t for _, t in p[5] if t]
-                if trailing_parts:
-                    max_trailing = max(max_trailing, len(" ".join(trailing_parts)))
+                for _, trailing in p[5]:
+                    if trailing:
+                        max_trailing = max(max_trailing, len(trailing))
             if max_trailing > 0:
                 s5_w = max(port_opts.section5_min_width, max_trailing + 1)
             else:
                 s5_w = 0
+
+            # Section 4 width.
+            # When s5_w > 0 (per-slot mode): use max individual name length.
+            # When s5_w == 0 (join mode): use max joined-names string length.
+            if s5_w > 0:
+                max_name_len = 0
+                for p in parseable:
+                    for name, _ in p[5]:
+                        max_name_len = max(max_name_len, len(name))
+                s4_w = max(port_opts.section4_min_width, max_name_len + 1) if max_name_len > 0 else 0
+            else:
+                max_names_len = 0
+                for p in parseable:
+                    names_str = ", ".join(n for n, _ in p[5])
+                    max_names_len = max(max_names_len, len(names_str))
+                s4_w = max(port_opts.section4_min_width, max_names_len + 1) if max_names_len > 0 else 0
 
             for orig, parsed in block:
                 if parsed is None:
@@ -1510,6 +1525,7 @@ def _align_variable_declarations_pass(
             for slot in range(max_slots):
                 id_entries: list[int] = []
                 trail_entries: list[int] = []
+                has_trailing_content = False
                 for p in parseable:
                     if slot < len(p[4]):
                         name, trailing = p[4][slot]
@@ -1518,15 +1534,19 @@ def _align_variable_declarations_pass(
                         delim = ";" if is_last else ","
                         trail_text = (trailing + delim) if trailing else delim
                         trail_entries.append(len(trail_text))
+                        if trailing:
+                            has_trailing_content = True
                 if id_entries:
                     id_w = max(var_opts.section3_min_width, max(id_entries) + 1)
                 else:
                     id_w = var_opts.section3_min_width
                 id_widths.append(id_w)
-                if trail_entries:
-                    trail_w = max(var_opts.section4_min_width, max(trail_entries) + 1)
+                if has_trailing_content:
+                    # Trailing content exists: pad to section4_min_width so columns align.
+                    trail_w = max(var_opts.section4_min_width, max(trail_entries) + 1) if trail_entries else var_opts.section4_min_width
                 else:
-                    trail_w = var_opts.section4_min_width
+                    # No trailing content in this slot: only the delimiter — use minimal ", " separator.
+                    trail_w = 2
                 trailing_widths.append(trail_w)
 
             for orig, parsed in block:
