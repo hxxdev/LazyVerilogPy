@@ -97,19 +97,22 @@ always_comb begin
         tddd    += 4;
     end
 
-    for (int i  = 0;
-    i < 32;
-    i++) begin
+    for (int i  = 0; i < 32; i++) begin
     end
     while (i < 5) begin
         $display("i = %0d", i);
         i++;
     end
+    for (int i  = 0; i < 32; i++) begin
+        while (i < 5) begin
+            $display("i = %0d", i);
+            i++;
+        end
+    end
     do begin
         $display("i = %0d", i);
         i++;
-    end
-    while (i < 5);
+    end while (i < 5);
 
     foreach (arr[i]) begin
         $display("arr[%0d]  = %0d", i, arr[i]);
