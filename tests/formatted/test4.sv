@@ -8,7 +8,7 @@ int blah    = unknown;
 endmodule
 
 module unused;
-`pragma diagnostic warn     = "-Wfoobaz"
+`pragma diagnostic warn = "-Wfoobaz"
 endmodule
 
 `ifdef FOOBAR

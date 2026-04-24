@@ -23,7 +23,7 @@ function packet_t sum(input i_a, input i_b);
 endfunction
 
 task add_numbers(input int a, input int b, output int result);
-    result = a + b;
+    result  = a + b;
 endtask
 
 module memory_top(
@@ -63,14 +63,14 @@ logic                 [7:0]                         data_out                    
 /* ehlo */  // logic           [2:0]                   d                           ;
 static int a;
 
-assign d = a + 1;
+assign d    = a + 1;
 
 memory u_memory (
-    .address             (addr                ),
-    .data_in             (data_in             ),
-    .data_out            (dout                ),
-    .read_write          (read_write          ),
-    .chip_en             (chip_en             )
+    .address                (addr                   ),
+    .data_in                (data_in                ),
+    .data_out               (dout                   ),
+    .read_write             (read_write             ),
+    .chip_en                (chip_en                )
 );
 
 `ifdef RTL_SIM
@@ -90,14 +90,14 @@ always_comb begin
     ddddddd = 3;
 
     if (a == 3) begin
-        tdddddddddddddddd = 3;
-        ddddddd           = 3;
+        tdddddddddddddddd   = 3;
+        ddddddd             = 3;
     end
     else begin
-        tddd   += 4;
+        tddd    += 4;
     end
 
-    for (int i = 0;
+    for (int i  = 0;
     i < 32;
     i++) begin
     end
@@ -112,7 +112,7 @@ always_comb begin
     while (i < 5);
 
     foreach (arr[i]) begin
-        $display("arr[%0d] = %0d", i, arr[i]);
+        $display("arr[%0d]  = %0d", i, arr[i]);
     end
 
     repeat (3) begin
@@ -126,7 +126,7 @@ always_comb begin
 end
 
 initial begin
-    forever #5 clk = ~clk;
+    forever #5 clk  = ~clk;
     // 10 time-unit period
 end
 

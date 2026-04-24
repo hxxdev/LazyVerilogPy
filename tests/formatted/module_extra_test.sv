@@ -12,7 +12,7 @@ output    bit                              out1);
 //- @in1 ref In1
 //- @in2 ref In2
 //- @out1 ref Out1
-assign out1     = in1 & in2;
+assign out1 = in1 & in2;
 endmodule
 
 //- @top defines/binding Top

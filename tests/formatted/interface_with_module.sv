@@ -33,18 +33,16 @@ initial begin
 
     //- @TheBus ref TheBus
     //- @Addr ref Addr
-    TheBus.Addr     = 0;
+    TheBus.Addr = 0;
 
     //- @#0I defines/binding I
     //- @#1I ref I
     //- @#2I ref I
-    for (int I  = 0;
-    I < 7;
-    I++)  //- @#0TheBus ref TheBus
+    for (int I  = 0; I < 7; I++)  //- @#0TheBus ref TheBus
     //- @#0Addr ref Addr
     //- @#1TheBus ref TheBus
     //- @#1Addr ref Addr
-    TheBus.Addr     = TheBus.Addr + 1;
+    TheBus.Addr = TheBus.Addr + 1;
 
     //- @TheBus ref TheBus
     //- @RWn ref Rwn
@@ -53,7 +51,7 @@ initial begin
     //- @TheBus ref TheBus
     //- @Data ref Data
     //- @mem ref Mem0
-    TheBus.Data     = mem[0];
+    TheBus.Data = mem[0];
 end
 endmodule
 
@@ -71,7 +69,7 @@ if (MemBus.RWn)  //- @#0MemBus ref MemBus
 //- @#1MemBus ref MemBus
 //- @Addr ref Addr
 //- @mem ref Mem
-MemBus.Data     = mem[MemBus.Addr];
+MemBus.Data = mem[MemBus.Addr];
 else  //- @#0MemBus ref MemBus
 //- @Addr ref Addr
 //- @#1MemBus ref MemBus

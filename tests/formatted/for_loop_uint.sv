@@ -10,9 +10,7 @@ initial begin
     //- @#0x defines/binding X
     //- @#1x ref X
     //- @#2x ref X
-    for (uint x     = 1;
-    x < 5;
-    x++) begin
+    for (uint x = 1; x < 5; x++) begin
         //- @y ref Y
         y++;
     end

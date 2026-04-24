@@ -25,5 +25,5 @@ function f4(int [var1:var2] t1[var3:var4]);
     //- @x ref X
     //- @y ref Y
     //- @t1 ref T1
-    int sum     = data.x + data.y + t1;
+    int sum = data.x + data.y + t1;
 endfunction

@@ -41,7 +41,7 @@ parameter ADDR_WIDTH    = 8;
 //- @RAM_DEPTH defines/binding RAM_DEPTH
 //- RAM_DEPTH childof MyModule3
 //- @ADDR_WIDTH ref ADDR_WIDTH
-parameter RAM_DEPTH     = 1 << ADDR_WIDTH;
+parameter RAM_DEPTH = 1 << ADDR_WIDTH;
 endmodule
 
 //- @my_module defines/binding MyModule

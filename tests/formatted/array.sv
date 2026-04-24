@@ -62,13 +62,11 @@ initial begin
     //- @#1var2 ref Var2
     //- @j defines/binding _
     //- @m defines/binding _
-    for (int i  = 0, j = 0, bit [var1:var2] m = var2;
-    i < 50;
-    i++) begin
+    for (int i  = 0, j = 0, bit [var1:var2] m = var2; i < 50; i++) begin
         //- @real_arr ref RealArr
         //- @#0i ref I
         //- @#1i ref I
-        real_arr[i]     = i;
+        real_arr[i] = i;
     end
 end
 endmodule

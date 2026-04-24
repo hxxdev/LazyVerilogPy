@@ -60,7 +60,7 @@ module my_module;
 //- Num.node/kind variable
 //- Num.complete definition
 //- Num childof MyModule
-int num     = 1;
+int num = 1;
 
 //- @my_class3 ref MyClass3
 //- @handle1 defines/binding Handle1

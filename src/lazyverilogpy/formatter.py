@@ -735,6 +735,10 @@ def _break_decision(
     if ll == "else" and rl == "begin":
         return SpacingDecision.kMustAppend
 
+    # 'end'+'while' → kMustAppend (do-while: "end while (cond)")
+    if ll == "end" and rl == "while":
+        return SpacingDecision.kMustAppend
+
     # ')'+'begin' → kMustAppend (line 866)
     if lx == ")" and rl == "begin":
         return SpacingDecision.kMustAppend
@@ -905,7 +909,7 @@ def _align_assign_pass(text: str, opts: "FormatOptions") -> str:
 
         if tab_align and tab_size > 0:
             raw_op_col = indent_i + max(min_w, max_lhs) + 1
-            align_col_abs = (raw_op_col // tab_size + 1) * tab_size
+            align_col_abs = math.ceil(raw_op_col / tab_size) * tab_size
             for gline, gpos, gop, glw in group:
                 if gpos is None:
                     out.append(gline)
@@ -1993,6 +1997,7 @@ def format_source(source: str, options: Optional[FormatOptions] = None) -> str:
     indent_stack: list[int] = []   # per-block indent delta, pushed on open, popped on close
     at_bol = True          # at beginning of line
     dim_depth = 0          # depth inside [ ] for compact_indexing
+    paren_depth = 0        # depth inside ( ) — semicolons inside don't end statements
     pending_nl = False     # deferred newline (allows end-else lookahead)
     blank_pending = 0      # extra blank lines to emit at next line break
     in_pp_cond = False     # True after `ifdef/`ifndef/`elsif, until condition emitted
@@ -2114,6 +2119,10 @@ def format_source(source: str, options: Optional[FormatOptions] = None) -> str:
             dim_depth += 1
         elif tok.text == "]" and dim_depth > 0:
             dim_depth -= 1
+        elif tok.text == "(":
+            paren_depth += 1
+        elif tok.text == ")" and paren_depth > 0:
+            paren_depth -= 1
         elif tok.ftt == FTT.semicolon:
             dim_depth = 0  # ; ends any statement, so we can't still be inside […]
 
@@ -2145,7 +2154,8 @@ def format_source(source: str, options: Optional[FormatOptions] = None) -> str:
             if brace_stack:
                 brace_stack.pop()
         elif tok.ftt == FTT.semicolon:
-            pending_nl = True
+            if paren_depth == 0:
+                pending_nl = True
         elif tok.ftt in (FTT.eol_comment, FTT.include_directive):
             # eol_comment and include_directive always end their line.
             # Setting pending_nl here ensures that even disabled tokens

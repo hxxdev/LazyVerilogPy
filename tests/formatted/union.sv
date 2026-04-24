@@ -58,7 +58,7 @@ always @(posedge clk) begin
     //- @my_union ref MyUnion
     //- @a1 ref A1
     //- @in1 ref In1
-    my_union.a1     <= in1;
+    my_union.a1 <= in1;
 end
 
 //@ clk ref Clk

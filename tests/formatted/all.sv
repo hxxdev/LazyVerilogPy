@@ -16,12 +16,12 @@ package pack2;
 endpackage
 
 module automatic m1 import p::*, p::x;
-#(int i     = 1) (a, b,, .c({a, b[0]}));
+#(int i = 1) (a, b,, .c({a, b[0]}));
 input                         a;
 output    [1:0]               b;
 endmodule
 
-module m2 #(parameter i     = 1, localparam j = i, parameter type x_t = bit) (input int a[], (* bar = "asdf" *) output logic b = 1, ref c, interface.mod d, .e());
+module m2 #(parameter i = 1, localparam j = i, parameter type x_t = bit) (input int a[], (* bar = "asdf" *) output logic b = 1, ref c, interface.mod d, .e());
 endmodule
 
 extern interface I(input a, output b);
@@ -59,7 +59,7 @@ extern interface I(input a, output b);
     assign (supply0, weak1) #(1: 0: 1, 2: 1: 0) w   = 2;
 
     wor u, v;
-    alias{u, v}     = w;
+    alias{u, v} = w;
 
     logic f, z;
     event ev;
@@ -83,7 +83,7 @@ extern interface I(input a, output b);
                 assign z    = 1;
                 deassign z;
 
-                force z     = 1;
+                force z = 1;
                 release z;
 
                 if (1) begin
@@ -116,9 +116,7 @@ extern interface I(input a, output b);
             forever break;
             repeat (f + 2) continue;
             while (1);
-            for (int i  = 0, j = i;
-            i < 10;
-            i       += 2, j += i) begin
+            for (int i  = 0, j = i; i < 10; i += 2, j += i) begin
             end
             foreach (w[q]) begin
             end
@@ -167,8 +165,8 @@ extern interface I(input a, output b);
                     '{.r1, .r2, .rd}: rf[rd]    = rf[r1] + rf[r2];
                 endcase
                 tagged Jmp.j: case
-                    (j) matches tagged JmpU.a: pc           = pc + a;
-                    tagged JmpC'{.c, .a}: if (rf[c]) pc     = a;
+                    (j) matches tagged JmpU.a: pc       = pc + a;
+                    tagged JmpC'{.c, .a}: if (rf[c]) pc = a;
                 endcase
             endcase
 
@@ -186,9 +184,7 @@ extern interface I(input a, output b);
         end
 
         genvar j;
-        for (genvar i   = 0;
-        i < 10;
-        i       += 2) if (i == 7) begin
+        for (genvar i   = 0; i < 10; i += 2) if (i == 7) begin
         end
 
         ;
@@ -259,12 +255,12 @@ extern interface I(input a, output b);
                                 prim prim_inst(q, r);
                                 rcmos #1step(q, r, s, t);
 
-                                defparam m3.m.i     = 1: 1: 1;
+                                defparam m3.m.i = 1: 1: 1;
 
                                 clocking
                                     cb @(r or s);
                                     default input posedge #3ps;
-                                    input a     = t;
+                                    input a = t;
                                 endclocking
 
                                 global clocking
@@ -318,7 +314,7 @@ extern interface I(input a, output b);
                                         endtable
                                     endprimitive
 
-                                    (* attr     = 3.14 *) bind m3.m m1 #(1) bound('x,,,);
+                                    (* attr = 3.14 *) bind m3.m m1 #(1) bound('x,,,);
                                     bind m2: m3.m m1 #(2) bound2('x,,,);
 
                                     config
@@ -396,7 +392,7 @@ extern interface I(input a, output b);
 
                                                             typedef enum {cover_none, cover_all} coverage_level;
                                                             checker
-                                                                assert_window1(logic test_expr, untyped start_event, untyped end_event, event clock     = $inferred_clock, logic reset = $inferred_disable, string error_msg = "violation", coverage_level clevel = cover_all);
+                                                                assert_window1(logic test_expr, untyped start_event, untyped end_event, event clock = $inferred_clock, logic reset = $inferred_disable, string error_msg = "violation", coverage_level clevel = cover_all);
                                                                 default clocking
                                                                     @clock;
                                                                 endclocking
@@ -410,7 +406,7 @@ extern interface I(input a, output b);
                                                                     else next_window                                = window;
                                                                 end
 
-                                                                always_ff @clock window     <= next_window;
+                                                                always_ff @clock window <= next_window;
 
                                                                 property
                                                                     p_window;
@@ -518,10 +514,10 @@ extern interface I(input a, output b);
                                                                                         class B extends A;
                                                                                             integer i   = 2;
                                                                                             function void f();
-                                                                                                i           = j;
-                                                                                                super.i     = super.j;
-                                                                                                j           = super.f();
-                                                                                                j           = this.super.f();
+                                                                                                i       = j;
+                                                                                                super.i = super.j;
+                                                                                                j       = super.f();
+                                                                                                j       = this.super.f();
                                                                                             endfunction
                                                                                         endclass
 
@@ -571,7 +567,7 @@ extern interface I(input a, output b);
                                                                                             third: rand
                                                                                         join
                                                                                         first second;
-                                                                                        fourth(string s     = "done"): {if (depth) break;
+                                                                                        fourth(string s = "done"): {if (depth) break;
                                                                                         };
                                                                                         endsequence
                                                                                     end
@@ -592,13 +588,13 @@ extern interface I(input a, output b);
 
                                                                                         option.comment  = instComment;
 
-                                                                                        e: coverpoint x iff (clk){option.weight     = 2;
-                                                                                        wildcard bins a                             = {[0:63], 65};
-                                                                                        bins b[]                                    = {[127:150], [148:191]};
+                                                                                        e: coverpoint x iff (clk){option.weight = 2;
+                                                                                        wildcard bins a                         = {[0:63], 65};
+                                                                                        bins b[]                                = {[127:150], [148:191]};
                                                                                         // note overlapping values
-                                                                                        bins c[]                                    = {200, 201, 202};
-                                                                                        bins d                                      = {[1000:$]};
-                                                                                        bins others[]                               = default;
+                                                                                        bins c[]                                = {200, 201, 202};
+                                                                                        bins d                                  = {[1000:$]};
+                                                                                        bins others[]                           = default;
 
                                                                                         bins sa     = (4 = > 5 = > 6), ([7:9], 10 = > 11, 12);
                                                                                         bins sb[]   = (12 = > 3[*1]);
@@ -811,7 +807,7 @@ extern interface I(input a, output b);
 
                                                                                     (* maybe_unknown *) unknowninst ui(1, 2);
 
-                                                                                    let eq(x, y     = b) = x == y;
+                                                                                    let eq(x, y = b) = x == y;
                                                                                     endmodule
 
                                                                                     module m15(input a, clk, data, output b);
@@ -886,7 +882,7 @@ extern interface I(input a, output b);
                                                                                                     wire clk;
                                                                                                     J j(. *);
 
-                                                                                                    virtual interface J jvi     = j;
+                                                                                                    virtual interface J jvi = j;
 
                                                                                                         trireg (large) logic #(0, 0, 0) cap1;
                                                                                                         pullup (strong1) p1(neta), p2(netb);

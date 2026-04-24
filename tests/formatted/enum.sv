@@ -9,7 +9,7 @@ package my_pkg;
     enum {AA, BB} my_enum_var1;
 
     //- @idx defines/binding Idx
-    int idx     = 0;
+    int idx = 0;
 
     //- @var5 defines/binding Var5
     int var5[5];
@@ -39,7 +39,7 @@ initial begin
     //- @my_enum2 ref MyEnum2
     //- @my_enum_var2 defines/binding _
     //- @DD ref DD
-    automatic my_pkg::my_enum2 my_enum_var2     = my_pkg::DD;
+    automatic my_pkg::my_enum2 my_enum_var2 = my_pkg::DD;
 
     //- @my_enum_var1 ref MyEnumVar1
     //- @BB ref BB

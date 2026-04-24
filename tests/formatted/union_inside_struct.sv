@@ -63,7 +63,7 @@ always @(posedge clk) begin
     //- @#1my_union ref MyUnion
     //- @#1op_modes ref OpModes
     //- @op5 ref Op5
-    my_mult     <= my_union.op_modes.op2 * my_union.op_modes.op5;
+    my_mult <= my_union.op_modes.op2 * my_union.op_modes.op5;
 end
 
 //- @clk ref Clk

@@ -23,7 +23,7 @@ if (MemBus.RWn)  //- @#0MemBus ref MemBus
 //- @#1MemBus ref MemBus
 //- @Addr ref Addr
 //- @mem ref Mem
-MemBus.Data     = mem[MemBus.Addr];
+MemBus.Data = mem[MemBus.Addr];
 else  //- @#0MemBus ref MemBus
 //- @Addr ref Addr
 //- @#1MemBus ref MemBus
