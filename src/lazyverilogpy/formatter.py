@@ -250,33 +250,29 @@ class FormatOptions:
     """
 
     align_port_declarations: bool = True
-    """Align contiguous port declaration lines into 4 fixed columns:
-    direction / data type / packed dimension / port name.
+    """Align contiguous port declaration lines into 5 sections:
+    direction / data type+signing / packed dimension / port name / unpacked dim+default.
 
     Block boundaries reset at blank lines, comment-only lines, non-port lines,
     or preprocessor directives.  Trailing whitespace is stripped from each
     aligned line.
     """
 
-    port_col1_margin: int = 1
-    """Minimum spaces after column 1 (direction keyword).
-    When ``tab_align`` is ``True``, the next column's start is snapped to grid."""
+    port_declaration_section2_column: int = 0
+    """Absolute starting column of section 2 (data type + signing).
+    When 0 (default), natural spacing is used (1 space after section 1)."""
 
-    port_col2_margin: int = 1
-    """Minimum spaces after column 2 (data type).
-    When ``tab_align`` is ``True``, the next column's start is snapped to grid."""
+    port_declaration_section3_column: int = 0
+    """Absolute starting column of section 3 (packed dimension).
+    When 0 (default), natural spacing is used (1 space after section 2)."""
 
-    port_col3_margin: int = 1
-    """Minimum spaces after column 3 (qualifier: signed/unsigned).
-    When ``tab_align`` is ``True``, the next column's start is snapped to grid."""
+    port_declaration_section4_column: int = 0
+    """Absolute starting column of section 4 (port name / identifier).
+    When 0 (default), natural spacing is used (1 space after section 3)."""
 
-    port_col4_margin: int = 1
-    """Minimum spaces after column 4 (packed dimension).
-    When ``tab_align`` is ``True``, the next column's start is snapped to grid."""
-
-    port_col5_margin: int = 0
-    """Minimum spaces after column 5 (port name) and before the terminator (``; / ,``).
-    When ``tab_align`` is ``True``, the terminator position is snapped to grid."""
+    port_declaration_section5_column: int = 0
+    """Absolute starting column of section 5 (unpacked dimension + default value).
+    When 0 (default), natural spacing is used."""
 
     align_instance_ports: bool = False
     """Expand module instance port connections into a multi-line aligned block.
@@ -296,29 +292,27 @@ class FormatOptions:
     """Spaces between the signal and the closing ``)``."""
 
     align_variable_declarations: bool = False
-    """Align contiguous variable declaration lines into fixed columns:
-    type / qualifier / dimension / name(s).
+    """Align contiguous variable declaration lines into fixed sections:
+    lifetime+qualifier+datatype+signing / packed dimension / identifier /
+    unpacked dimension+initializer.
 
     Block boundaries reset at blank lines, comment-only lines, non-declaration
     lines, or preprocessor directives.  Trailing whitespace is stripped from
-    each aligned line.
+    each aligned line.  Also applies to declarations inside typedef struct/union.
     """
 
-    var_col1_margin: int = 1
-    """Minimum spaces after column 1 (type keyword).
-    When ``tab_align`` is ``True``, the next column's start is snapped to grid."""
+    var_declaration_section2_column: int = 0
+    """Absolute starting column (1-based) of section 2 (packed dimension).
+    When 0 (default), natural spacing is used (1 space after section 1)."""
 
-    var_col2_margin: int = 1
-    """Minimum spaces after column 2 (qualifier: signed/unsigned).
-    When ``tab_align`` is ``True``, the next column's start is snapped to grid."""
+    var_declaration_section3_column: int = 0
+    """Absolute starting column (1-based) of section 3 (identifier / variable name).
+    When 0 (default), natural spacing is used (1 space after section 2)."""
 
-    var_col3_margin: int = 1
-    """Minimum spaces after column 3 (packed dimension).
-    When ``tab_align`` is ``True``, the next column's start is snapped to grid."""
-
-    var_col4_margin: int = 0
-    """Minimum spaces after column 4 (each signal name) before delimiter.
-    When ``tab_align`` is ``True``, the delimiter position is snapped to grid."""
+    var_declaration_section4_column: int = 0
+    """Absolute starting column (1-based) of section 4
+    (unpacked dimension + initializer).
+    When 0 (default), natural spacing is used."""
 
     disable_format_on_save: bool = False
     """When ``True``, the LSP server returns no edits for
@@ -899,6 +893,9 @@ def _parse_port_line(
     idx = 1
 
     # Optional data type (col 2). Qualifiers (signed/unsigned) are excluded here.
+    # "var" is a lifetime/variable keyword that can precede a type (e.g. "var logic").
+    # When "var" is the first type token, consume any following builtin type keyword
+    # into the same dtype column so "var logic" is treated as a single type token.
     dtype = ""
     if idx < len(tokens):
         candidate = tokens[idx]
@@ -911,6 +908,16 @@ def _parse_port_line(
             if is_builtin or is_user_type:
                 dtype = candidate
                 idx += 1
+                # If "var" was consumed, check for a following builtin type keyword
+                # (e.g. "var logic", "var wire") and merge it into dtype.
+                if candidate.lower() == "var" and idx < len(tokens):
+                    next_cand = tokens[idx]
+                    if (not next_cand.startswith("[")
+                            and next_cand.lower() not in _PORT_QUALIFIERS
+                            and next_cand.lower() in _PORT_BUILTIN_TYPES
+                            and next_cand.lower() != "var"):
+                        dtype = dtype + " " + next_cand
+                        idx += 1
 
     # Optional qualifier: signed / unsigned (col 3).
     qualifier = ""
@@ -944,6 +951,29 @@ def _parse_port_line(
     return (indent, direction, dtype, qualifier, dim, names, terminator, comment)
 
 
+def _place_section(line: str, content: str, target_col: int, block_max_width: int) -> str:
+    """Append *content* to *line*, padding to reach *target_col* (1-based) if needed.
+
+    If *target_col* is 0, a single space separator is used (natural spacing).
+    If the line is already at or past *target_col*, one space is used as minimum.
+    *block_max_width* is the width of the widest content in this section across
+    the block; the content is left-justified to that width before appending.
+    """
+    if not content and block_max_width == 0:
+        return line
+    padded = content.ljust(block_max_width)
+    if target_col <= 0:
+        return line + " " + padded
+    # Convert 1-based target_col to 0-based length
+    target_len = target_col - 1
+    current_len = len(line)
+    if current_len < target_len:
+        line = line + " " * (target_len - current_len) + padded
+    else:
+        line = line + " " + padded
+    return line
+
+
 def _reassemble_port_line(
     indent: str,
     direction: str,
@@ -958,30 +988,63 @@ def _reassemble_port_line(
     qual_width: int,
     dim_width: int,
     name_width: int,
-    margins: "tuple[int,int,int,int,int] | None" = None,
+    section_cols: "tuple[int,int,int,int]",
 ) -> str:
-    """Rebuild a port declaration line with column padding applied.
+    """Rebuild a port declaration line with column alignment applied.
 
     Each name in *names* is padded to *name_width* so that the name column
     aligns across all lines in the block, including multi-name declarations.
 
-    *margins* is a 5-tuple ``(m1, m2, m3, m4, m5)`` — trailing spaces after
-    each column (direction / type / qualifier / dim / name).
-    Defaults to ``(1, 1, 1, 1, 0)``.
+    *section_cols* is a 4-tuple of absolute 1-based starting columns for each
+    section: (datatype+signing, packed_dim, port_name, unpacked+default).
+    A value of 0 means "use natural 1-space separation".
+
+    Section 1 (direction) is always placed at the indent position.
     """
-    m1, m2, m3, m4, m5 = margins if margins is not None else (1, 1, 1, 1, 0)
+    s2, s3, s4, s5 = section_cols
 
-    padded = [n.ljust(name_width) for n in names]
-    name_str = ", ".join(padded)
+    # Section 1: direction — start at indent (s1 ignored; indent is authoritative)
+    line = indent + direction.ljust(dir_width)
 
-    line = indent + direction.ljust(dir_width) + " " * m1
-    if type_width > 0:
-        line += dtype.ljust(type_width) + " " * m2
-    if qual_width > 0:
-        line += qualifier.ljust(qual_width) + " " * m3
+    # Section 2: datatype + signing (dtype and qualifier merged into one section)
+    # Combined width: type_width + (1 + qual_width if qualifier present)
+    if type_width > 0 or qual_width > 0:
+        # Build the combined type+sign token padded to max combined width
+        if qual_width > 0:
+            type_part = dtype.ljust(type_width) + " " + qualifier.ljust(qual_width)
+            combined_w = type_width + 1 + qual_width
+        else:
+            type_part = dtype.ljust(type_width)
+            combined_w = type_width
+        line = _place_section(line, type_part, s2, combined_w)
+    else:
+        # No type/qualifier section for this block; still need to advance
+        # so that section 3 aligns correctly
+        pass
+
+    # Section 3: packed dimension
     if dim_width > 0:
-        line += dim.ljust(dim_width) + " " * m4
-    line += name_str + " " * m5 + terminator
+        line = _place_section(line, dim.ljust(dim_width), s3, dim_width)
+
+    # Section 4: port name(s).
+    # Advance to target column, then emit names padded to name_width.
+    if s4 > 0:
+        target_len = s4 - 1
+        current_len = len(line)
+        if current_len < target_len:
+            line = line + " " * (target_len - current_len)
+        else:
+            line = line + " "
+    else:
+        line = line + " "
+
+    for k, name in enumerate(names):
+        if k == 0:
+            line = line + name
+        else:
+            line = line + ", " + name
+
+    line = line.rstrip() + terminator
 
     if comment:
         line += comment
@@ -994,9 +1057,7 @@ _PORT_DIR_RE = re.compile(r"^\s*(?:input|output|inout)\b", re.IGNORECASE)
 
 def _align_port_declarations_pass(
     text: str,
-    tab_align: bool = False,
-    indent_size: int = 4,
-    margins: "tuple[int,int,int,int,int]" = (1, 1, 1, 1, 0),
+    section_cols: "tuple[int,int,int,int]" = (0, 0, 0, 0),
 ) -> str:
     """Post-processing pass: align contiguous port declaration blocks.
 
@@ -1006,10 +1067,11 @@ def _align_port_declarations_pass(
     padded to the same *name_width* (the longest individual name across the
     whole block), so names form a consistent column.
 
-    *margins* is a 5-tuple ``(m1, m2, m3, m4, m5)`` — minimum trailing spaces
-    after each column (direction / type / qualifier / dim / name-before-terminator).
-    When *tab_align* is ``True``, each column's start position is snapped up
-    to the next multiple of *indent_size* by expanding the preceding margin.
+    *section_cols* is a 4-tuple of absolute 1-based starting columns for each
+    section: (datatype+signing, packed_dim, port_name, unpacked+default).
+    A value of 0 means "use natural 1-space separation after previous section".
+    Section 1 (direction) always starts at the indent position and has no
+    column parameter.
 
     The block resets only at blank lines, comment-only lines, non-port lines,
     and preprocessor directives.
@@ -1017,12 +1079,6 @@ def _align_port_declarations_pass(
     lines = text.split("\n")
     out: list[str] = []
     i = 0
-
-    def _snap(pos: int) -> int:
-        """Round *pos* up to the next multiple of *indent_size*."""
-        if indent_size <= 1:
-            return pos
-        return math.ceil(pos / indent_size) * indent_size
 
     while i < len(lines):
         line = lines[i]
@@ -1054,48 +1110,6 @@ def _align_port_declarations_pass(
             # name_w: longest individual name across all lines (incl. multi-name).
             name_w = max(len(n) for p in parseable for n in p[5])
 
-            m1, m2, m3, m4, m5 = margins
-
-            if tab_align and indent_size > 1:
-                # Snap each column's START to the indentation grid by expanding
-                # the *trailing* margin of the preceding column.
-                # Only present columns (width > 0) consume a margin slot.
-                # The margin variable used matches what _reassemble_port_line outputs.
-                indent_len = len(parseable[0][0])
-                pos = indent_len + dir_w  # after direction content
-
-                if type_w > 0:
-                    s = _snap(pos + m1);  m1 = s - pos;  pos = s + type_w
-                    if qual_w > 0:
-                        s = _snap(pos + m2);  m2 = s - pos;  pos = s + qual_w
-                        if dim_w > 0:
-                            s = _snap(pos + m3);  m3 = s - pos;  pos = s + dim_w
-                            s = _snap(pos + m4);  m4 = s - pos;  pos = s + name_w
-                        else:
-                            s = _snap(pos + m3);  m3 = s - pos;  pos = s + name_w
-                    elif dim_w > 0:
-                        s = _snap(pos + m2);  m2 = s - pos;  pos = s + dim_w
-                        s = _snap(pos + m4);  m4 = s - pos;  pos = s + name_w
-                    else:
-                        s = _snap(pos + m2);  m2 = s - pos;  pos = s + name_w
-                elif qual_w > 0:
-                    s = _snap(pos + m1);  m1 = s - pos;  pos = s + qual_w
-                    if dim_w > 0:
-                        s = _snap(pos + m3);  m3 = s - pos;  pos = s + dim_w
-                        s = _snap(pos + m4);  m4 = s - pos;  pos = s + name_w
-                    else:
-                        s = _snap(pos + m3);  m3 = s - pos;  pos = s + name_w
-                elif dim_w > 0:
-                    s = _snap(pos + m1);  m1 = s - pos;  pos = s + dim_w
-                    s = _snap(pos + m4);  m4 = s - pos;  pos = s + name_w
-                else:
-                    s = _snap(pos + m1);  m1 = s - pos;  pos = s + name_w
-
-                if m5 > 0:
-                    m5 = _snap(pos + m5) - pos
-
-            eff_margins = (m1, m2, m3, m4, m5)
-
             for orig, parsed in block:
                 if parsed is None:
                     out.append(orig)
@@ -1105,7 +1119,7 @@ def _align_port_declarations_pass(
                         indent, direction, dtype, qualifier, dim, names,
                         terminator, comment,
                         dir_w, type_w, qual_w, dim_w, name_w,
-                        eff_margins,
+                        section_cols,
                     ))
 
         i = j
@@ -1280,34 +1294,63 @@ def _reassemble_var_line(
     qual_w: int,
     dim_w: int,
     name_w: int,
-    margins: "tuple[int,int,int,int]",
+    section_cols: "tuple[int,int,int]",
 ) -> str:
-    """Rebuild a variable declaration line with column padding applied.
+    """Rebuild a variable declaration line with column alignment applied.
 
-    *margins* is a 4-tuple ``(m1, m2, m3, m4)`` — trailing spaces after each
-    column (type / qualifier / dim / name-before-delimiter).
+    *section_cols* is a 3-tuple of absolute 1-based starting columns for each
+    section: (packed_dim, name, unpacked+initializer).
+    A value of 0 means "use natural 1-space separation after previous section".
+
+    Section 1 (type keyword) is always placed at the indent position.
     """
-    m1, m2, m3, m4 = margins
+    s2, s3, s4 = section_cols
 
-    line = indent + type_kw.ljust(type_w) + " " * m1
+    # Section 1: type keyword + optional qualifier — always at indent position.
+    # Combined into one token for section-column purposes.
     if qual_w > 0:
-        line += qualifier.ljust(qual_w) + " " * m2
+        combined_w = type_w + 1 + qual_w
+        type_part = type_kw.ljust(type_w) + " " + qualifier.ljust(qual_w)
+    else:
+        combined_w = type_w
+        type_part = type_kw.ljust(type_w)
+
+    line = indent + type_part
+
+    # Section 2: packed dimension (absent lines still need to occupy block width
+    # so that section 3 names land on the same column).
     if dim_w > 0:
-        line += dim.ljust(dim_w) + " " * m3
+        # Pad this line's dim to the block max width
+        line = _place_section(line, dim.ljust(dim_w), s2, dim_w)
+
+    # Section 3: variable name(s).
+    # Place names at the target column; each name is padded to name_w so that
+    # multi-name declarations align with single-name declarations in the block.
+    # Advance line to section-3 column first, then emit names + delimiters.
+    s3_target = s3
+    if s3_target > 0:
+        target_len = s3_target - 1
+        current_len = len(line)
+        if current_len < target_len:
+            line = line + " " * (target_len - current_len)
+        else:
+            line = line + " "
+    else:
+        line = line + " "
 
     for k, (name, delim) in enumerate(name_delims):
-        line += name.ljust(name_w) + " " * m4 + delim
-        if k < len(name_delims) - 1:
-            line += " "
+        if k == 0:
+            line = line + name
+        else:
+            line = line + " " + name
+        line = line + delim
 
     return line.rstrip()
 
 
 def _align_variable_declarations_pass(
     text: str,
-    tab_align: bool = False,
-    indent_size: int = 4,
-    margins: "tuple[int,int,int,int]" = (1, 1, 1, 0),
+    section_cols: "tuple[int,int,int]" = (0, 0, 0),
 ) -> str:
     """Post-processing pass: align contiguous variable declaration blocks.
 
@@ -1315,19 +1358,17 @@ def _align_variable_declarations_pass(
     user-defined type.  Multi-name declarations such as ``logic a, b;`` are
     fully aligned: every name is padded to the same *name_width*.
 
-    *margins* is a 4-tuple ``(m1, m2, m3, m4)`` — minimum trailing spaces after
-    each column (type / qualifier / dim / name-before-delimiter).
-    When *tab_align* is ``True``, each column's start position is snapped up to
-    the next multiple of *indent_size*.
+    *section_cols* is a 3-tuple of absolute 1-based starting columns for each
+    section: (packed_dim, name, unpacked+initializer).
+    A value of 0 means "use natural 1-space separation after previous section".
+    Section 1 (type keyword) always starts at the indent position and has no
+    column parameter.
+
+    Also applies to declarations inside typedef struct/union blocks.
     """
     lines = text.split("\n")
     out: list[str] = []
     i = 0
-
-    def _snap(pos: int) -> int:
-        if indent_size <= 1:
-            return pos
-        return math.ceil(pos / indent_size) * indent_size
 
     while i < len(lines):
         line = lines[i]
@@ -1376,30 +1417,6 @@ def _align_variable_declarations_pass(
             dim_w  = max(len(p[3]) for p in parseable)
             name_w = max(len(name) for p in parseable for name, _ in p[4])
 
-            m1, m2, m3, m4 = margins
-
-            if tab_align and indent_size > 1:
-                indent_len = len(parseable[0][0])
-                pos = indent_len + type_w  # after type content
-
-                if qual_w > 0:
-                    s = _snap(pos + m1);  m1 = s - pos;  pos = s + qual_w
-                    if dim_w > 0:
-                        s = _snap(pos + m2);  m2 = s - pos;  pos = s + dim_w
-                        s = _snap(pos + m3);  m3 = s - pos;  pos = s + name_w
-                    else:
-                        s = _snap(pos + m2);  m2 = s - pos;  pos = s + name_w
-                elif dim_w > 0:
-                    s = _snap(pos + m1);  m1 = s - pos;  pos = s + dim_w
-                    s = _snap(pos + m3);  m3 = s - pos;  pos = s + name_w
-                else:
-                    s = _snap(pos + m1);  m1 = s - pos;  pos = s + name_w
-
-                if m4 > 0:
-                    m4 = _snap(pos + m4) - pos
-
-            eff_margins = (m1, m2, m3, m4)
-
             for orig, parsed in block:
                 if parsed is None:
                     out.append(orig)
@@ -1410,7 +1427,7 @@ def _align_variable_declarations_pass(
                     assembled = _reassemble_var_line(
                         indent, type_kw, qualifier, dim, name_delims,
                         type_w, qual_w, dim_w, name_w,
-                        eff_margins,
+                        section_cols,
                     )
                     if comment:
                         assembled = assembled + comment
@@ -1912,13 +1929,22 @@ def format_source(source: str, options: Optional[FormatOptions] = None) -> str:
         result = _align_assign_pass(result, opts)
     if opts.align_port_declarations:
         result = _align_port_declarations_pass(
-            result, opts.tab_align, opts.indent_size,
-            (opts.port_col1_margin, opts.port_col2_margin, opts.port_col3_margin, opts.port_col4_margin, opts.port_col5_margin),
+            result,
+            (
+                opts.port_declaration_section2_column,
+                opts.port_declaration_section3_column,
+                opts.port_declaration_section4_column,
+                opts.port_declaration_section5_column,
+            ),
         )
     if opts.align_variable_declarations:
         result = _align_variable_declarations_pass(
-            result, opts.tab_align, opts.indent_size,
-            (opts.var_col1_margin, opts.var_col2_margin, opts.var_col3_margin, opts.var_col4_margin),
+            result,
+            (
+                opts.var_declaration_section2_column,
+                opts.var_declaration_section3_column,
+                opts.var_declaration_section4_column,
+            ),
         )
     if opts.align_instance_ports:
         result = _align_instance_ports_pass(result, opts)

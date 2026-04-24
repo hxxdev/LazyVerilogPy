@@ -308,6 +308,157 @@ module memory_top(
 
 ---
 
+## Port declaration alignment
+
+Port declarations (lines starting with `input`, `output`, or `inout`) in
+contiguous blocks are aligned into up to four sections.  A "block" resets at
+blank lines, comment-only lines, non-port lines, and preprocessor directives.
+
+### Section layout
+
+| Section | Content | Column option |
+|---------|---------|---------------|
+| 1 | Direction keyword (`input` / `output` / `inout`) | always at indent — no column option |
+| 2 | Data type + signing (`logic`, `wire`, `reg`, user-defined type, `signed`/`unsigned`) | `port_declaration_section2_column` |
+| 3 | Packed dimension (`[7:0]`, `[W-1:0]`, …) | `port_declaration_section3_column` |
+| 4 | Port name(s) (identifier or comma-separated identifiers) | `port_declaration_section4_column` |
+| 5 | Unpacked dimension and default value | `port_declaration_section5_column` |
+
+Section 1 (direction) always starts at the current indent level and cannot be
+moved by a column option.  Within each section, all lines in the block are
+padded to the widest entry so that the *next* section starts at a consistent
+column.
+
+### Column option semantics
+
+For sections 2–5, the corresponding `_column` option is an **absolute
+1-based column number**:
+
+- `0` (default) — natural spacing: one space after the previous section.
+- `N > 0` — the section content starts at column N (1-based).  If a line
+  would already be at or past column N, one space is inserted instead.
+
+```systemverilog
+// port_declaration_section2_column = 0  (natural spacing)
+    input              i_clk;
+    input logic [7:0]  i_data;
+
+// port_declaration_section2_column = 20  (datatype starts at column 20)
+    input              i_clk;
+    input          logic [7:0]  i_data;
+```
+
+### `align_port_declarations`
+| type | default |
+|------|---------|
+| bool | `true`  |
+
+Master switch.  When `true`, the port-declaration alignment pass runs after the
+base formatter.  When `false`, port declarations are emitted with only standard
+single-space separation.
+
+---
+
+### `port_declaration_section2_column`
+| type | default |
+|------|---------|
+| int  | `0`     |
+
+Absolute 1-based starting column of section 2 (data type + signing).
+`0` means one space after the direction keyword.
+
+---
+
+### `port_declaration_section3_column`
+| type | default |
+|------|---------|
+| int  | `0`     |
+
+Absolute 1-based starting column of section 3 (packed dimension).
+`0` means one space after the data type.
+
+---
+
+### `port_declaration_section4_column`
+| type | default |
+|------|---------|
+| int  | `0`     |
+
+Absolute 1-based starting column of section 4 (port name / identifier).
+`0` means one space after the packed dimension (or data type when no dimension
+is present).
+
+---
+
+### `port_declaration_section5_column`
+| type | default |
+|------|---------|
+| int  | `0`     |
+
+Absolute 1-based starting column of section 5 (unpacked dimension and default
+value).  `0` means one space after the port name.
+
+---
+
+## Variable declaration alignment
+
+Variable declarations (lines starting with a type keyword such as `logic`,
+`wire`, `reg`, `bit`, etc., or a user-defined type name) in contiguous blocks
+are aligned into up to three sections.
+
+### Section layout
+
+| Section | Content | Column option |
+|---------|---------|---------------|
+| 1 | Type keyword + optional signing (`logic`, `wire signed`, user-defined type) | always at indent — no column option |
+| 2 | Packed dimension (`[7:0]`, …) | `var_declaration_section2_column` |
+| 3 | Variable name(s) | `var_declaration_section3_column` |
+| 4 | Unpacked dimension and initializer | `var_declaration_section4_column` |
+
+Section 1 (type keyword) always starts at the current indent level.  All lines
+in a block are padded to the widest entry in each section.
+
+### `align_variable_declarations`
+| type | default |
+|------|---------|
+| bool | `false` |
+
+Master switch.  When `true`, the variable-declaration alignment pass runs after
+the base formatter.
+
+---
+
+### `var_declaration_section2_column`
+| type | default |
+|------|---------|
+| int  | `0`     |
+
+Absolute 1-based starting column of section 2 (packed dimension).
+`0` means one space after the type keyword.
+
+---
+
+### `var_declaration_section3_column`
+| type | default |
+|------|---------|
+| int  | `0`     |
+
+Absolute 1-based starting column of section 3 (variable name).
+`0` means one space after the packed dimension (or type when no dimension is
+present).
+
+---
+
+### `var_declaration_section4_column`
+| type | default |
+|------|---------|
+| int  | `0`     |
+
+Absolute 1-based starting column of section 4 (unpacked dimension and
+initializer).  `0` means one space after the variable name.
+
+---
+
 ## Format-on-save control
 
 ### `disable_format_on_save`

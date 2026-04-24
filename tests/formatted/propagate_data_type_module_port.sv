@@ -3,9 +3,9 @@
 interface Bus;
     //- @Addr defines/binding Addr
     //- @Data defines/binding Data
-    logic                       [7:0]           Addr            , Data            ;
+    logic [7:0] Addr, Data;
     //- @RWn defines/binding Rwn
-    logic                                       RWn             ;
+    logic       RWn;
 endinterface
 
 //- @RAM defines/binding _

@@ -20,8 +20,8 @@ class my_driver extends uvm_driver #(my_seq_item);
 endclass
 
 module tb_top;
-    logic                       clk             ;
-    logic                       rst_n           ;
+    logic clk;
+    logic rst_n;
 
     my_dut dut_inst (
         .clk            (clk            ),
