@@ -3,9 +3,9 @@
 //- @foo_pkg defines/binding FooPkg
 package foo_pkg;
     //- @DATA_WIDTH defines/binding DATA_WIDTH
-    parameter int DATA_WIDTH     = 1;
+    parameter int DATA_WIDTH    = 1;
     //- @DATA_LENGTH defines/binding DATA_LENGTH
-    parameter int DATA_LENGTH    = 1;
+    parameter int DATA_LENGTH   = 1;
 endpackage
 
 //- @baz_pkg defines/binding _

@@ -3,8 +3,8 @@ timeprecision 1ps;
 
 (* foo = 1 *) package static p;
     timeunit 1ns;
-    parameter int x       = 1;
-    parameter type y_t    = logic [x:0];
+    parameter int x     = 1;
+    parameter type y_t  = logic [x:0];
     program;
     endprogram
     export * ::*;
@@ -55,8 +55,8 @@ extern interface I(input a, output b);
 
     $info("Hello %s", "world");
 
-    wor[1:0] w                                       = 1;
-    assign (supply0, weak1) #(1: 0: 1, 2: 1: 0) w    = 2;
+    wor[1:0] w                                      = 1;
+    assign (supply0, weak1) #(1: 0: 1, 2: 1: 0) w   = 2;
 
     wor u, v;
     alias{u, v} = w;
@@ -99,14 +99,14 @@ extern interface I(input a, output b);
                     (w) inside[0:3]: ;
                 endcase
 
-                randcase q + r: x    = 1;
-                q - r: x             = 2;
-                q ^ ~r: x            = 3;
-                12'h800: x           = 4;
+                randcase q + r: x   = 1;
+                q - r: x            = 2;
+                q ^ ~r: x           = 3;
+                12'h800: x          = 4;
             endcase
 
-            f    <= #1step 1;
-            f    <= repeat (3) @(ev) 1;
+            f   <= #1step 1;
+            f   <= repeat (3) @(ev) 1;
         end
 
         logic ww[3][2];
@@ -151,8 +151,8 @@ extern interface I(input a, output b);
 
             VInt                  v                             ;
             Instr                 instr                         = tagged Add'{reg1: 0, reg2                          : 1,      regd                          : 3};
-            automatic int rf[]    = new[3];
-            static longint pc     = 'x;
+            automatic int rf[]  = new[3];
+            static longint pc   = 'x;
 
             case
                 (v) matches tagged Invalid && &~w: $display("v is Invalid");
@@ -166,14 +166,14 @@ extern interface I(input a, output b);
                     '{.r1, .r2, .rd}: rf[rd] = rf[r1] + rf[r2];
                 endcase
                 tagged Jmp.j: case
-                    (j) matches tagged JmpU.a: pc          = pc + a;
-                    tagged JmpC'{.c, .a}: if (rf[c]) pc    = a;
+                    (j) matches tagged JmpU.a: pc       = pc + a;
+                    tagged JmpC'{.c, .a}: if (rf[c]) pc = a;
                 endcase
             endcase
 
             if (instr matches (tagged Jmp.j) && &j matches (tagged JmpC'{cc:.c, addr:.a})) begin
-                pc    = c[0] & a[0];
-                pc    = instr matches (tagged Jmp.j) && &j matches (tagged JmpC'{cc:.c, addr:.a}) ? c[0] & a[0]: 0;
+                pc  = c[0] & a[0];
+                pc  = instr matches (tagged Jmp.j) && &j matches (tagged JmpC'{cc:.c, addr:.a}) ? c[0] & a[0]: 0;
             end else begin
             end
         end
@@ -403,9 +403,9 @@ extern interface I(input a, output b);
                                                                 rand bit q;
 
                                                                 always_comb begin
-                                                                    if (reset || window && end_event) next_window    = 1'b0;
-                                                                    else if (!window && start_event) next_window     = 1'b1;
-                                                                    else next_window                                 = window;
+                                                                    if (reset || window && end_event) next_window   = 1'b0;
+                                                                    else if (!window && start_event) next_window    = 1'b1;
+                                                                    else next_window                                = window;
                                                                 end
 
                                                                 always_ff @clock window <= next_window;
@@ -501,8 +501,8 @@ extern interface I(input a, output b);
                                                                                         G #(real) g1;
                                                                                         G #(int) g2;
 
-                                                                                        int i     = g2.foo();
-                                                                                        real r    = D::foo();
+                                                                                        int i   = g2.foo();
+                                                                                        real r  = D::foo();
                                                                                         endmodule
 
                                                                                         class A;
@@ -516,10 +516,10 @@ extern interface I(input a, output b);
                                                                                         class B extends A;
                                                                                             integer i = 2;
                                                                                             function void f();
-                                                                                                i          = j;
-                                                                                                super.i    = super.j;
-                                                                                                j          = super.f();
-                                                                                                j          = this.super.f();
+                                                                                                i       = j;
+                                                                                                super.i = super.j;
+                                                                                                j       = super.f();
+                                                                                                j       = this.super.f();
                                                                                             endfunction
                                                                                         endclass
 
@@ -552,8 +552,8 @@ extern interface I(input a, output b);
                                                                                         integer               i                             = b1.f();
                                                                                         initial begin
                                                                                             b2.f();
-                                                                                            a      = b2;
-                                                                                            c.i    = c.j;
+                                                                                            a   = b2;
+                                                                                            c.i = c.j;
 
                                                                                             randsequence (main) main: first second;
                                                                                             first: add | dec: = (1 + 1);
@@ -590,25 +590,25 @@ extern interface I(input a, output b);
 
                                                                                         option.comment = instComment;
 
-                                                                                        e: coverpoint x iff (clk){option.weight    = 2;
-                                                                                        wildcard bins a                            = {[0:63], 65};
-                                                                                        bins b[]                                   = {[127:150], [148:191]};
+                                                                                        e: coverpoint x iff (clk){option.weight = 2;
+                                                                                        wildcard bins a                         = {[0:63], 65};
+                                                                                        bins b[]                                = {[127:150], [148:191]};
                                                                                         // note overlapping values
-                                                                                        bins c[]                                   = {200, 201, 202};
-                                                                                        bins d                                     = {[1000:$]};
-                                                                                        bins others[]                              = default;
+                                                                                        bins c[]                                = {200, 201, 202};
+                                                                                        bins d                                  = {[1000:$]};
+                                                                                        bins others[]                           = default;
 
-                                                                                        bins sa      = (4 = > 5 = > 6), ([7:9], 10 = > 11, 12);
-                                                                                        bins sb[]    = (12 = > 3[*1]);
-                                                                                        bins sc      = (12 = > 3[->1]);
-                                                                                        bins sd      = (12 = > 3[=1:2]);
+                                                                                        bins sa     = (4 = > 5 = > 6), ([7:9], 10 = > 11, 12);
+                                                                                        bins sb[]   = (12 = > 3[*1]);
+                                                                                        bins sc     = (12 = > 3[->1]);
+                                                                                        bins sd     = (12 = > 3[=1:2]);
 
-                                                                                        bins se                          = e with (item % 3 == 0);
-                                                                                        bins sf                          = arr;
-                                                                                        } X: cross e, y{option.weight    = c;
-                                                                                        bins one                         = '{'{1, 2}, '{3, 4}, '{5, 6}};
-                                                                                        bins two                         = X with (e < 257) matches 127;
-                                                                                        ignore_bins others               = (!binsof (e.a) || !binsof (y) intersect {1}) with (e > 10);
+                                                                                        bins se                         = e with (item % 3 == 0);
+                                                                                        bins sf                         = arr;
+                                                                                        } X: cross e, y{option.weight   = c;
+                                                                                        bins one                        = '{'{1, 2}, '{3, 4}, '{5, 6}};
+                                                                                        bins two                        = X with (e < 257) matches 127;
+                                                                                        ignore_bins others              = (!binsof (e.a) || !binsof (y) intersect {1}) with (e > 10);
                                                                                         } b: cross y, x;
                                                                                     endgroup
 
@@ -663,7 +663,7 @@ extern interface I(input a, output b);
                                                                                     int                   a                             [4] = '{default: 1};
                                                                                     int                   b                             [] = '{3{1}};
                                                                                     int                   c                             = $bits(int);
-                                                                                    localparam type T    = type (b);
+                                                                                    localparam type T   = type (b);
 
                                                                                     initial begin
                                                                                         if (type (b) == type (a) && $rose(c, @(posedge clk))) begin
@@ -682,22 +682,22 @@ extern interface I(input a, output b);
                                                                                     shortint              si                            ;
                                                                                     int                   qq                            [$:3];
                                                                                     final begin
-                                                                                        i    = j + k;
-                                                                                        i    = j - k;
-                                                                                        i    = j * k;
-                                                                                        i    = j / k;
-                                                                                        i    = j % k;
-                                                                                        i    = j | k;
-                                                                                        i    = j & k;
-                                                                                        i    = j ^ k;
-                                                                                        i    = j ** k;
-                                                                                        i    = j^~k;
-                                                                                        i    = j << k;
-                                                                                        i    = j <<< k;
-                                                                                        i    = j >> k;
-                                                                                        i    = j >>> k;
-                                                                                        i    = j -> k;
-                                                                                        i    = j <-> k;
+                                                                                        i   = j + k;
+                                                                                        i   = j - k;
+                                                                                        i   = j * k;
+                                                                                        i   = j / k;
+                                                                                        i   = j % k;
+                                                                                        i   = j | k;
+                                                                                        i   = j & k;
+                                                                                        i   = j ^ k;
+                                                                                        i   = j ** k;
+                                                                                        i   = j^~k;
+                                                                                        i   = j << k;
+                                                                                        i   = j <<< k;
+                                                                                        i   = j >> k;
+                                                                                        i   = j >>> k;
+                                                                                        i   = j -> k;
+                                                                                        i   = j <-> k;
                                                                                         i += j;
                                                                                         i -= j;
                                                                                         i *= j;
@@ -710,40 +710,40 @@ extern interface I(input a, output b);
                                                                                         i <<<= j;
                                                                                         i >>= j;
                                                                                         i >>>= j;
-                                                                                        i    = j === k;
-                                                                                        i    = j !== k;
-                                                                                        i    = j == ? k;
-                                                                                        i    = j != ? k;
-                                                                                        i    = j > k;
-                                                                                        i    = j >= k;
-                                                                                        i    = j < k;
-                                                                                        i    = j <= k;
-                                                                                        i    = +j;
-                                                                                        i    = -j;
-                                                                                        i    = !j;
-                                                                                        i    = ~j;
-                                                                                        i    = &j;
-                                                                                        i    = ~&j;
-                                                                                        i    = |j;
-                                                                                        i    = ~|j;
-                                                                                        i    = ^j;
-                                                                                        i    = ~^j;
-                                                                                        i    = ^~j;
+                                                                                        i   = j === k;
+                                                                                        i   = j !== k;
+                                                                                        i   = j == ? k;
+                                                                                        i   = j != ? k;
+                                                                                        i   = j > k;
+                                                                                        i   = j >= k;
+                                                                                        i   = j < k;
+                                                                                        i   = j <= k;
+                                                                                        i   = +j;
+                                                                                        i   = -j;
+                                                                                        i   = !j;
+                                                                                        i   = ~j;
+                                                                                        i   = &j;
+                                                                                        i   = ~&j;
+                                                                                        i   = |j;
+                                                                                        i   = ~|j;
+                                                                                        i   = ^j;
+                                                                                        i   = ~^j;
+                                                                                        i   = ^~j;
                                                                                         ++i;
                                                                                         i++;
                                                                                         --i;
                                                                                         i--;
-                                                                                        i    = signed'(j);
-                                                                                        i    = a.or;
-                                                                                        i    = a.and;
-                                                                                        i    = a.xor;
-                                                                                        i    = a.unique ()[0];
-                                                                                        i    = j[0];
-                                                                                        i    = j[3:2];
-                                                                                        i    = j[3-:1];
-                                                                                        i    = $unit::unitVar;
-                                                                                        i    = $root.m12.j;
-                                                                                        a    = {};
+                                                                                        i   = signed'(j);
+                                                                                        i   = a.or;
+                                                                                        i   = a.and;
+                                                                                        i   = a.xor;
+                                                                                        i   = a.unique ()[0];
+                                                                                        i   = j[0];
+                                                                                        i   = j[3:2];
+                                                                                        i   = j[3-:1];
+                                                                                        i   = $unit::unitVar;
+                                                                                        i   = $root.m12.j;
+                                                                                        a   = {};
                                                                                         void'(a.find(x) with (x > 5).unique);
                                                                                     end
                                                                                     endmodule
@@ -777,8 +777,8 @@ extern interface I(input a, output b);
                                                                                             } T;
 
                                                                                             static function T Tsum(input T driver[]);
-                                                                                                Tsum.r       = 0.0;
-                                                                                                Tsum.data    = 0;
+                                                                                                Tsum.r      = 0.0;
+                                                                                                Tsum.data   = 0;
                                                                                                 foreach (driver[i]) Tsum.data += driver[i].data;
                                                                                                 Tsum.r = $itor(Tsum.data);
                                                                                             endfunction
@@ -902,8 +902,8 @@ extern interface I(input a, output b);
                                                                                                         string name;
                                                                                                         local int m_id;
                                                                                                         function new (string name, output int id);
-                                                                                                            this.name    = name;
-                                                                                                            id           = m_id++;
+                                                                                                            this.name   = name;
+                                                                                                            id          = m_id++;
                                                                                                         endfunction
                                                                                                         : new
                                                                                                     endclass

@@ -45,7 +45,7 @@ input                                                          i_data3;
 input                                                          i_dd;
 input                                                          i_dd22222;
 input                                                          i_d33333;
-output    logic unsigned                   [0:0]               VDD, VSS                      [0:0] = 1'b1 [0:0] = 1'b0;
+output    logic unsigned                   [0:0]               VDD                                                         , VSS                           [0:0] = 1'b1[0:0] = 1'b0;
 logic                 [7:0]                         dout                          = 8'hFF;
 logic unsigned        [0:0]                         VDD                           [0:0] = 1, VSS                           [0:0] = 0;
 logic                 [`WIDTH-1:0]                  data                          ;
@@ -82,12 +82,12 @@ memory u_mem4();
 
 always_comb begin
     // tte
-    a              = 3;
+    a       = 3;
     // tte
-    c              = sum(.i_a(i_a), .i_b(i_b));
+    c       = sum(.i_a(i_a), .i_b(i_b));
     // tte
-    d  /*ddd*/     = {1'b0, a};
-    daddddddddd    = {1'b0, a};
+    d       = {1'b0, a};
+    dddd    = 3;
 end
 
 endmodule

@@ -277,10 +277,10 @@ class StatementOptions:
     """Align ``=`` and ``<=`` assignment operators vertically in consecutive lines."""
 
     lhs_min_width: int = 1
-    """Spaces between the longest LHS and its operator after alignment.
+    """Minimum width of the LHS column when aligning assignment operators.
 
-    All shorter lines get extra padding; the longest always has exactly
-    ``lhs_min_width`` spaces before its operator.
+    The operator is placed at column ``max(longest_lhs_width, lhs_min_width) + 1``.
+    Shorter LHS strings are padded to reach that column.
     """
 
     wrap_end_else_clauses: bool = False
@@ -316,6 +316,9 @@ class FormatOptions:
 
     disable_format_on_save: bool = False
     """When ``True``, LSP returns no edits for ``textDocument/formatting``."""
+
+    align_punctuation: bool = False
+    """When ``True``, align terminal ``;`` across consecutive same-indent lines."""
 
     # Nested option groups
     statement: StatementOptions = None      # type: ignore[assignment]
@@ -752,6 +755,28 @@ def _find_assign_op(line: str) -> "tuple[int, str] | None":
 
 
 _COMMENT_ONLY_RE = re.compile(r'^\s*(?://|/\*)')
+_BLOCK_COMMENT_INLINE_RE = re.compile(r'/\*.*?\*/', re.DOTALL)
+
+
+def _split_at_terminal_semi(line: str) -> "tuple[str, str] | None":
+    """Return (code_before_semi, inline_comment_suffix) if *line* ends with ``;``.
+
+    Strips trailing whitespace, then looks for a terminal ``;`` in the code
+    portion (before any ``//`` comment).  Returns ``None`` when the code does
+    not end with ``;``.
+    """
+    stripped = line.rstrip()
+    comment_pos = stripped.find('//')
+    if comment_pos >= 0:
+        code = stripped[:comment_pos].rstrip()
+        comment_suffix = ' ' + stripped[comment_pos:]
+    else:
+        code = stripped
+        comment_suffix = ''
+    if not code.endswith(';'):
+        return None
+    return code[:-1], comment_suffix  # code without trailing ';', comment
+
 
 
 def _align_assign_pass(text: str, opts: "FormatOptions") -> str:
@@ -799,16 +824,13 @@ def _align_assign_pass(text: str, opts: "FormatOptions") -> str:
 
         real_assigns = sum(1 for _, pos, _ in run if pos is not None)
         if real_assigns >= 2:
-            # Column where spaces-before-op begin for the longest LHS.
+            # Column where the LHS ends for the longest LHS.
             max_lhs_end = max(pos for _, pos, _ in run if pos is not None)
-            # Step 1: establish the gap (spaces between longest LHS and its op).
-            effective_gap = opts.statement.lhs_min_width
-            # Step 2: if tab-snap is on, round the gap up to the next multiple
-            # of indent_size so the spacing stays on the indentation grid.
+            # op sits one space after max(longest_lhs_width, lhs_min_width).
+            op_col = max(max_lhs_end, opts.statement.lhs_min_width) + 1
+            # If tab-snap is on, round op_col up to the next tab boundary.
             if opts.tab_align and opts.indent_size > 0:
-                effective_gap = math.ceil(effective_gap / opts.indent_size) * opts.indent_size
-            # Target column for every op in the run.
-            op_col = max_lhs_end + effective_gap
+                op_col = math.ceil(op_col / opts.indent_size) * opts.indent_size
             for line, pos, op in run:
                 if pos is None:
                     # Comment-only passthrough.
@@ -1819,6 +1841,62 @@ def _format_module_portlist_pass(text: str, opts: "FormatOptions") -> str:
     return _MODULE_HDR_RE.sub(_reformat, text)
 
 
+def _align_punctuation_pass(text: str, opts: "FormatOptions") -> str:
+    """Align terminal ``;`` across consecutive same-indent lines.
+
+    Collects runs of lines that all:
+    - share the same leading-whitespace indent,
+    - have ``;`` as their last code token (optionally followed by ``//``),
+    and aligns the ``;`` at ``max_content_col + 1``.  Runs are broken by blank
+    lines, comment-only lines, or a change in indent level.  If ``tab_align``
+    is on, the column is rounded up to the next ``indent_size`` multiple.
+    """
+    lines = text.split('\n')
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        split = _split_at_terminal_semi(line)
+        if split is None:
+            out.append(line)
+            i += 1
+            continue
+
+        before, comment_suffix = split
+        indent_len = len(before) - len(before.lstrip())
+
+        # Collect a run of consecutive ;-terminated lines at the same indent.
+        run: list[tuple[str, str]] = [(before, comment_suffix)]
+        j = i + 1
+        while j < len(lines):
+            split2 = _split_at_terminal_semi(lines[j])
+            if split2 is None:
+                break
+            before2, suffix2 = split2
+            indent2 = len(before2) - len(before2.lstrip())
+            if indent2 != indent_len:
+                break
+            run.append((before2, suffix2))
+            j += 1
+
+        if len(run) < 2:
+            out.append(line)
+            i += 1
+            continue
+
+        max_len = max(len(b) for b, _ in run)
+        semi_col = max_len + 1
+        if opts.tab_align and opts.indent_size > 0:
+            semi_col = math.ceil(semi_col / opts.indent_size) * opts.indent_size
+
+        for b, sfx in run:
+            padding = semi_col - len(b)
+            out.append(b + ' ' * padding + ';' + sfx)
+        i = j
+
+    return '\n'.join(out)
+
+
 def format_source(source: str, options: Optional[FormatOptions] = None) -> str:
     """Format SystemVerilog *source* and return the result.
 
@@ -2041,5 +2119,7 @@ def format_source(source: str, options: Optional[FormatOptions] = None) -> str:
         result = _align_variable_declarations_pass(result, opts.var_declaration)
     if opts.instance.align:
         result = _align_instance_ports_pass(result, opts)
+    if opts.align_punctuation:
+        result = _align_punctuation_pass(result, opts)
     result = _format_module_portlist_pass(result, opts)
     return result

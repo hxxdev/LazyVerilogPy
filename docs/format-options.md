@@ -118,6 +118,30 @@ Controls the case of SystemVerilog keywords in the output.
 
 ---
 
+### `align_punctuation`
+| type | default |
+|------|---------|
+| bool | `false` |
+
+When `true`, align the terminal `;` across consecutive lines that share the
+same indentation level.  Runs are broken by blank lines, comment-only lines,
+or a change in indent level.  Only runs of two or more lines are aligned.
+
+When `tab_align` is also `true`, the `;` column is rounded up to the nearest
+multiple of `indent_size`.
+
+```systemverilog
+// align_punctuation = false
+assign a = b;
+assign long_signal = c;
+
+// align_punctuation = true
+assign a           = b;
+assign long_signal = c;
+```
+
+---
+
 ## `[formatter.statement]`
 
 Options for statement-level formatting.

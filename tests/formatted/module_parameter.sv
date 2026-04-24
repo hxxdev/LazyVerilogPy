@@ -69,7 +69,7 @@ endmodule
 
 //- @my_module4 defines/binding _
 module my_module4 #(  //- @a_param defines/binding AParam
-parameter int a_param     = 2,  //- @a_param ref AParam
+parameter int a_param   = 2,  //- @a_param ref AParam
 //- @b_param defines/binding _
-localparam int b_param    = a_param - 1) ();
+localparam int b_param  = a_param - 1) ();
 endmodule

@@ -1,10 +1,10 @@
 //- @Stack defines/binding Stack
 //- @T defines/binding T
-class Stack #(parameter type T    = int);
+class Stack #(parameter type T  = int);
     //- @T ref T
     //- @items defines/binding _
     //- @idx defines/binding _
-    T items[64], idx              = 0;
+    T items[64], idx            = 0;
 
     //- @T ref T
     //- @val defines/binding _
@@ -74,12 +74,12 @@ endclass
 
 //- @foo_c defines/binding FooC
 class foo_c #(  //- @A defines/binding A
-    parameter int A    = 1,  //- @B defines/binding B
-    parameter int B    = 0);
+    parameter int A = 1,  //- @B defines/binding B
+    parameter int B = 0);
     //- @bar_c defines/binding BarC
     class bar_c #(  //- @X defines/binding X
-        parameter int X    = 1,  //- @W defines/binding W
-        parameter int W    = 0);
+        parameter int X = 1,  //- @W defines/binding W
+        parameter int W = 0);
         //- @get2 defines/binding Get2
         function static int get2();
         endfunction

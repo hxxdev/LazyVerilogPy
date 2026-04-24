@@ -28,8 +28,8 @@ my_dut dut_inst (
     .rst_n          (rst_n          )
 );
 
-initial clk      = 0;
-always #5 clk    = ~clk;
+initial clk     = 0;
+always #5 clk   = ~clk;
 
 initial begin
     rst_n = 0;
