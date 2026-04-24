@@ -10,22 +10,19 @@ show_file = true             # show "[rtl/cpu.sv]" after module name
 indent_size = 4
 keyword_case = "lower"          # "lower" | "upper" | "preserve"
 max_line_length = 120
-wrap_spaces = 4
-wrap_end_else_clauses = false
 compact_indexing_and_selections = true
 blank_lines_between_items = 1
 default_indent_level_inside_module_block = 0
-align_assign_operators = true
 tab_align = true
-# align_assign_gap = 20
-align_port_declarations = true
-align_instance_ports = true
-instance_port_indent_level = 1 # indent levels for port lines relative to module instantiation
-instance_port_spacing_before_paren = 10 # spaces between port name and (
-instance_port_spacing_inside_paren = 10 # spaces between signal and )
-align_variable_declarations = true
+
+[formatter.statement]
+align = true                # align = and <= operators in consecutive assignments
+lhs_min_width = 1           # min spaces between longest LHS and its operator
+wrap_end_else_clauses = false
+wrap_spaces = 4
 
 [formatter.port_declaration]
+align = true
 section1_min_width = 10
 section2_min_width = 33
 section3_min_width = 20
@@ -33,11 +30,17 @@ section4_min_width = 30
 section5_min_width = 30
 
 [formatter.var_declaration]
+align = true
 section1_min_width = 22
 section2_min_width = 30
 section3_min_width = 30
 section4_min_width = 10
 
+[formatter.instance]
+align = true
+port_indent_level = 1           # indent levels for port lines relative to instantiation
+port_spacing_before_paren = 10  # spaces between port name and (
+port_spacing_inside_paren = 10  # spaces between signal and )
+
 [autofunc]
 use_named_arguments = true
-

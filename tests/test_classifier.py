@@ -11,6 +11,7 @@ from lazyverilogpy.formatter import (
     FTT,
     SpacingDecision,
     FormatOptions,
+    StatementOptions,
     _Tok,
     _classify,
     _tokenize,
@@ -316,11 +317,11 @@ class TestBreakDecision:
             assert decision(_id("x"), _kw(kw)) == SpacingDecision.kMustWrap, kw
 
     def test_else_after_end_no_wrap(self):
-        assert decision(_kw("end"), _kw("else"), wrap_end_else_clauses=False) == \
+        assert decision(_kw("end"), _kw("else"), statement=StatementOptions(wrap_end_else_clauses=False)) == \
                SpacingDecision.kMustAppend
 
     def test_else_after_end_with_wrap(self):
-        assert decision(_kw("end"), _kw("else"), wrap_end_else_clauses=True) == \
+        assert decision(_kw("end"), _kw("else"), statement=StatementOptions(wrap_end_else_clauses=True)) == \
                SpacingDecision.kMustWrap
 
     def test_else_after_brace(self):

@@ -78,12 +78,25 @@ def _load_fmt_options_from_toml(path: Path) -> FormatOptions:
         indent_size = 4
         keyword_case = "lower"
         max_line_length = 120
-        wrap_spaces = 4
-        wrap_end_else_clauses = false
         compact_indexing_and_selections = true
         blank_lines_between_items = 1
         default_indent_level_inside_module_block = 1
-        align_assign_operators = false
+        tab_align = false
+
+        [formatter.statement]
+        align = false
+        lhs_min_width = 1
+        wrap_end_else_clauses = false
+        wrap_spaces = 4
+
+        [formatter.port_declaration]
+        align = true
+
+        [formatter.var_declaration]
+        align = false
+
+        [formatter.instance]
+        align = false
 
         [design]
         vcode = "rtl/files.f"

@@ -20,6 +20,8 @@ from lazyverilogpy.formatter import (
     FormatOptions,
     PortDeclarationOptions,
     VarDeclarationOptions,
+    InstanceOptions,
+    StatementOptions,
     _Tok,
     _tokenize,
     _find_disabled,
@@ -101,7 +103,7 @@ class TestFormatSource:
             "end\n"
             "endmodule\n"
         )
-        result = fmt(src, wrap_end_else_clauses=False)
+        result = fmt(src, statement=StatementOptions(wrap_end_else_clauses=False))
         assert "end else begin" in result
 
     def test_end_else_wrapped_when_requested(self):
@@ -111,7 +113,7 @@ class TestFormatSource:
             "if (a) begin\nx = 1;\nend else begin\nx = 0;\nend\n"
             "end\nendmodule\n"
         )
-        result = fmt(src, wrap_end_else_clauses=True)
+        result = fmt(src, statement=StatementOptions(wrap_end_else_clauses=True))
         # 'end' and 'else' must be on separate lines
         lines = result.splitlines()
         for i, line in enumerate(lines):
@@ -270,7 +272,7 @@ class TestFormatOptions:
         assert opts.indent_size == 2  # default unchanged
 
     def test_wrap_end_else_default_false(self):
-        assert FormatOptions().wrap_end_else_clauses is False
+        assert FormatOptions().statement.wrap_end_else_clauses is False
 
     def test_compact_indexing_default_true(self):
         assert FormatOptions().compact_indexing_and_selections is True
@@ -541,7 +543,7 @@ class TestDefaultIndentLevelInsideModuleBlock:
 class TestAlignAssignOperators:
     def test_blocking_assigns_aligned(self):
         src = "module foo;\nassign a = 1;\nassign bc = 2;\nendmodule\n"
-        result = fmt(src, align_assign_operators=True)
+        result = fmt(src, statement=StatementOptions(align=True))
         lines = [l for l in result.splitlines() if 'assign' in l]
         cols = [l.index('=') for l in lines]
         assert len(set(cols)) == 1, f"= not aligned: {lines}"
@@ -555,22 +557,22 @@ class TestAlignAssignOperators:
             "end\n"
             "endmodule\n"
         )
-        result = fmt(src, align_assign_operators=True)
+        result = fmt(src, statement=StatementOptions(align=True))
         nb_lines = [l for l in result.splitlines() if '<=' in l]
         cols = [l.index('<=') for l in nb_lines]
         assert len(set(cols)) == 1, f"<= not aligned: {nb_lines}"
 
     def test_single_assign_unchanged(self):
         src = "module foo;\nassign x = 1;\nendmodule\n"
-        assert fmt(src, align_assign_operators=True) == fmt(src, align_assign_operators=False)
+        assert fmt(src, statement=StatementOptions(align=True)) == fmt(src, statement=StatementOptions(align=False))
 
     def test_default_false(self):
-        assert FormatOptions().align_assign_operators is False
+        assert FormatOptions().statement.align is False
 
     def test_idempotent(self):
         src = "module foo;\nassign a = 1;\nassign bc = 2;\nendmodule\n"
-        once = fmt(src, align_assign_operators=True)
-        twice = fmt(once, align_assign_operators=True)
+        once = fmt(src, statement=StatementOptions(align=True))
+        twice = fmt(once, statement=StatementOptions(align=True))
         assert once == twice, f"Not idempotent:\n1st: {once}\n2nd: {twice}"
 
 
@@ -651,7 +653,7 @@ class TestAlignPortDeclarations:
         assert once == twice, f"Not idempotent:\n1st:\n{once}\n2nd:\n{twice}"
 
     def test_default_true(self):
-        assert FormatOptions().align_port_declarations is True
+        assert FormatOptions().port_declaration.align is True
 
     def test_disabled_when_false(self):
         text = "    input  i_clk;\n    input logic [7:0] i_data;"
@@ -660,8 +662,8 @@ class TestAlignPortDeclarations:
         # When option is False, format_source should not call the pass
         # (just verify the option wires through format_source correctly)
         src = "module foo(\n    input  i_clk,\n    input  data_t [7:0] i_data\n);\nendmodule\n"
-        r_on  = fmt(src, align_port_declarations=True)
-        r_off = fmt(src, align_port_declarations=False)
+        r_on  = fmt(src, port_declaration=PortDeclarationOptions(align=True))
+        r_off = fmt(src, port_declaration=PortDeclarationOptions(align=False))
         # Both should be valid SV — just check option doesn't crash
         assert "input" in r_on and "input" in r_off
 
@@ -691,9 +693,13 @@ class TestAlignInstancePorts:
     )
 
     def _fmt(self, src: str = None, **kw) -> str:
-        defaults = dict(indent_size=2, align_instance_ports=True)
-        defaults.update(kw)
-        return fmt(src or self._SRC, **defaults)
+        inst_opts = InstanceOptions(
+            align=True,
+            port_spacing_before_paren=kw.pop("instance_port_spacing_before_paren", 1),
+            port_spacing_inside_paren=kw.pop("instance_port_spacing_inside_paren", 0),
+        )
+        return fmt(src or self._SRC, indent_size=2, instance=inst_opts, **kw)
+
 
     def test_multiline_expansion(self):
         result = self._fmt()
@@ -742,7 +748,7 @@ class TestAlignInstancePorts:
             assert line == line.rstrip(), f"trailing whitespace: {repr(line)}"
 
     def test_idempotent(self):
-        opts = FormatOptions(indent_size=2, align_instance_ports=True)
+        opts = FormatOptions(indent_size=2, instance=InstanceOptions(align=True))
         once  = format_source(self._SRC, opts)
         twice = format_source(once, opts)
         assert once == twice, f"not idempotent:\n1st:\n{once}\n2nd:\n{twice}"
@@ -754,7 +760,7 @@ class TestAlignInstancePorts:
         assert result.count("\n") == src.count("\n") or ".i_clk" not in result
 
     def test_default_disabled(self):
-        assert FormatOptions().align_instance_ports is False
+        assert FormatOptions().instance.align is False
 
     def test_spacing_options(self):
         result = self._fmt(instance_port_spacing_before_paren=2,
@@ -876,7 +882,7 @@ class TestAlignVariableDeclarations:
         assert _re.sub(r'\s+', '', result) == _re.sub(r'\s+', '', text)
 
     def test_default_false(self):
-        assert FormatOptions().align_variable_declarations is False
+        assert FormatOptions().var_declaration.align is False
 
     def test_disabled_when_false(self):
         src = (
@@ -885,8 +891,8 @@ class TestAlignVariableDeclarations:
             "logic [7:0] data_array;\n"
             "endmodule\n"
         )
-        r_off = fmt(src, align_variable_declarations=False)
-        r_on  = fmt(src, align_variable_declarations=True)
+        r_off = fmt(src, var_declaration=VarDeclarationOptions(align=False))
+        r_on  = fmt(src, var_declaration=VarDeclarationOptions(align=True))
         # Both should parse fine; when off, no extra padding is added.
         assert "logic" in r_off
         assert "logic" in r_on

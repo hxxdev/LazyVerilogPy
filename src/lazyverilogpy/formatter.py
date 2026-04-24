@@ -205,11 +205,14 @@ _FLOW_KEYWORDS = frozenset([
 
 @dataclass
 class PortDeclarationOptions:
-    """Min-width configuration for port declaration section alignment.
+    """Options for port declaration section alignment.
 
     Each section starts at ``sum(prev_section_widths)`` from section1.
     Width of each section = ``max(section_min_width, actual_content_length + 1)``.
     """
+    align: bool = True
+    """Enable port declaration alignment pass."""
+
     section1_min_width: int = 10
     """Minimum width of section 1 (direction keyword)."""
 
@@ -228,11 +231,14 @@ class PortDeclarationOptions:
 
 @dataclass
 class VarDeclarationOptions:
-    """Min-width configuration for variable declaration section alignment.
+    """Options for variable declaration section alignment.
 
     Each section starts at ``sum(prev_section_widths)`` from section1.
     Width of each section = ``max(section_min_width, actual_content_length + 1)``.
     """
+    align: bool = False
+    """Enable variable declaration alignment pass."""
+
     section1_min_width: int = 0
     """Minimum width of section 1 (lifetime + qualifier + datatype + signing)."""
 
@@ -247,6 +253,44 @@ class VarDeclarationOptions:
 
 
 @dataclass
+class InstanceOptions:
+    """Options for module instance port alignment."""
+
+    align: bool = False
+    """Expand and align named port connections in multi-line blocks."""
+
+    port_indent_level: int = 1
+    """Indent levels added for each port line inside an instance block."""
+
+    port_spacing_before_paren: int = 1
+    """Spaces between the port name column and the opening ``(`` of the signal."""
+
+    port_spacing_inside_paren: int = 0
+    """Spaces between the signal and the closing ``)``."""
+
+
+@dataclass
+class StatementOptions:
+    """Options for statement-level formatting."""
+
+    align: bool = False
+    """Align ``=`` and ``<=`` assignment operators vertically in consecutive lines."""
+
+    lhs_min_width: int = 1
+    """Spaces between the longest LHS and its operator after alignment.
+
+    All shorter lines get extra padding; the longest always has exactly
+    ``lhs_min_width`` spaces before its operator.
+    """
+
+    wrap_end_else_clauses: bool = False
+    """Split ``end`` and ``else`` onto separate lines (Verible default: False)."""
+
+    wrap_spaces: int = 4
+    """Extra spaces added for continuation-indent (line wrapping)."""
+
+
+@dataclass
 class FormatOptions:
     """Formatter configuration.
 
@@ -255,12 +299,7 @@ class FormatOptions:
     """
     # BasicFormatStyle fields
     indent_size: int = 2           # indentation_spaces
-    wrap_spaces: int = 4           # wrap_spaces (continuation indent)
     max_line_length: int = 100     # column_limit (not yet enforced)
-
-    # Verilog-specific style
-    wrap_end_else_clauses: bool = False
-    """Split ``end`` and ``else`` onto separate lines (Verible default: False)."""
 
     compact_indexing_and_selections: bool = True
     """Compact binary expressions inside ``[…]`` (Verible default: True)."""
@@ -272,113 +311,51 @@ class FormatOptions:
     default_indent_level_inside_module_block: int = 1
     """Indent levels added for content inside module…endmodule (0 = no extra indent)."""
 
-    align_assign_operators: bool = False
-    """Align = and <= assignment operators vertically in consecutive assignment lines."""
-
     tab_align: bool = False
-    """Round the alignment column up to the nearest multiple of ``indent_size``.
-
-    Only has effect when ``align_assign_operators`` is ``True``.
-    With ``indent_size=4`` the ``=`` lands at column 4, 8, 12, … instead of
-    exactly at the longest LHS column.
-    """
-
-    align_assign_gap: int = 1
-    """Spaces between the longest LHS and its assignment operator after alignment.
-
-    Only has effect when ``align_assign_operators`` is ``True``.
-    All shorter lines get extra padding so their operators stay aligned; the
-    longest line always has exactly ``align_assign_gap`` spaces before its
-    operator.  Default is ``1`` (the previous hard-coded behaviour).
-    """
-
-    align_port_declarations: bool = True
-    """Align contiguous port declaration lines into 5 sections:
-    direction / data type+signing / packed dimension / port name / unpacked dim+default.
-
-    Block boundaries reset at blank lines, comment-only lines, non-port lines,
-    or preprocessor directives.  Trailing whitespace is stripped from each
-    aligned line.
-    """
-
-    port_declaration: PortDeclarationOptions = None  # type: ignore[assignment]
-    """Nested min-width options for port declaration section alignment."""
-
-    align_instance_ports: bool = False
-    """Expand module instance port connections into a multi-line aligned block.
-
-    Named port connections (``(.port(signal), …)``) are reformatted so that the
-    ``.``, ``(``, signal, and ``)`` columns are all vertically aligned.
-    Positional and empty port lists are left unchanged.
-    """
-
-    instance_port_indent_level: int = 1
-    """Indent levels added for each port line inside an instance block."""
-
-    instance_port_spacing_before_paren: int = 1
-    """Spaces between the port name column and the opening ``(`` of the signal."""
-
-    instance_port_spacing_inside_paren: int = 0
-    """Spaces between the signal and the closing ``)``."""
-
-    align_variable_declarations: bool = False
-    """Align contiguous variable declaration lines into fixed sections:
-    lifetime+qualifier+datatype+signing / packed dimension / identifier /
-    unpacked dimension+initializer.
-
-    Block boundaries reset at blank lines, comment-only lines, non-declaration
-    lines, or preprocessor directives.  Trailing whitespace is stripped from
-    each aligned line.  Also applies to declarations inside typedef struct/union.
-    """
-
-    var_declaration: VarDeclarationOptions = None  # type: ignore[assignment]
-    """Nested min-width options for variable declaration section alignment."""
+    """Round alignment columns up to the nearest multiple of ``indent_size``."""
 
     disable_format_on_save: bool = False
-    """When ``True``, the LSP server returns no edits for
-    ``textDocument/formatting`` requests (i.e. format-on-save is suppressed).
-    The ``:Format`` command and explicit format calls are unaffected."""
+    """When ``True``, LSP returns no edits for ``textDocument/formatting``."""
+
+    # Nested option groups
+    statement: StatementOptions = None      # type: ignore[assignment]
+    port_declaration: PortDeclarationOptions = None  # type: ignore[assignment]
+    var_declaration: VarDeclarationOptions = None    # type: ignore[assignment]
+    instance: InstanceOptions = None        # type: ignore[assignment]
 
     # Module port-list formatting
     module_ports_per_line_enabled: bool = False
-    """When ``True``, ``module_ports_per_line`` controls how many non-ANSI port
-    names appear on each line of a module header port list."""
-
     module_ports_per_line: int = 1
-    """Number of port names per line in a module header port list.
-    Only used when ``module_ports_per_line_enabled`` is ``True``."""
-
     module_max_line_length_for_ports_enabled: bool = False
-    """When ``True``, ``module_max_line_length_for_ports`` controls the column
-    limit used when wrapping a module header port list."""
-
     module_max_line_length_for_ports: int = 80
-    """Column limit for wrapping port names in a module header port list.
-    Only used when ``module_max_line_length_for_ports_enabled`` is ``True``."""
 
     def __post_init__(self) -> None:
+        if self.statement is None:
+            self.statement = StatementOptions()
         if self.port_declaration is None:
             self.port_declaration = PortDeclarationOptions()
         if self.var_declaration is None:
             self.var_declaration = VarDeclarationOptions()
+        if self.instance is None:
+            self.instance = InstanceOptions()
 
     @classmethod
     def from_dict(cls, d: dict) -> "FormatOptions":
+        _nested = {
+            "statement": StatementOptions,
+            "port_declaration": PortDeclarationOptions,
+            "var_declaration": VarDeclarationOptions,
+            "instance": InstanceOptions,
+        }
         obj = cls()
         for k, v in d.items():
-            if k == "port_declaration" and isinstance(v, dict):
-                pd = PortDeclarationOptions()
-                for pk, pv in v.items():
-                    if hasattr(pd, pk):
-                        setattr(pd, pk, pv)
-                obj.port_declaration = pd
-            elif k == "var_declaration" and isinstance(v, dict):
-                vd = VarDeclarationOptions()
-                for vk, vv in v.items():
-                    if hasattr(vd, vk):
-                        setattr(vd, vk, vv)
-                obj.var_declaration = vd
-            elif hasattr(obj, k) and not isinstance(getattr(obj, k), (PortDeclarationOptions, VarDeclarationOptions)):
+            if k in _nested and isinstance(v, dict):
+                sub = _nested[k]()
+                for sk, sv in v.items():
+                    if hasattr(sub, sk):
+                        setattr(sub, sk, sv)
+                setattr(obj, k, sub)
+            elif hasattr(obj, k) and not isinstance(getattr(obj, k), tuple(_nested.values())):
                 setattr(obj, k, v)
         return obj
 
@@ -720,7 +697,7 @@ def _break_decision(
     # 'else' rules (lines 843-858)
     if rl == "else":
         if ll == "end":
-            if not opts.wrap_end_else_clauses:
+            if not opts.statement.wrap_end_else_clauses:
                 return SpacingDecision.kMustAppend   # "end else" on one line
             return SpacingDecision.kMustWrap          # split requested
         if lx == "}":
@@ -825,7 +802,7 @@ def _align_assign_pass(text: str, opts: "FormatOptions") -> str:
             # Column where spaces-before-op begin for the longest LHS.
             max_lhs_end = max(pos for _, pos, _ in run if pos is not None)
             # Step 1: establish the gap (spaces between longest LHS and its op).
-            effective_gap = opts.align_assign_gap
+            effective_gap = opts.statement.lhs_min_width
             # Step 2: if tab-snap is on, round the gap up to the next multiple
             # of indent_size so the spacing stays on the indentation grid.
             if opts.tab_align and opts.indent_size > 0:
@@ -1677,9 +1654,9 @@ def _align_instance_ports_pass(text: str, opts: "FormatOptions") -> str:
     are each padded to the widest entry in that instance so all ``(``, signal,
     and ``)`` characters align vertically.
     """
-    port_indent = " " * (opts.instance_port_indent_level * opts.indent_size)
-    m_before = opts.instance_port_spacing_before_paren
-    m_inside = opts.instance_port_spacing_inside_paren
+    port_indent = " " * (opts.instance.port_indent_level * opts.indent_size)
+    m_before = opts.instance.port_spacing_before_paren
+    m_inside = opts.instance.port_spacing_inside_paren
 
     lines = text.split("\n")
     out: list[str] = []
@@ -2056,13 +2033,13 @@ def format_source(source: str, options: Optional[FormatOptions] = None) -> str:
 
     result = "".join(out)
     result = result.rstrip("\n") + "\n"
-    if opts.align_assign_operators:
+    if opts.statement.align:
         result = _align_assign_pass(result, opts)
-    if opts.align_port_declarations:
+    if opts.port_declaration.align:
         result = _align_port_declarations_pass(result, opts.port_declaration)
-    if opts.align_variable_declarations:
+    if opts.var_declaration.align:
         result = _align_variable_declarations_pass(result, opts.var_declaration)
-    if opts.align_instance_ports:
+    if opts.instance.align:
         result = _align_instance_ports_pass(result, opts)
     result = _format_module_portlist_pass(result, opts)
     return result
