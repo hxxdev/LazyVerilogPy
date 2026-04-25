@@ -30,8 +30,8 @@ class nested_class;
     endfunction
 endclass
 
-module function_scoping ;
-import top_pkg::*       ;
+module function_scoping;
+import top_pkg::*;
 
 initial begin
     //- @my_function ref PkgFunction

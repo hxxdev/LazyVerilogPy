@@ -77,8 +77,8 @@ initial $display(dut2::instance6::var2);
 endmodule
 
 //- @my_module2 defines/binding MyModule2
-module my_module2   ;
-import pkg2::*      ;
+module my_module2;
+import pkg2::*;
 //- @instance6 defines/binding Instance6
 pkg_class1 instance6    = new ();
 endmodule

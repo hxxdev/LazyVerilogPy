@@ -41,7 +41,7 @@ extern interface I(input a, output b);
         endtable
     endprimitive
 
-    macromodule m3                                          ;
+    macromodule m3;
     wire                  b                                 ;
     logic                 c                                 ;
     I d (
@@ -326,7 +326,12 @@ extern interface I(input a, output b);
                                         instance m17.j liblist a    ;
                                     endconfig
 
-                                    module ALU(o1, i1, i2, opcode)          ;
+                                    module ALU(
+                                        o1,
+                                        i1,
+                                        i2,
+                                        opcode
+                                    );
                                     input     [7:0]               i1, i2;
                                     input     [2:1]               opcode    ;
                                     output    [7:0]               o1        ;
@@ -368,7 +373,7 @@ extern interface I(input a, output b);
                                                             endfunction
                                                             endmodule
 
-                                                            module m4   ;
+                                                            module m4;
                                                             Iface i1()  ;
                                                             n n1(i1)    ;
 
@@ -424,7 +429,7 @@ extern interface I(input a, output b);
                                                                         endchecker
                                                                         : assert_window1
 
-                                                                        module m5   ;
+                                                                        module m5;
                                                                         logic a, b, c, d, e, clk;
 
                                                                         default clocking
@@ -490,7 +495,7 @@ extern interface I(input a, output b);
                                                                                         function int H::foo;
                                                                                         endfunction
 
-                                                                                        module m7       ;
+                                                                                        module m7;
                                                                                         G #(real) g1    ;
                                                                                         G #(int) g2     ;
 
@@ -536,7 +541,7 @@ extern interface I(input a, output b);
                                                                                             }}
                                                                                         endclass
 
-                                                                                        module m6                                                           ;
+                                                                                        module m6;
                                                                                         A                     a                             = new           ;
                                                                                         A                     b1                            = B::new        ;
                                                                                         B                     b2                            = new           ;
@@ -625,11 +630,11 @@ extern interface I(input a, output b);
                                                                                         endgroup
                                                                                     endclass
 
-                                                                                    module m9                   ;
-                                                                                    logic [3:0] a   = {4{1'b1}} ;
+                                                                                    module m9;
+                                                                                    logic [3:0] a   = {4{1'b1}};
                                                                                     endmodule
 
-                                                                                    module m10      ;
+                                                                                    module m10;
                                                                                     byte stream[$]  ;
                                                                                     class Packet    ;
                                                                                         rand int header                 ;
@@ -652,7 +657,7 @@ extern interface I(input a, output b);
                                                                                     end
                                                                                     endmodule
 
-                                                                                    module m11(input clk)                                                       ;
+                                                                                    module m11(input clk);
                                                                                     int                   a                             [4] = '{default: 1}     ;
                                                                                     int                   b                             [] = '{3{1}}            ;
                                                                                     int                   c                             = $bits(int)            ;
@@ -667,7 +672,7 @@ extern interface I(input a, output b);
 
                                                                                     int unitVar;
 
-                                                                                    module m12                                                          ;
+                                                                                    module m12;
                                                                                     int                   i                             ,              j                             , k                             ;
                                                                                     int                   a                             []              ;
                                                                                     time                  t                                             ;
@@ -805,7 +810,7 @@ extern interface I(input a, output b);
                                                                                     let eq(x, y = b) = x == y;
                                                                                     endmodule
 
-                                                                                    module m15(input a, clk, data, output b)                                            ;
+                                                                                    module m15(input a, clk, data, output b);
                                                                                     reg                                                 notify                          ;
                                                                                     wire                                                bar                             ;
                                                                                     wire                  [1:0]                         w                               ;
@@ -831,7 +836,7 @@ extern interface I(input a, output b);
                                                                                     wire                  y                             = ~ddata        ;
                                                                                     endmodule
 
-                                                                                    module m16(input wire clk, data, output reg b)  ;
+                                                                                    module m16(input wire clk, data, output reg b);
                                                                                     logic dclk, ddata;
                                                                                     specify
                                                                                         $recrem(posedge clk, data, 1, 2,,,, dclk,);
@@ -873,7 +878,7 @@ extern interface I(input a, output b);
                                                                                                         I i(3);
                                                                                                     endinterface
 
-                                                                                                    module m17  ;
+                                                                                                    module m17;
                                                                                                     wire clk    ;
                                                                                                     J j(. *)    ;
 

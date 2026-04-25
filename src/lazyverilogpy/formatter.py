@@ -1932,6 +1932,15 @@ def _format_module_portlist_pass(text: str, opts: "FormatOptions") -> str:
     return _MODULE_HDR_RE.sub(_reformat, text)
 
 
+# Lines whose terminal ";" must not be touched by the punctuation-align pass.
+# These are structural declarations where the semicolon position is governed
+# by other formatting rules (module port-list reformatting, etc.).
+_ALIGN_PUNCT_SKIP_RE = re.compile(
+    r"^\s*(?:module|macromodule)\b",
+    re.IGNORECASE,
+)
+
+
 def _first_field_comma(text: str) -> int:
     """Return index of the first ``,`` outside brackets in *text*, or -1."""
     depth = 0
@@ -1977,12 +1986,19 @@ def _align_punctuation_pass(text: str, opts: "FormatOptions") -> str:
         before, comment_suffix = split
         indent_len = len(before) - len(before.lstrip())
 
+        # Structural declarations (module, macromodule) must not have their
+        # ";" repositioned — emit them unchanged and break any run.
+        if _ALIGN_PUNCT_SKIP_RE.match(line):
+            out.append(line)
+            i += 1
+            continue
+
         # Collect a run of consecutive ;-terminated lines at the same indent.
         run: list[tuple[str, str]] = [(before, comment_suffix)]
         j = i + 1
         while j < len(lines):
             split2 = _split_at_terminal_semi(lines[j])
-            if split2 is None:
+            if split2 is None or _ALIGN_PUNCT_SKIP_RE.match(lines[j]):
                 break
             before2, suffix2 = split2
             indent2 = len(before2) - len(before2.lstrip())
@@ -2013,12 +2029,15 @@ def _align_punctuation_pass(text: str, opts: "FormatOptions") -> str:
         # Compute the target column for single-element semicolons.
         max_single_len = max(len(run[k][0]) for k in single_idxs)
         semi_col = max_single_len + 1
-        if multi_comma_cols:
-            # Raise to first-comma column so single-element ";" aligns with
-            # the first "," of multi-element lines in the same block.
-            semi_col = max(semi_col, min(multi_comma_cols))
+        # Apply tab_align to the natural single-element column first so the
+        # rounding doesn't overshoot a multi-element comma column below.
         if opts.tab_align and opts.indent_size > 0:
             semi_col = math.ceil(semi_col / opts.indent_size) * opts.indent_size
+        if multi_comma_cols:
+            # Raise to first-comma column (exact, no further tab rounding) so
+            # single-element ";" aligns with the first "," of multi-element
+            # lines in the same block.
+            semi_col = max(semi_col, min(multi_comma_cols))
 
         single_set = set(single_idxs)
         for k, (b, sfx) in enumerate(run):

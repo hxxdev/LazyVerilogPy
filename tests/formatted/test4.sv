@@ -1,4 +1,4 @@
-module baz                                                          ;
+module baz;
 int                   k                             = j             ;
 int                   j                             = 1             ;
 

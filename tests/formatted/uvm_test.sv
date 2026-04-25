@@ -19,7 +19,7 @@ class my_driver extends uvm_driver #(my_seq_item);
     endtask
 endclass
 
-module tb_top                                           ;
+module tb_top;
 logic                 clk                               ;
 logic                 rst_n                             ;
 
