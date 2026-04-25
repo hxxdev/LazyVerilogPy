@@ -1637,9 +1637,7 @@ def _align_variable_declarations_pass(
                         name, trailing = p[4][slot]
                         id_entries.append(len(name))
                         is_last = slot == len(p[4]) - 1
-                        delim = ";" if is_last else ","
-                        trail_text = (trailing + delim) if trailing else delim
-                        trail_entries.append(len(trail_text))
+                        trail_entries.append(len(trailing))
                         if trailing:
                             has_trailing_content = True
                 if id_entries:
@@ -1649,7 +1647,7 @@ def _align_variable_declarations_pass(
                 id_widths.append(id_w)
                 if has_trailing_content:
                     # Trailing content exists: pad to section4_min_width so columns align.
-                    trail_w = max(section4_min_width, max(trail_entries) + 1) if trail_entries else section4_min_width
+                    trail_w = max(section4_min_width, max(trail_entries)) if trail_entries else section4_min_width
                 else:
                     # No trailing content in this slot: only the delimiter — use minimal ", " separator.
                     trail_w = 2
