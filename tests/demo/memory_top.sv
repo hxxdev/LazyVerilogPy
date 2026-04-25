@@ -26,16 +26,26 @@ task add_numbers(input int a, input int b, output int result);
     result  = a + b;
 endtask
 
-module memory_top(i_clk, i_data, i_data2, i_data3, i_dd, i_dd22222, i_d33333, i_d44333, i_dd44321, i_d44334, VDD, VSS)      ;
-input     packet_t                                             i_clk                                                        ;
-input     logic signed                     [7:0]               i_data                        [7:0]                          ;
-input     var byte                                             i_data2                                                      ;
-input                                                          i_data3                                                      ;
-input                                                          i_dd                                                         ;
-input                                                          i_dd22222                                                    ;
-input                                                          i_d33333                                                     ;
+module memory_top(
+    i_clk, i_data,
+    i_data2,
+    i_data3, i_dd,
+    i_dd22222,
+    i_d33333,
+    i_d44333,
+    i_dd44321,
+    i_d44334, VDD,
+    VSS
+);
+input     packet_t                                             i_clk                                                       ;
+input     logic signed                     [7:0]               i_data                        [7:0]                         ;
+input     var byte                                             i_data2                                                     ;
+input                                                          i_data3                                                     ;
+input                                                          i_dd                                                        ;
+input                                                          i_dd22222                                                   ;
+input                                                          i_d33333                                                    ;
 input                                                          i_d44333                                                    , i_dd44321;
-input                                                          i_d44334                                                     ;
+input                                                          i_d44334                                                    ;
 output    logic unsigned                   [0:0]               VDD                           [0:0] = 1'b1                  , VSS                           [0:0] = 1'b0;
 
 logic                 [7:0]                         dout                          = 8'hFF           ;

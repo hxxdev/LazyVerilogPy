@@ -148,10 +148,10 @@ extern interface I(input a, output b);
                 } Jmp;
             } Instr;
 
-            VInt                  v                                                                                                                                                 ;
-            Instr                 instr                         = tagged Add'{reg1: 0, reg2                          : 1,           regd                          : 3}              ;
-            automatic int rf[]  = new[3]                                                                                                                                            ;
-            static longint pc   = 'x                                                                                                                                                ;
+            VInt                  v                                                                         ;
+            Instr                 instr                         = tagged Add'{reg1: 0, reg2: 1, regd: 3}    ;
+            automatic int rf[]  = new[3]                                                                    ;
+            static longint pc   = 'x                                                                        ;
 
             case
                 (v) matches tagged Invalid && &~w: $display("v is Invalid") ;

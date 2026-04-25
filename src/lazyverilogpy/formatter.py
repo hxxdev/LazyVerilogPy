@@ -1076,7 +1076,7 @@ def _parse_port_line(
     # Each name entry is split into (identifier, trailing) where trailing is
     # any unpacked dimension or default value after the identifier.
     remaining = " ".join(tokens[idx:])
-    raw_names = [n.strip() for n in remaining.split(",") if n.strip()]
+    raw_names = [n.strip() for n in _split_top_level(remaining) if n.strip()]
     if not raw_names:
         return None
 
@@ -1429,7 +1429,7 @@ def _parse_var_line(
     # We split each into (identifier, trailing) where trailing is everything
     # after the identifier (unpacked dim + default value).
     remaining = " ".join(tokens[idx:])
-    raw_names = [n.strip() for n in remaining.split(",") if n.strip()]
+    raw_names = [n.strip() for n in _split_top_level(remaining) if n.strip()]
     if not raw_names:
         return None
 
@@ -1507,7 +1507,13 @@ def _reassemble_var_line(
         trail_text = (trailing + delim) if trailing else delim
 
         if not is_last:
-            if k < len(trailing_widths):
+            # Mirror last-slot logic: when section4_min_width > 0 and trailing
+            # content exists, pad trailing before "," so the comma lands at the
+            # same column that ";" would occupy on a single-declarator line.
+            # Emit a trailing space after "," for readability.
+            if trailing and section4_min_width > 0 and k < len(trailing_widths) and trailing_widths[k] > 1:
+                line = line + trailing.ljust(trailing_widths[k] - 1) + ", "
+            elif k < len(trailing_widths):
                 line = line + trail_text.ljust(trailing_widths[k])
             else:
                 line = line + trail_text
@@ -1952,6 +1958,23 @@ def _first_field_comma(text: str) -> int:
         elif ch == ',' and depth == 0:
             return idx
     return -1
+
+
+def _split_top_level(text: str) -> "list[str]":
+    """Split *text* by ``,`` at bracket depth 0 (respects ``([{`` nesting)."""
+    parts: list[str] = []
+    depth = 0
+    start = 0
+    for i, ch in enumerate(text):
+        if ch in '([{':
+            depth += 1
+        elif ch in ')]}':
+            depth -= 1
+        elif ch == ',' and depth == 0:
+            parts.append(text[start:i])
+            start = i + 1
+    parts.append(text[start:])
+    return parts
 
 
 def _align_punctuation_pass(text: str, opts: "FormatOptions") -> str:
