@@ -1918,15 +1918,36 @@ def _format_module_portlist_pass(text: str, opts: "FormatOptions") -> str:
     return _MODULE_HDR_RE.sub(_reformat, text)
 
 
+def _first_field_comma(text: str) -> int:
+    """Return index of the first ``,`` outside brackets in *text*, or -1."""
+    depth = 0
+    for idx, ch in enumerate(text):
+        if ch in '([{':
+            depth += 1
+        elif ch in ')]}':
+            depth -= 1
+        elif ch == ',' and depth == 0:
+            return idx
+    return -1
+
+
 def _align_punctuation_pass(text: str, opts: "FormatOptions") -> str:
     """Align terminal ``;`` across consecutive same-indent lines.
 
-    Collects runs of lines that all:
-    - share the same leading-whitespace indent,
-    - have ``;`` as their last code token (optionally followed by ``//``),
-    and aligns the ``;`` at ``max_content_col + 1``.  Runs are broken by blank
-    lines, comment-only lines, or a change in indent level.  If ``tab_align``
-    is on, the column is rounded up to the next ``indent_size`` multiple.
+    Lines in a run are split into *single-element* (no field-separator comma
+    outside brackets) and *multi-element* (at least one such comma).
+
+    - Single-element lines have their ``;`` aligned to ``max_content_col + 1``
+      across all single-element lines in the run.  When multi-element lines are
+      present in the same run, the column is further raised to the first comma
+      column of any multi-element line, so the single-element ``;`` visually
+      aligns with the first ``,`` of multi-element declarations.
+    - Multi-element lines are emitted unchanged — their ``;`` placement is
+      already determined by the port/variable alignment passes.
+
+    Runs are broken by blank lines, comment-only lines, or a change in indent
+    level.  If ``tab_align`` is on, the column is rounded up to the next
+    ``indent_size`` multiple.
     """
     lines = text.split('\n')
     out: list[str] = []
@@ -1956,19 +1977,42 @@ def _align_punctuation_pass(text: str, opts: "FormatOptions") -> str:
             run.append((before2, suffix2))
             j += 1
 
-        if len(run) < 2:
-            out.append(line)
-            i += 1
+        # Partition run into single-element and multi-element lines.
+        single_idxs: list[int] = []
+        multi_comma_cols: list[int] = []
+        for k, (b, _) in enumerate(run):
+            fc = _first_field_comma(b)
+            if fc < 0:
+                single_idxs.append(k)
+            else:
+                multi_comma_cols.append(fc)
+
+        # Only process when there is something to align:
+        #   - 2+ single-element lines, OR
+        #   - 1+ single-element lines with multi-element context.
+        if not single_idxs or (len(single_idxs) < 2 and not multi_comma_cols):
+            for b, sfx in run:
+                out.append(b + ';' + sfx)
+            i = j
             continue
 
-        max_len = max(len(b) for b, _ in run)
-        semi_col = max_len + 1
+        # Compute the target column for single-element semicolons.
+        max_single_len = max(len(run[k][0]) for k in single_idxs)
+        semi_col = max_single_len + 1
+        if multi_comma_cols:
+            # Raise to first-comma column so single-element ";" aligns with
+            # the first "," of multi-element lines in the same block.
+            semi_col = max(semi_col, min(multi_comma_cols))
         if opts.tab_align and opts.indent_size > 0:
             semi_col = math.ceil(semi_col / opts.indent_size) * opts.indent_size
 
-        for b, sfx in run:
-            padding = semi_col - len(b)
-            out.append(b + ' ' * padding + ';' + sfx)
+        single_set = set(single_idxs)
+        for k, (b, sfx) in enumerate(run):
+            if k in single_set:
+                padding = semi_col - len(b)
+                out.append(b + ' ' * max(padding, 0) + ';' + sfx)
+            else:
+                out.append(b + ';' + sfx)
         i = j
 
     return '\n'.join(out)
