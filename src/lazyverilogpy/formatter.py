@@ -1556,8 +1556,7 @@ def _reassemble_var_line(
 
 def _align_variable_declarations_pass(
     text: str,
-    opts: "FormatOptions",
-    var_opts: "Optional[VarDeclarationOptions]" = None
+    opts: "FormatOptions"
 ) -> str:
     """Post-processing pass: align contiguous variable declaration blocks.
 
@@ -1571,6 +1570,7 @@ def _align_variable_declarations_pass(
 
     Also applies to declarations inside typedef struct/union blocks.
     """
+    var_opts = opts.var_declaration
     if var_opts is None:
         var_opts = VarDeclarationOptions()
 
