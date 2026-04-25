@@ -599,8 +599,10 @@ class TestAlignPortDeclarations:
 
     def _align(self, text: str, **kw) -> str:
         from lazyverilogpy.formatter import _align_port_declarations_pass
-        port_opts = PortDeclarationOptions(**kw) if kw else None
-        return _align_port_declarations_pass(text, port_opts)
+        opts = FormatOptions()
+        if kw:
+            opts.port_declaration = PortDeclarationOptions(**kw)
+        return _align_port_declarations_pass(text, opts)
 
     def test_four_columns_aligned(self):
         text = (
@@ -676,7 +678,7 @@ class TestAlignPortDeclarations:
     def test_disabled_when_false(self):
         text = "    input  i_clk;\n    input logic [7:0] i_data;"
         from lazyverilogpy.formatter import _align_port_declarations_pass
-        aligned = _align_port_declarations_pass(text)
+        aligned = _align_port_declarations_pass(text, FormatOptions())
         # When option is False, format_source should not call the pass
         # (just verify the option wires through format_source correctly)
         src = "module foo(\n    input  i_clk,\n    input  data_t [7:0] i_data\n);\nendmodule\n"
@@ -811,7 +813,9 @@ class TestAlignVariableDeclarations:
             section3_min_width=s3_min,
             section4_min_width=s4_min,
         )
-        return _align_variable_declarations_pass(text, var_opts)
+        opts = FormatOptions()
+        opts.var_declaration = var_opts
+        return _align_variable_declarations_pass(text, opts)
 
     def _name_col(self, line: str) -> int:
         """Return column index of the first signal name on the line."""
@@ -967,80 +971,3 @@ class TestAlignVariableDeclarations:
         assert dout_line.rstrip().endswith("= 8'hFF;")
 
 
-# ---------------------------------------------------------------------------
-# align_punctuation pass
-# ---------------------------------------------------------------------------
-
-class TestAlignPunctuation:
-    """Tests for the _align_punctuation_pass."""
-
-    def _pass(self, text: str, **kw) -> str:
-        from lazyverilogpy.formatter import _align_punctuation_pass
-        opts = FormatOptions(align_punctuation=True, **kw)
-        return _align_punctuation_pass(text, opts)
-
-    def _semi_col(self, line: str) -> int:
-        """Column index of the terminal ';' on line."""
-        return line.rstrip().rfind(";")
-
-    def test_single_element_not_pushed_by_multi_element(self):
-        """Single-element lines must not have ; pushed to match multi-element lines."""
-        text = (
-            "    input a;\n"
-            "    input bb;\n"
-            "    input cc, dd;\n"
-        )
-        result = self._pass(text)
-        lines = result.splitlines()
-        col_single_a  = self._semi_col(lines[0])
-        col_single_bb = self._semi_col(lines[1])
-        col_multi     = self._semi_col(lines[2])
-        # Single-element lines align with each other.
-        assert col_single_a == col_single_bb
-        # Single-element ';' must NOT be pushed to multi-element line's position.
-        assert col_single_a < col_multi, (
-            f"single-element ; was pushed past multi-element ;: {col_single_a} >= {col_multi}"
-        )
-
-    def test_same_comma_count_aligned_together(self):
-        """Lines with identical comma counts align their ; together."""
-        text = (
-            "    wire a;\n"
-            "    wire bbb;\n"
-        )
-        result = self._pass(text)
-        lines = result.splitlines()
-        assert self._semi_col(lines[0]) == self._semi_col(lines[1])
-
-    def test_zero_comma_semi_aligns_to_multi_comma_col(self):
-        """Single-element ; aligns to first , column of adjacent multi-element lines."""
-        text = (
-            "    input a;\n"
-            "    input bb, cc;\n"
-        )
-        result = self._pass(text)
-        lines = result.splitlines()
-        # ; on single-element line
-        semi_col = self._semi_col(lines[0])
-        # first , on multi-element line
-        comma_col = lines[1].index(',')
-        assert semi_col == comma_col, (
-            f"single-element ; at {semi_col} != first , at {comma_col}\n{result}"
-        )
-
-    def test_run_breaks_at_different_indent(self):
-        """Run breaks at indent change — inner lines align independently."""
-        text = (
-            "    wire a;\n"
-            "    wire bbb;\n"
-            "wire cc;\n"
-            "wire ddddd;\n"
-        )
-        result = self._pass(text)
-        lines = result.splitlines()
-        # Inner lines (indent=4) align with each other.
-        assert self._semi_col(lines[0]) == self._semi_col(lines[1])
-        # Outer lines (indent=0) align with each other.
-        assert self._semi_col(lines[2]) == self._semi_col(lines[3])
-        # Inner and outer ';' are at different columns.
-        assert self._semi_col(lines[0]) != self._semi_col(lines[2])

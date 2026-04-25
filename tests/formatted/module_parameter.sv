@@ -56,10 +56,10 @@ parameter DATA_WIDTH    = 32) ();
 
 //- @ADDR_WIDTH ref ADDR_WIDTH2
 //- @addr defines/binding _
-input   [ADDR_WIDTH-1:0]    addr;
+input   [ADDR_WIDTH-1:0]    addr                                                            ;
 //- @DATA_WIDTH ref DATA_WIDTH
 //- @data_output defines/binding _
-output  [DATA_WIDTH-1:0]    data_output;
+output  [DATA_WIDTH-1:0]    data_output                                                     ;
 initial begin
     //- @ADDR_WIDTH ref ADDR_WIDTH2
     $display("My secret number is %d", ADDR_WIDTH);

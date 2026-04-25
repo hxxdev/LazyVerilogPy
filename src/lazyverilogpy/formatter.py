@@ -2244,7 +2244,7 @@ def format_source(source: str, options: Optional[FormatOptions] = None) -> str:
     if opts.port_declaration.align:
         result = _align_port_declarations_pass(result, opts)
     if opts.var_declaration.align:
-        result = _align_variable_declarations_pass(result, opts, opts.var_declaration)
+        result = _align_variable_declarations_pass(result, opts)
     if opts.instance.align:
         result = _align_instance_ports_pass(result, opts)
     result = _format_module_portlist_pass(result, opts)

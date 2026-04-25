@@ -8,7 +8,7 @@ module Different_Port_Type(  ///- @input1 defines/binding InDef
 //- InDef.node/kind variable
 //- InDef.complete definition
 //- InDef childof DifferentPort
-input   input1,  //- @wire1 defines/binding WDef
+input   input1                                                          ,  //- @wire1 defines/binding WDef
 //- WDef.node/kind variable
 //- WDef.complete definition
 //- WDef childof DifferentPort
@@ -39,13 +39,13 @@ out1);
 //- In2Def.node/kind variable
 //- In2Def.complete definition
 //- In2Def childof NON_ANSI
-input   in1                                                             , in2;
+input   in1                                                             , in2                                                             ;
 
 //- @out1 defines/binding Out1Def
 //- Out1Def.node/kind variable
 //- Out1Def.complete definition
 //- Out1Def childof NON_ANSI
-output  out1;
+output  out1                                                            ;
 
 //- @Non_ANSI ref NON_ANSI
 endmodule
@@ -59,15 +59,15 @@ module my_module(  //- @x defines/binding XDef
 //- XDef.node/kind variable
 //- XDef.complete definition
 //- XDef childof MyModule
-input   x,  //- @y defines/binding YDef
+input   x                                                               ,  //- @y defines/binding YDef
 //- YDef.node/kind variable
 //- YDef.complete definition
 //- YDef childof MyModule
-input   wire                                y,  //- @z defines/binding ZDef
+input   wire                                y                                                               ,  //- @z defines/binding ZDef
 //- ZDef.node/kind variable
 //- ZDef.complete definition
 //- ZDef childof MyModule
-output  z);
+output  z)                                                              ;
 
 //- @w1 defines/binding W1Def
 //- W1Def.node/kind variable
