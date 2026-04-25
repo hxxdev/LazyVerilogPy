@@ -7,45 +7,27 @@ if vim.g.loaded_lazyverilogpy then
 end
 vim.g.loaded_lazyverilogpy = true
 
---- Global Vimscript function so users can call :call AutoInst(0)
-vim.cmd([[
-  function! AutoInst(mode) abort
-    call luaeval('require("lazyverilogpy").autoinst(_A)', a:mode)
-  endfunction
-]])
+vim.api.nvim_create_user_command("AutoInst", function(opts)
+    local mode = tonumber(opts.args) or 0
+    require("lazyverilogpy").autoinst(mode)
+end, { nargs = "?", desc = "AutoInst: expand module instantiation ports" })
 
---- Global Vimscript function so users can call :call AutoArg()
-vim.cmd([[
-  function! AutoArg() abort
-    call luaeval('require("lazyverilogpy").autoarg()')
-  endfunction
-]])
+vim.api.nvim_create_user_command("AutoArg", function()
+    require("lazyverilogpy").autoarg()
+end, { desc = "AutoArg: fill module header port list" })
 
---- Global Vimscript function so users can call :call RtlTree()
-vim.cmd([[
-  function! RtlTree() abort
-    call luaeval('require("lazyverilogpy").rtltree()')
-  endfunction
-]])
+vim.api.nvim_create_user_command("RtlTree", function()
+    require("lazyverilogpy").rtltree()
+end, { desc = "RtlTree: show RTL hierarchy tree" })
 
---- Global Vimscript function so users can call :call RtlTreeReverse()
-vim.cmd([[
-  function! RtlTreeReverse() abort
-    call luaeval('require("lazyverilogpy").rtltreereverse()')
-  endfunction
-]])
+vim.api.nvim_create_user_command("RtlTreeReverse", function()
+    require("lazyverilogpy").rtltreereverse()
+end, { desc = "RtlTreeReverse: show reverse RTL hierarchy tree" })
 
---- Global Vimscript function so users can call :call AutoFunc()
-vim.cmd([[
-  function! AutoFunc() abort
-    call luaeval('require("lazyverilogpy").autofunc()')
-  endfunction
-]])
+vim.api.nvim_create_user_command("AutoFunc", function()
+    require("lazyverilogpy").autofunc()
+end, { desc = "AutoFunc: expand function/task stub" })
 
---- Global Vimscript function so users can call :call AutoWire()
-vim.cmd([[
-  function! AutoWire() abort
-    call luaeval('require("lazyverilogpy").autowire()')
-  endfunction
-]])
-
+vim.api.nvim_create_user_command("AutoWire", function()
+    require("lazyverilogpy").autowire()
+end, { desc = "AutoWire: wire signals with preview" })
