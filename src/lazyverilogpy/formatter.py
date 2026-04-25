@@ -1172,7 +1172,7 @@ _PORT_DIR_RE = re.compile(r"^\s*(?:input|output|inout)\b", re.IGNORECASE)
 
 def _align_port_declarations_pass(
     text: str,
-    port_opts: "Optional[PortDeclarationOptions]" = None,
+    opts: FormatOptions
 ) -> str:
     """Post-processing pass: align contiguous port declaration blocks.
 
@@ -1188,8 +1188,17 @@ def _align_port_declarations_pass(
     The block resets only at blank lines, comment-only lines, non-port lines,
     and preprocessor directives.
     """
+
+    port_opts: PortDeclarationOptions = opts.port_declaration
+
     if port_opts is None:
         port_opts = PortDeclarationOptions()
+
+    section1_min_width = port_opts.section1_min_width if not opts.tab_align else math.ceil(port_opts.section1_min_width / opts.indent_size) * opts.indent_size
+    section2_min_width = port_opts.section2_min_width if not opts.tab_align else math.ceil(port_opts.section2_min_width / opts.indent_size) * opts.indent_size
+    section3_min_width = port_opts.section3_min_width if not opts.tab_align else math.ceil(port_opts.section3_min_width / opts.indent_size) * opts.indent_size
+    section4_min_width = port_opts.section4_min_width if not opts.tab_align else math.ceil(port_opts.section4_min_width / opts.indent_size) * opts.indent_size
+    section5_min_width = port_opts.section5_min_width if not opts.tab_align else math.ceil(port_opts.section5_min_width / opts.indent_size) * opts.indent_size
 
     lines = text.split("\n")
     out: list[str] = []
@@ -1225,7 +1234,7 @@ def _align_port_declarations_pass(
             max_dim   = max(len(p[4]) for p in parseable)
 
             # Section 1 width: max(min_width, actual + 1)
-            s1_w = max(port_opts.section1_min_width, max_dir + 1)
+            s1_w = max(section1_min_width, max_dir + 1)
 
             # Section 2 width: covers dtype + optional qualifier.
             # Max combined content = max(dtype + " " + qual) across lines.
@@ -1234,13 +1243,13 @@ def _align_port_declarations_pass(
                 combined = p[2] + (" " + p[3] if p[3] else "")
                 max_s2_content = max(max_s2_content, len(combined))
             if max_s2_content > 0:
-                s2_w = max(port_opts.section2_min_width, max_s2_content + 1)
+                s2_w = max(section2_min_width, max_s2_content + 1)
             else:
                 s2_w = 0  # no type/qualifier in any line of this block
 
             # Section 3 width: packed dimension.
             if max_dim > 0:
-                s3_w = max(port_opts.section3_min_width, max_dim + 1)
+                s3_w = max(section3_min_width, max_dim + 1)
             else:
                 s3_w = 0  # no dimension in any line of this block
 
@@ -1252,7 +1261,7 @@ def _align_port_declarations_pass(
                     if trailing:
                         max_trailing = max(max_trailing, len(trailing))
             if max_trailing > 0:
-                s5_w = max(port_opts.section5_min_width, max_trailing + 1)
+                s5_w = max(section5_min_width, max_trailing + 1)
             else:
                 s5_w = 0
 
@@ -1264,13 +1273,13 @@ def _align_port_declarations_pass(
                 for p in parseable:
                     for name, _ in p[5]:
                         max_name_len = max(max_name_len, len(name))
-                s4_w = max(port_opts.section4_min_width, max_name_len + 1) if max_name_len > 0 else 0
+                s4_w = max(section4_min_width, max_name_len + 1) if max_name_len > 0 else 0
             else:
                 max_names_len = 0
                 for p in parseable:
                     names_str = ", ".join(n for n, _ in p[5])
                     max_names_len = max(max_names_len, len(names_str))
-                s4_w = max(port_opts.section4_min_width, max_names_len + 1) if max_names_len > 0 else 0
+                s4_w = max(section4_min_width, max_names_len + 1) if max_names_len > 0 else 0
 
             for orig, parsed in block:
                 if parsed is None:
@@ -2218,7 +2227,7 @@ def format_source(source: str, options: Optional[FormatOptions] = None) -> str:
     if opts.statement.align:
         result = _align_assign_pass(result, opts)
     if opts.port_declaration.align:
-        result = _align_port_declarations_pass(result, opts.port_declaration)
+        result = _align_port_declarations_pass(result, opts)
     if opts.var_declaration.align:
         result = _align_variable_declarations_pass(result, opts, opts.var_declaration)
     if opts.instance.align:
