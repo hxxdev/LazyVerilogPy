@@ -1214,7 +1214,7 @@ def _align_port_declarations_pass(
 
         parseable = [p for _, p in block if p is not None]
 
-        if len(parseable) <= 1:
+        if len(parseable) <= 0:
             for orig, _ in block:
                 out.append(orig)
         else:
@@ -1504,7 +1504,6 @@ def _reassemble_var_line(
             line = line + name
 
         # Build trailing text: unpacked_dim + default + delimiter
-        trail_text = (trailing + delim) if trailing else delim
 
         if not is_last:
             # Mirror last-slot logic: when section4_min_width > 0 and trailing
@@ -1513,22 +1512,20 @@ def _reassemble_var_line(
             # Emit a trailing space after "," for readability.
             if trailing and section4_min_width > 0 and k < len(trailing_widths) and trailing_widths[k] > 1:
                 line = line + trailing.ljust(trailing_widths[k]) + ", "
-                logger.debug(f"line: {line}, trailing: {trailing}, trailing_width: {trailing_widths[k]}")
             elif k < len(trailing_widths):
-                line = line + trail_text.ljust(trailing_widths[k])
+                line = line + trailing.ljust(trailing_widths[k])
+                line = line + ", "
             else:
-                line = line + trail_text
+                line = line + trailing + ", "
         else:
             # Last slot: when section4_min_width > 0 and trailing content
             # exists, pad trailing to (trailing_widths[k] - 1) so ";" lands
             # at the section4_min_width-governed column.
             if trailing and section4_min_width > 0 and k < len(trailing_widths) and trailing_widths[k] > 1:
                 line = line + trailing.ljust(trailing_widths[k]) + ";"
-                logger.debug(f"line: {line}")
-                logger.debug(f"trailing: {trailing}")
-                logger.debug(f"trailing_width: {trailing_widths[k]}")
             else:
-                line = line + trail_text
+                line = line + trailing.ljust(trailing_widths[k])
+                line = line + trailing + delim
 
     return line.rstrip()
 
@@ -1560,8 +1557,6 @@ def _align_variable_declarations_pass(
     section2_min_width = var_opts.section2_min_width if not opts.tab_align else math.ceil(var_opts.section2_min_width / opts.indent_size) * opts.indent_size
     section3_min_width = var_opts.section3_min_width if not opts.tab_align else math.ceil(var_opts.section3_min_width / opts.indent_size) * opts.indent_size
     section4_min_width = var_opts.section4_min_width if not opts.tab_align else math.ceil(var_opts.section4_min_width / opts.indent_size) * opts.indent_size
-
-    logger.debug(f"section4_min_width: {section4_min_width}")
 
     while i < len(lines):
         line = lines[i]
@@ -1645,13 +1640,13 @@ def _align_variable_declarations_pass(
                 else:
                     id_w = section3_min_width
                 id_widths.append(id_w)
-                if has_trailing_content:
-                    # Trailing content exists: pad to section4_min_width so columns align.
-                    trail_w = max(section4_min_width, max(trail_entries)) if trail_entries else section4_min_width
-                else:
-                    # No trailing content in this slot: only the delimiter — use minimal ", " separator.
-                    trail_w = 2
-                logger.debug(f"slot={slot}, trail_entries={trail_entries}, trail_w={trail_w}")
+                # if has_trailing_content:
+                #     # Trailing content exists: pad to section4_min_width so columns align.
+                #     trail_w = max(section4_min_width, max(trail_entries)) if trail_entries else section4_min_width
+                # else:
+                #     # No trailing content in this slot: only the delimiter — use minimal ", " separator.
+                #     trail_w = 0
+                trail_w = max(section4_min_width, max(trail_entries)) if trail_entries else section4_min_width
                 trailing_widths.append(trail_w)
 
             for orig, parsed in block:
@@ -1669,7 +1664,6 @@ def _align_variable_declarations_pass(
                     if comment:
                         assembled = assembled + comment
                     out.append(assembled.rstrip())
-                    logger.debug(f"final output: {assembled.rstrip()}")
 
         i = j
 
@@ -1988,102 +1982,6 @@ def _split_top_level(text: str) -> "list[str]":
     return parts
 
 
-def _align_punctuation_pass(text: str, opts: "FormatOptions") -> str:
-    """Align terminal ``;`` across consecutive same-indent lines.
-
-    Lines in a run are split into *single-element* (no field-separator comma
-    outside brackets) and *multi-element* (at least one such comma).
-
-    - Single-element lines have their ``;`` aligned to ``max_content_col + 1``
-      across all single-element lines in the run.  When multi-element lines are
-      present in the same run, the column is further raised to the first comma
-      column of any multi-element line, so the single-element ``;`` visually
-      aligns with the first ``,`` of multi-element declarations.
-    - Multi-element lines are emitted unchanged — their ``;`` placement is
-      already determined by the port/variable alignment passes.
-
-    Runs are broken by blank lines, comment-only lines, or a change in indent
-    level.  If ``tab_align`` is on, the column is rounded up to the next
-    ``indent_size`` multiple.
-    """
-    lines = text.split('\n')
-    out: list[str] = []
-    i = 0
-    while i < len(lines):
-        line = lines[i]
-        split = _split_at_terminal_semi(line)
-        if split is None:
-            out.append(line)
-            i += 1
-            continue
-
-        before, comment_suffix = split
-        indent_len = len(before) - len(before.lstrip())
-
-        # Structural declarations (module, macromodule) must not have their
-        # ";" repositioned — emit them unchanged and break any run.
-        if _ALIGN_PUNCT_SKIP_RE.match(line):
-            out.append(line)
-            i += 1
-            continue
-
-        # Collect a run of consecutive ;-terminated lines at the same indent.
-        run: list[tuple[str, str]] = [(before, comment_suffix)]
-        j = i + 1
-        while j < len(lines):
-            split2 = _split_at_terminal_semi(lines[j])
-            if split2 is None or _ALIGN_PUNCT_SKIP_RE.match(lines[j]):
-                break
-            before2, suffix2 = split2
-            indent2 = len(before2) - len(before2.lstrip())
-            if indent2 != indent_len:
-                break
-            run.append((before2, suffix2))
-            j += 1
-
-        # Partition run into single-element and multi-element lines.
-        single_idxs: list[int] = []
-        multi_comma_cols: list[int] = []
-        for k, (b, _) in enumerate(run):
-            fc = _first_field_comma(b)
-            if fc < 0:
-                single_idxs.append(k)
-            else:
-                multi_comma_cols.append(fc)
-
-        # Only process when there is something to align:
-        #   - 2+ single-element lines, OR
-        #   - 1+ single-element lines with multi-element context.
-        if not single_idxs or (len(single_idxs) < 2 and not multi_comma_cols):
-            for b, sfx in run:
-                out.append(b + ';' + sfx)
-            i = j
-            continue
-
-        # Compute the target column for single-element semicolons.
-        max_single_len = max(len(run[k][0]) for k in single_idxs)
-        semi_col = max_single_len + 1
-        # Apply tab_align to the natural single-element column first so the
-        # rounding doesn't overshoot a multi-element comma column below.
-        if opts.tab_align and opts.indent_size > 0:
-            semi_col = math.ceil(semi_col / opts.indent_size) * opts.indent_size
-        if multi_comma_cols:
-            # Raise to first-comma column (exact, no further tab rounding) so
-            # single-element ";" aligns with the first "," of multi-element
-            # lines in the same block.
-            semi_col = max(semi_col, min(multi_comma_cols))
-
-        single_set = set(single_idxs)
-        for k, (b, sfx) in enumerate(run):
-            if k in single_set:
-                padding = semi_col - len(b)
-                out.append(b + ' ' * max(padding, 0) + ';' + sfx)
-            else:
-                out.append(b + ';' + sfx)
-        i = j
-
-    return '\n'.join(out)
-
 
 def format_source(source: str, options: Optional[FormatOptions] = None) -> str:
     """Format SystemVerilog *source* and return the result.
@@ -2323,13 +2221,7 @@ def format_source(source: str, options: Optional[FormatOptions] = None) -> str:
         result = _align_port_declarations_pass(result, opts.port_declaration)
     if opts.var_declaration.align:
         result = _align_variable_declarations_pass(result, opts, opts.var_declaration)
-        logger.debug(f"before final output: {result}")
     if opts.instance.align:
         result = _align_instance_ports_pass(result, opts)
-        logger.debug(f"final output0: {result}")
-    # if opts.align_punctuation:
-    #     result = _align_punctuation_pass(result, opts)
-    #     logger.debug(f"final output1: {result}")
     result = _format_module_portlist_pass(result, opts)
-    logger.debug(f"final output2: {result}")
     return result
