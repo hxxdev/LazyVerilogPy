@@ -38,7 +38,7 @@ Vector #(Vector #(int)) instance2   = new;
 
 //- @Vector ref Vector
 //- @v1 defines/binding _
-Vector                v1                            = new ();
+Vector                v1                            = new ()      ;
 //- @x1 defines/binding X1
 int                   x1                            ;
 //- @Vector ref Vector

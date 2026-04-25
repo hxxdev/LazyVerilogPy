@@ -66,8 +66,8 @@ package my_pkg;
     endclass
 endpackage
 
-module my_module;
-import my_pkg::*;
+module my_module    ;
+import my_pkg::*    ;
 initial begin
     //- @my_class1 ref MyClass1
     //- @handle1 defines/binding Handle1

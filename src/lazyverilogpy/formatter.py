@@ -1464,6 +1464,7 @@ def _reassemble_var_line(
     s2_w: int,
     id_widths: "list[int]",
     trailing_widths: "list[int]",
+    section4_min_width: int = 0,
 ) -> str:
     """Rebuild a variable declaration line with min-width section alignment.
 
@@ -1474,7 +1475,10 @@ def _reassemble_var_line(
         identifier padded to *id_widths[k]* and trailing (unpacked dim +
         default + delimiter) padded to *trailing_widths[k]*.
 
-    The last slot's trailing is not padded.
+    When *section4_min_width* > 0 the last slot's trailing content is padded
+    to ``trailing_widths[k] - 1`` before appending ``;``, so the terminal
+    semicolon lands at a consistent column governed by section4_min_width.
+    When *section4_min_width* is 0 no extra padding is added to the last slot.
     """
     # Section 1: type keyword + optional qualifier
     if qualifier:
@@ -1502,10 +1506,19 @@ def _reassemble_var_line(
         # Build trailing text: unpacked_dim + default + delimiter
         trail_text = (trailing + delim) if trailing else delim
 
-        if not is_last and k < len(trailing_widths):
-            line = line + trail_text.ljust(trailing_widths[k])
+        if not is_last:
+            if k < len(trailing_widths):
+                line = line + trail_text.ljust(trailing_widths[k])
+            else:
+                line = line + trail_text
         else:
-            line = line + trail_text
+            # Last slot: when section4_min_width > 0 and trailing content
+            # exists, pad trailing to (trailing_widths[k] - 1) so ";" lands
+            # at the section4_min_width-governed column.
+            if trailing and section4_min_width > 0 and k < len(trailing_widths) and trailing_widths[k] > 1:
+                line = line + trailing.ljust(trailing_widths[k] - 1) + ";"
+            else:
+                line = line + trail_text
 
     return line.rstrip()
 
@@ -1635,6 +1648,7 @@ def _align_variable_declarations_pass(
                     assembled = _reassemble_var_line(
                         indent, type_kw, qualifier, dim, declarators,
                         s1_w, s2_w, id_widths, trailing_widths,
+                        section4_min_width=var_opts.section4_min_width,
                     )
                     if comment:
                         assembled = assembled + comment

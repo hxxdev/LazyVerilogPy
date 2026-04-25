@@ -13,7 +13,7 @@ compact_indexing_and_selections = true
 blank_lines_between_items = 1
 default_indent_level_inside_module_block = 0
 tab_align = true
-# align_punctuation = false
+align_punctuation = true
 enable_format_on_save = true
 
 [formatter.statement]
@@ -35,7 +35,7 @@ align = true
 section1_min_width = 22
 section2_min_width = 30
 section3_min_width = 30
-section4_min_width = 10
+section4_min_width = 15
 
 [formatter.port]
 non_ansi_port_per_line_enabled = false

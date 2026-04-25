@@ -1,5 +1,5 @@
-module m;
-libmod lm();
+module m    ;
+libmod lm() ;
 endmodule
 
 module n(I.m im);

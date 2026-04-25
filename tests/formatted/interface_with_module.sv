@@ -9,8 +9,8 @@ interface Bus;
 endinterface
 
 //- @TestRAM defines/binding _
-module TestRAM;
-x y;
+module TestRAM  ;
+x y             ;
 //- @#0Bus ref Bus
 //- @TheBus defines/binding TheBus
 Bus TheBus();

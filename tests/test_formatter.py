@@ -945,3 +945,102 @@ class TestAlignVariableDeclarations:
         lines = result.splitlines()
         name_cols = [self._name_col(l) for l in lines]
         assert len(set(name_cols)) == 1, f"name cols differ: {name_cols}\n{result}"
+
+    def test_section4_min_width_applied_to_last_slot(self):
+        """section4_min_width pads trailing content of the last slot in a block."""
+        # Two lines needed to trigger the alignment pass (len(parseable) > 1).
+        text = "logic [7:0] dout = 8'hFF;\nlogic [7:0] other;"
+        result = self._align(text, section4_min_width=15)
+        dout_line = result.splitlines()[0]
+        semi_pos = dout_line.rfind(";")
+        eq_pos = dout_line.rfind("= 8'hFF")
+        # "= 8'hFF" (7 chars) padded to 14 chars, then ";": total 15.
+        assert semi_pos - eq_pos >= 14, (
+            f"trailing not padded to section4_min_width=15: {repr(dout_line)}"
+        )
+
+    def test_section4_min_width_zero_no_padding(self):
+        """section4_min_width=0 leaves trailing without extra padding."""
+        text = "logic [7:0] dout = 8'hFF;\nlogic [7:0] other;"
+        result = self._align(text, section4_min_width=0)
+        dout_line = result.splitlines()[0]
+        assert dout_line.rstrip().endswith("= 8'hFF;")
+
+
+# ---------------------------------------------------------------------------
+# align_punctuation pass
+# ---------------------------------------------------------------------------
+
+class TestAlignPunctuation:
+    """Tests for the _align_punctuation_pass."""
+
+    def _pass(self, text: str, **kw) -> str:
+        from lazyverilogpy.formatter import _align_punctuation_pass
+        opts = FormatOptions(align_punctuation=True, **kw)
+        return _align_punctuation_pass(text, opts)
+
+    def _semi_col(self, line: str) -> int:
+        """Column index of the terminal ';' on line."""
+        return line.rstrip().rfind(";")
+
+    def test_single_element_not_pushed_by_multi_element(self):
+        """Single-element lines must not have ; pushed to match multi-element lines."""
+        text = (
+            "    input a;\n"
+            "    input bb;\n"
+            "    input cc, dd;\n"
+        )
+        result = self._pass(text)
+        lines = result.splitlines()
+        col_single_a  = self._semi_col(lines[0])
+        col_single_bb = self._semi_col(lines[1])
+        col_multi     = self._semi_col(lines[2])
+        # Single-element lines align with each other.
+        assert col_single_a == col_single_bb
+        # Single-element ';' must NOT be pushed to multi-element line's position.
+        assert col_single_a < col_multi, (
+            f"single-element ; was pushed past multi-element ;: {col_single_a} >= {col_multi}"
+        )
+
+    def test_same_comma_count_aligned_together(self):
+        """Lines with identical comma counts align their ; together."""
+        text = (
+            "    wire a;\n"
+            "    wire bbb;\n"
+        )
+        result = self._pass(text)
+        lines = result.splitlines()
+        assert self._semi_col(lines[0]) == self._semi_col(lines[1])
+
+    def test_zero_comma_semi_aligns_to_multi_comma_col(self):
+        """Single-element ; aligns to first , column of adjacent multi-element lines."""
+        text = (
+            "    input a;\n"
+            "    input bb, cc;\n"
+        )
+        result = self._pass(text)
+        lines = result.splitlines()
+        # ; on single-element line
+        semi_col = self._semi_col(lines[0])
+        # first , on multi-element line
+        comma_col = lines[1].index(',')
+        assert semi_col == comma_col, (
+            f"single-element ; at {semi_col} != first , at {comma_col}\n{result}"
+        )
+
+    def test_run_breaks_at_different_indent(self):
+        """Run breaks at indent change — inner lines align independently."""
+        text = (
+            "    wire a;\n"
+            "    wire bbb;\n"
+            "wire cc;\n"
+            "wire ddddd;\n"
+        )
+        result = self._pass(text)
+        lines = result.splitlines()
+        # Inner lines (indent=4) align with each other.
+        assert self._semi_col(lines[0]) == self._semi_col(lines[1])
+        # Outer lines (indent=0) align with each other.
+        assert self._semi_col(lines[2]) == self._semi_col(lines[3])
+        # Inner and outer ';' are at different columns.
+        assert self._semi_col(lines[0]) != self._semi_col(lines[2])
