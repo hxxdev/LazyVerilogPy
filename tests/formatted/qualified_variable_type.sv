@@ -4,14 +4,14 @@ package pkg;
     //- @P1 defines/binding P1
     class my_class #(parameter P1   = 1);
         //- @var3 defines/binding Var3
-        int var3;
+        int                 var3                                ;
     endclass
 endpackage
 
 //- @my_module defines/binding _
 module my_module();
 //- @var4 defines/binding Var4
-int var4;
+int                 var4                                ;
 //- @pkg ref Pkg
 //- @my_class ref MyClass
 //- @var1 defines/binding Var1

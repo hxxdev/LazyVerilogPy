@@ -3,7 +3,7 @@
 module mux_primitive(
     Y, S, A, B
 );
-output    Y             ;
-input     S, A, B;
-assign Y    = S ? B: A  ;
+output  Y;
+input   S                                                               , A                                                               , B;
+assign Y    = S ? B: A;
 endmodule

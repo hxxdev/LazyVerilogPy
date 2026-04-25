@@ -4,7 +4,7 @@ typedef int uint;
 //- @my_module defines/binding _
 module my_module();
 //- @y defines/binding Y
-int y   = 0;
+int                 y                   = 0             ;
 initial begin
     //- @uint ref Uint
     //- @#0x defines/binding X

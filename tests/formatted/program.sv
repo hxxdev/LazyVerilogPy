@@ -1,7 +1,7 @@
 //- @mem_intf defines/binding MemIntf
 interface mem_intf;
     //- @clk defines/binding CLK
-    logic clk;
+    logic               clk                                 ;
 endinterface
 
 //- @testcase defines/binding TestCase
@@ -10,7 +10,7 @@ endinterface
 program testcase(  //- @intf defines/binding Intf
     interface intf);
         //- @#1env defines/binding Env
-        environment env;
+        environment         env                                 ;
         initial begin
             //- @env ref Env
             //- @intf ref Intf
@@ -43,5 +43,5 @@ program testcase(  //- @intf defines/binding Intf
     module memory(  //- @clk ref Clk2
     clk);
     //- @clk defines/binding Clk2
-    input clk;
+    input   clk;
     endmodule

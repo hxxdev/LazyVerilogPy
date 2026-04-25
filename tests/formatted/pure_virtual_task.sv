@@ -2,7 +2,7 @@
 virtual class BaseClass;
     //- @data defines/binding Data
     //- Data childof BaseClass
-    int data;
+    int                 data                                ;
 
     //- @f1 defines/binding F1
     //- F1 childof BaseClass
@@ -42,7 +42,7 @@ virtual class BaseClass;
         //- @ChildClass ref ChildClass
         //- @child defines/binding Child
         //- Child childof TB
-        ChildClass child;
+        ChildClass          child                               ;
         initial begin
             //- @child ref Child
             child   = new ();

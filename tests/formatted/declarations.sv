@@ -10,7 +10,7 @@ package my_pkg;
     endclass
 
     //- @my_integer defines/binding _
-    integer my_integer  = 10;
+    integer             my_integer          = 10            ;
 
     //- @my_enum1 defines/binding _
     //- @my_enum2 defines/binding _

@@ -14,27 +14,27 @@ class class1;
 
     //- @class2 ref MyClass2
     //- @instance1 defines/binding Instance1
-    static class2 instance1 = new ();
+    static class2       instance1           = new ()        ;
 endclass
 
 //- @class2 defines/binding MyClass2
 class class2;
     //- @class3 ref MyClass3
     //- @instance2 defines/binding Instance2
-    static class3 instance2 = new ();
+    static class3       instance2           = new ()        ;
 endclass
 
 //- @class3 defines/binding MyClass3
 class class3;
     //- @class4 ref MyClass4
     //- @instance3 defines/binding Instance3
-    static class4 instance3 = new ();
+    static class4       instance3           = new ()        ;
 endclass
 
 //- @class4 defines/binding MyClass4
 class class4;
     //- @var1 defines/binding Var1
-    static int var1;
+    static int          var1                                ;
 endclass
 
 //- @top_module defines/binding _
@@ -54,7 +54,7 @@ module my_module;
 import pkg::*;
 //- @pkg_class1 ref PkgClass
 //- @instance5 defines/binding Instance5
-pkg_class1 instance5    = new ();
+pkg_class1          instance5           = new ()        ;
 endmodule
 
 //- @pkg defines/binding MyPkg1
@@ -62,7 +62,7 @@ package pkg;
     //- @pkg_class1 defines/binding PkgClass
     class pkg_class1;
         //- @var2 defines/binding Var2
-        static int var2;
+        static int          var2                                ;
     endclass
 endpackage
 
@@ -80,5 +80,5 @@ endmodule
 module my_module2;
 import pkg2::*;
 //- @instance6 defines/binding Instance6
-pkg_class1 instance6    = new ();
+pkg_class1          instance6           = new ()        ;
 endmodule

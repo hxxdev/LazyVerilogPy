@@ -2,13 +2,13 @@
 module m1;
 //- @y defines/binding Y
 //- @temp defines/binding Temp0
-int y[10], temp;
+int                 y                   [10]            , temp                                ;
 
 initial begin
     //- @y ref Y
     foreach (y) begin
         //- @temp defines/binding Temp8
-        int temp;
+        int                 temp                                ;
         //- @temp ref Temp8
         assign temp = 1;
     end

@@ -9,7 +9,7 @@ endfunction
 module m1;
 //- @y defines/binding Y
 //- @x defines/binding X
-int y[10], x[10];
+int                 y                   [10]            , x                   [10]            ;
 
 //- @#0i defines/binding I
 //- @#1i ref I

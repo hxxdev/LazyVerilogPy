@@ -1,9 +1,9 @@
 module baz;
-int                   k                             = j             ;
-int                   j                             = 1             ;
+int                 k                   = j             ;
+int                 j                   = 1             ;
 
 `ifndef FOOBAR
-int blah    = unknown;
+int                 blah                = unknown       ;
 `endif
 endmodule
 

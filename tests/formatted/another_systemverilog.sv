@@ -1,6 +1,6 @@
 module m1();
 
-wire a;
+wire                a                                   ;
 
 always_comb begin
     $display(a);

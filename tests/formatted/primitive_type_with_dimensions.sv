@@ -19,7 +19,7 @@ package baz_pkg;
     // //- @#1DATA_WIDTH ref DATA_WIDTH
     // //- @#0DATA_LENGTH ref DATA_LENGTH
     // //- @#1DATA_LENGTH ref DATA_LENGTH
-    int [foo_pkg::DATA_WIDTH-1:foo_pkg::DATA_LENGTH] var5[foo_pkg::DATA_WIDTH-1:foo_pkg::DATA_LENGTH];
+    int                 [foo_pkg::DATA_WIDTH-1:foo_pkg::DATA_LENGTH] var5                [foo_pkg::DATA_WIDTH-1:foo_pkg::DATA_LENGTH];
 
     //- @bar_c defines/binding _
     class bar_c;
@@ -32,6 +32,6 @@ package baz_pkg;
         //- @#1DATA_WIDTH ref DATA_WIDTH
         //- @#0DATA_LENGTH ref DATA_LENGTH
         //- @#1DATA_LENGTH ref DATA_LENGTH
-        bit [foo_pkg::DATA_WIDTH-1:foo_pkg::DATA_LENGTH] var2[foo_pkg::DATA_WIDTH-1:foo_pkg::DATA_LENGTH];
+        bit                 [foo_pkg::DATA_WIDTH-1:foo_pkg::DATA_LENGTH] var2                [foo_pkg::DATA_WIDTH-1:foo_pkg::DATA_LENGTH];
     endclass
 endpackage

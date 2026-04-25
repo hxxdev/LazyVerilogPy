@@ -5,13 +5,13 @@
 //- X childof Data
 //- Y childof Data
 function f1(struct {
-        int                   x                             ; int y;} data)   ;
+        int                 x                   ; int y;} data)  ;
     //- @sum defines/binding _
     //- @#0data ref Data
     //- @#1data ref Data
     //- @x ref X
     //- @y ref Y
-    int                   sum                           = data.x + data.y ;
+    int                 sum                 = data.x + data.y;
 endfunction
 
 //- @f2 defines/binding _
@@ -24,12 +24,12 @@ endfunction
 //- H1  childof X1
 function f2(struct {
         union {
-            int                   h                             ;} x; int y;} data) ;
+            int                 h                   ;} x; int y;} data);
     //- @sum defines/binding _
     //- @#0data ref Data1
     //- @#1data ref Data1
     //- @x ref X1
     //- @y ref Y1
     //- @h ref H1
-    int                   sum                           = data.x.h + data.y ;
+    int                 sum                 = data.x.h + data.y;
 endfunction

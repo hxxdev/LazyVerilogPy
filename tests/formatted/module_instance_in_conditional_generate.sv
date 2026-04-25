@@ -7,7 +7,7 @@ endmodule
 module m1();
 //- @baz defines/binding Baz1
 //- @x defines/binding X
-int baz, x;
+int                 baz                                 , x                                   ;
 
 //- @foo ref Foo
 foo #(  //- @#0baz ref Baz

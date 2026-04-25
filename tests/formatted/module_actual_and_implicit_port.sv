@@ -8,15 +8,15 @@ module my_module(  //- @in1 defines/binding In1Def
 //- In1Def.node/kind variable
 //- In1Def.complete definition
 //- In1Def childof MyModule
-input in1,  //- @in2 defines/binding In2Def
+input   in1,  //- @in2 defines/binding In2Def
 //- In2Def.node/kind variable
 //- In2Def.complete definition
 //- In2Def childof MyModule
-input wire in2,  //- @z defines/binding ZDef
+input   wire                                in2,  //- @z defines/binding ZDef
 //- ZDef.node/kind variable
 //- ZDef.complete definition
 //- ZDef childof MyModule
-output z);
+output  z);
 
 endmodule
 
@@ -28,15 +28,15 @@ module my_module2(  //- @x defines/binding XDef
 //- XDef.node/kind variable
 //- XDef.complete definition
 //- XDef childof MyModule2
-input x,  //- @y defines/binding YDef
+input   x,  //- @y defines/binding YDef
 //- YDef.node/kind variable
 //- YDef.complete definition
 //- YDef childof MyModule2
-input wire y,  //- @z defines/binding ZDef2
+input   wire                                y,  //- @z defines/binding ZDef2
 //- ZDef2.node/kind variable
 //- ZDef2.complete definition
 //- ZDef2 childof MyModule2
-output z);
+output  z);
 
 //- @my_module ref MyModule
 my_module  //- @instance1 defines/binding Instance1Def
@@ -63,17 +63,17 @@ module my_module3();
 //- X1Def.node/kind variable
 //- X1Def.complete definition
 //- X1Def childof MyModule3
-input x;
+input   x;
 //- @y defines/binding Y1Def
 //- Y1Def.node/kind variable
 //- Y1Def.complete definition
 //- Y1Def childof MyModule3
-wire                  y                             ;
+wire                y                                   ;
 //- @z defines/binding ZDef3
 //- ZDef3.node/kind variable
 //- ZDef3.complete definition
 //- ZDef3 childof MyModule3
-wire                  z                             ;
+wire                z                                   ;
 
 //- @my_module ref MyModule
 my_module  //- @instance1 defines/binding Instance2Def

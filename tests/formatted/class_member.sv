@@ -4,10 +4,10 @@
 class my_class;
     //- @my_class ref MyClass1
     //- @instance1 defines/binding Instance1
-    my_class instance1  = new ();
+    my_class            instance1           = new ()        ;
 
     //- @var1 defines/binding Var1
-    int var1;
+    int                 var1                                ;
 endclass
 
 //- @pkg1 defines/binding Pkg1
@@ -16,10 +16,10 @@ package pkg1;
     class my_class;
         //- @my_class ref MyClass2
         //- @instance2  defines/binding Instance2 
-        static my_class instance2   = new ();
+        static my_class     instance2           = new ()        ;
 
         //- @var2 defines/binding Var2
-        static int var2;
+        static int          var2                                ;
     endclass
 endpackage
 
@@ -29,7 +29,7 @@ module my_module();
 initial begin
     //- @my_class ref MyClass1
     //- @m_class defines/binding MClass
-    my_class m_class    = new ();
+    my_class            m_class             = new ()        ;
 
     //- @m_class ref MClass
     //- @var1 ref Var1

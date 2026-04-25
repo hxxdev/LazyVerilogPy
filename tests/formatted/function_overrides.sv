@@ -10,7 +10,7 @@ package my_pkg;
     //- MyClass1 childof MyPkg
     class my_class1;
         //- @my_var defines/binding MyVar
-        int my_var;
+        int                 my_var                              ;
 
         //- @my_function defines/binding MyFunction
         virtual function int my_function();
@@ -47,7 +47,7 @@ package my_pkg;
     class my_class2 extends my_class1;
 
         //- @my_static_var defines/binding MyStaticVar
-        static int my_static_var;
+        static int          my_static_var                       ;
 
         //- @my_function defines/binding MyFunctionOverride
         //- MyFunctionOverride overrides MyFunction
@@ -71,11 +71,11 @@ import my_pkg::*;
 initial begin
     //- @my_class1 ref MyClass1
     //- @handle1 defines/binding Handle1
-    static my_class1 handle1    = new ();
+    static my_class1    handle1             = new ()        ;
 
     //- @my_class2 ref MyClass2
     //- @handle2 defines/binding Handle2
-    static my_class2 handle2    = new ();
+    static my_class2    handle2             = new ()        ;
 
     //- @handle1 ref Handle1
     //- @my_var ref MyVar

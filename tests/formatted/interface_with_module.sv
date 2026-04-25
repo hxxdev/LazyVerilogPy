@@ -3,20 +3,20 @@
 interface Bus;
     //- @Addr defines/binding Addr
     //- @Data defines/binding Data
-    logic                 [7:0]                         Addr                          , Data                          ;
+    logic               [7:0]               Addr                                , Data                                ;
     //- @RWn defines/binding Rwn
-    logic                                               RWn                           ;
+    logic                                   RWn                                 ;
 endinterface
 
 //- @TestRAM defines/binding _
 module TestRAM;
-x y;
+x                   y                                   ;
 //- @#0Bus ref Bus
 //- @TheBus defines/binding TheBus
 Bus TheBus();
 
 //- @mem defines/binding Mem0
-logic [7:0] mem[0:7];
+logic               [7:0]               mem                 [0:7]           ;
 
 //- @#0RAM ref Ram 
 //- @TheRAM defines/binding _
@@ -60,7 +60,7 @@ endmodule
 //- @MemBus defines/binding MemBus
 module RAM(Bus MemBus);
 //- @mem defines/binding Mem
-logic [7:0] mem[0:255];
+logic               [7:0]               mem                 [0:255]         ;
 
 always @*  //- @MemBus ref MemBus
 //- @RWn ref Rwn

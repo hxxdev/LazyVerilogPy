@@ -7,7 +7,7 @@ package my_pkg1;
     //- W1Def.node/kind variable
     //- W1Def.complete definition
     //- W1Def childof MyPkg1
-    wire w1;
+    wire                w1                                  ;
 
     //- @my_class1 defines/binding MyClass1
     //- MyClass1.node/kind record
@@ -44,7 +44,7 @@ package my_pkg2;
     //- W2Def.node/kind variable
     //- W2Def.complete definition
     //- W2Def childof MyPkg2
-    wire w2;
+    wire                w2                                  ;
 
     //- @my_class_in_pkg2 defines/binding MyClassPkg2
     //- MyClassPkg2.node/kind record

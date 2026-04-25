@@ -9,10 +9,10 @@ package my_pkg;
     enum {AA, BB} my_enum_var1;
 
     //- @idx defines/binding Idx
-    int idx = 0;
+    int                 idx                 = 0             ;
 
     //- @var5 defines/binding Var5
-    int var5[5];
+    int                 var5                [5]             ;
 
     //- @AA2 defines/binding _
     //- @BB2 defines/binding _

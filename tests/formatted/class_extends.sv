@@ -2,7 +2,7 @@
 class my_class1;
     //- @var1 defines/binding Var1
     //- Var1 childof MyClass1
-    int var1;
+    int                 var1                                ;
 
     //- @my_function1 defines/binding Function1
     //- Function1 childof MyClass1
@@ -18,11 +18,11 @@ endclass
 class my_class2 extends my_class1;
     //- @instance2 defines/binding Instance2
     //- Instance2 childof MyClass2
-    my_class2 instance2 = new ();
+    my_class2           instance2           = new ()        ;
 
     //- @var2 defines/binding Var2
     //- Var2 childof MyClass2
-    int var2;
+    int                 var2                                ;
 
     //- @my_function2 defines/binding Function2
     //- Function2 childof MyClass2
@@ -38,7 +38,7 @@ module my_module();
 //- @my_class2 ref MyClass2
 //- @instance1 defines/binding Instance1
 //- Instance1 childof MyModule
-my_class2 instance1 = new ();
+my_class2           instance1           = new ()        ;
 
 initial begin
     //- @instance1 ref Instance1

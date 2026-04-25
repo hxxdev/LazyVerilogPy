@@ -3,7 +3,7 @@ package p_pkg;
     //- @A defines/binding A
     class A;
         //- @var1 defines/binding Var1
-        int var1;
+        int                 var1                                ;
     endclass
 
     //- @X defines/binding X
@@ -11,7 +11,7 @@ package p_pkg;
         //- @Y defines/binding Y
         class Y;
             //- @var2 defines/binding Var2
-            int var2;
+            int                 var2                                ;
         endclass
     endclass
 endpackage

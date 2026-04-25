@@ -1,7 +1,7 @@
 //- @X defines/binding X
 class X;
     //- @var1 defines/binding Var1
-    int var1;
+    int                 var1                                ;
 endclass
 
 //- @f1 defines/binding _

@@ -5,9 +5,9 @@
 
 //- @my_module defines/binding MyModule
 module my_module(  //- @in1 defines/binding In1
-input     bit                              in1,  //- @in2 defines/binding In2
-input     bit                              in2,  //- @out1 defines/binding Out1
-output    bit                              out1);
+input   bit                                 in1,  //- @in2 defines/binding In2
+input   bit                                 in2,  //- @out1 defines/binding Out1
+output  bit                                 out1);
 
 //- @in1 ref In1
 //- @in2 ref In2
@@ -20,7 +20,7 @@ module top;
 //- @aa defines/binding AA
 //- @bb defines/binding BB
 //- @cc defines/binding CC
-bit aa, bb, cc;
+bit                 aa                                  , bb                                  , cc                                  ;
 
 //- @my_module ref MyModule
 //- @dut defines/binding _

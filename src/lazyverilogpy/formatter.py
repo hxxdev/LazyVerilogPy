@@ -1104,8 +1104,9 @@ def _reassemble_port_line(
     s1_w: int,
     s2_w: int,
     s3_w: int,
-    s4_w: int = 0,
-    s5_w: int = 0,
+    id_widths: "list[int]",
+    trailing_widths: "list[int]",
+    section5_min_width: int = 0,
 ) -> str:
     """Rebuild a port declaration line with min-width section alignment.
 
@@ -1113,8 +1114,8 @@ def _reassemble_port_line(
       - Section 1 (direction): at indent, padded to *s1_w*
       - Section 2 (dtype + qualifier): follows s1, padded to *s2_w*
       - Section 3 (packed dim): follows s2, padded to *s3_w*
-      - Section 4 (port name(s)): follows s3, padded to *s4_w*
-      - Section 5 (unpacked dim + default): follows s4, padded to *s5_w*
+      - Section 4+5 (per-slot name + trailing): each slot k has name padded to
+        *id_widths[k]* and trailing padded to *trailing_widths[k]*.
     """
     # Section 1: direction — always at indent position
     line = indent + direction.ljust(s1_w)
@@ -1131,35 +1132,36 @@ def _reassemble_port_line(
     if s3_w > 0:
         line = line + dim.ljust(s3_w)
 
-    # Sections 4 + 5.
-    # When s5_w == 0 (no trailing in the block): join all names into one string and pad.
-    # When s5_w > 0: expand per-slot — each name padded to s4_w, non-last trailing
-    # padded to s5_w, slots separated by ", ".
-    if s5_w == 0:
-        names_str = ", ".join(n for n, _ in names)
-        if s4_w > 0:
-            line = line + names_str.ljust(s4_w)
+    # Sections 4+5: per-slot (name, trailing) pairs.
+    num_names = len(names)
+    for k, (name, trailing) in enumerate(names):
+        is_last = k == num_names - 1
+
+        if k < len(id_widths):
+            line = line + name.ljust(id_widths[k])
         else:
-            line = line + names_str
-    else:
-        num_names = len(names)
-        for k, (name, trailing) in enumerate(names):
-            is_last = k == num_names - 1
-            if s4_w > 0:
-                line = line + name.ljust(s4_w)
-            else:
-                line = line + name
-            if not is_last:
-                if s5_w > 0:
-                    line = line + trailing.ljust(s5_w)
-                elif trailing:
-                    line = line + trailing
+            line = line + name
+
+        if not is_last:
+            if trailing and section5_min_width > 0 and k < len(trailing_widths) and trailing_widths[k] > 1:
+                line = line + trailing.ljust(trailing_widths[k]) + ", "
+            elif k < len(trailing_widths):
+                line = line + trailing.ljust(trailing_widths[k])
                 line = line + ", "
             else:
-                if trailing:
+                line = line + trailing + ", "
+        else:
+            if trailing and section5_min_width > 0 and k < len(trailing_widths) and trailing_widths[k] > 1:
+                line = line + trailing.ljust(trailing_widths[k]) + terminator
+            else:
+                if k < len(trailing_widths):
+                    line = line + trailing.ljust(trailing_widths[k])
+                    logger.debug(f"line: {line}")
+                    logger.debug(f"trailing_width[k]: {trailing_widths[k]}")
+                else:
                     line = line + trailing
-
-    line = line.rstrip() + terminator
+                line = line + terminator
+                line = line.rstrip()
 
     if comment:
         line += comment
@@ -1253,33 +1255,25 @@ def _align_port_declarations_pass(
             else:
                 s3_w = 0  # no dimension in any line of this block
 
-            # Section 5 width: max individual trailing length across all slots on all lines.
-            # Compute this first so we know which s4 mode to use.
-            max_trailing = 0
-            for p in parseable:
-                for _, trailing in p[5]:
-                    if trailing:
-                        max_trailing = max(max_trailing, len(trailing))
-            if max_trailing > 0:
-                s5_w = max(section5_min_width, max_trailing + 1)
-            else:
-                s5_w = 0
-
-            # Section 4 width.
-            # When s5_w > 0 (per-slot mode): use max individual name length.
-            # When s5_w == 0 (join mode): use max joined-names string length.
-            if s5_w > 0:
-                max_name_len = 0
+            # Sections 4+5: per-slot identifier widths and trailing widths.
+            max_slots = max(len(p[5]) for p in parseable)
+            id_widths: list[int] = []
+            trailing_widths: list[int] = []
+            for slot in range(max_slots):
+                id_entries: list[int] = []
+                trail_entries: list[int] = []
                 for p in parseable:
-                    for name, _ in p[5]:
-                        max_name_len = max(max_name_len, len(name))
-                s4_w = max(section4_min_width, max_name_len + 1) if max_name_len > 0 else 0
-            else:
-                max_names_len = 0
-                for p in parseable:
-                    names_str = ", ".join(n for n, _ in p[5])
-                    max_names_len = max(max_names_len, len(names_str))
-                s4_w = max(section4_min_width, max_names_len + 1) if max_names_len > 0 else 0
+                    if slot < len(p[5]):
+                        name, trailing = p[5][slot]
+                        id_entries.append(len(name))
+                        trail_entries.append(len(trailing))
+                if id_entries:
+                    id_w = max(section4_min_width, max(id_entries) + 1)
+                else:
+                    id_w = section4_min_width
+                id_widths.append(id_w)
+                trail_w = max(section5_min_width, max(trail_entries)) if trail_entries else section5_min_width
+                trailing_widths.append(trail_w)
 
             for orig, parsed in block:
                 if parsed is None:
@@ -1289,7 +1283,8 @@ def _align_port_declarations_pass(
                     out.append(_reassemble_port_line(
                         indent, direction, dtype, qualifier, dim, names,
                         terminator, comment,
-                        s1_w, s2_w, s3_w, s4_w, s5_w,
+                        s1_w, s2_w, s3_w, id_widths, trailing_widths,
+                        section5_min_width=section5_min_width,
                     ))
 
         i = j
@@ -1310,9 +1305,15 @@ _VAR_BUILTIN_TYPES = frozenset([
 # Directions that must NOT be matched as variable declarations.
 _VAR_EXCLUDED_DIRECTIONS = frozenset(["input", "output", "inout", "ref"])
 
-# Regex: first non-whitespace token is a known var-type keyword.
+# Optional prefix modifiers that precede the data type in a variable declaration.
+#   lifetime  : static | automatic
+#   qualifier : const | var
+_VAR_PREFIX_KW = frozenset(["static", "automatic", "const", "var"])
+
+# Regex: optional prefix modifiers followed by a known var-type keyword.
 _VAR_LINE_RE = re.compile(
-    r"^\s*(?:wire|logic|reg|bit|byte|int|integer|time|shortint|longint|signed|unsigned)\b",
+    r"^\s*(?:(?:static|automatic|const|var)\s+)*"
+    r"(?:wire|logic|reg|bit|byte|int|integer|time|shortint|longint|signed|unsigned)\b",
     re.IGNORECASE,
 )
 
@@ -1388,26 +1389,40 @@ def _parse_var_line(
     if first in _VAR_EXCLUDED_DIRECTIONS:
         return None
 
-    # Determine type column (col 1).
+    # Consume optional prefix modifiers: lifetime (static/automatic) and
+    # const/var qualifiers.  All consumed tokens are folded into section 1
+    # (type_kw) so alignment treats the full prefix as one column.
+    idx = 0
+    type_parts: list[str] = []
+    while idx < len(tokens) and tokens[idx].lower() in _VAR_PREFIX_KW:
+        type_parts.append(tokens[idx])
+        idx += 1
+    if idx >= len(tokens):
+        return None
+    first = tokens[idx].lower()
+
+    # Determine type keyword (mandatory).
     if first in _VAR_BUILTIN_TYPES:
-        type_kw = tokens[0]
-        idx = 1
+        type_parts.append(tokens[idx])
+        idx += 1
     else:
         # User-defined type: identifier not a SV keyword, followed by something
         # that looks like a dimension, qualifier, or signal name.
-        if not re.match(r'^[A-Za-z_]\w*$', tokens[0]):
+        if not re.match(r'^[A-Za-z_]\w*$', tokens[idx]):
             return None
         if first in _SV_KEYWORDS:
             return None
-        if len(tokens) < 2:
+        if idx + 1 >= len(tokens):
             return None
-        next_tok = tokens[1].lower()
-        if not (tokens[1].startswith('[') or
-                re.match(r'^[A-Za-z_]\w*$', tokens[1]) or
+        next_tok = tokens[idx + 1].lower()
+        if not (tokens[idx + 1].startswith('[') or
+                re.match(r'^[A-Za-z_]\w*$', tokens[idx + 1]) or
                 next_tok in _PORT_QUALIFIERS):
             return None
-        type_kw = tokens[0]
-        idx = 1
+        type_parts.append(tokens[idx])
+        idx += 1
+
+    type_kw = " ".join(type_parts)
 
     # Optional qualifier: signed / unsigned (col 2).
     qualifier = ""
@@ -1597,7 +1612,7 @@ def _align_variable_declarations_pass(
                 continue
             # Allow comment-only lines to pass through without breaking the block.
             stripped = cur.strip()
-            if stripped.startswith("//") or stripped.startswith("/*"):
+            if stripped.startswith("//") or stripped.startswith("/*") or stripped == "":
                 block.append((cur, None))
                 j += 1
                 continue

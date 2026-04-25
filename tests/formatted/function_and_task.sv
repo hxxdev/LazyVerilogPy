@@ -43,7 +43,7 @@ initial begin
     //- @my_function ref MyFunction
     //- @my_function ref/call MyFunction
     //- @ii defines/binding VarI
-    automatic integer ii    = my_function(2, 6);
+    automatic integer   ii                  = my_function(2, 6);
     //- @my_task ref MyTask
     //- @my_task ref/call MyTask
     //- @ii ref VarI

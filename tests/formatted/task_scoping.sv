@@ -19,10 +19,10 @@ endclass
 
 module task_scoping;
 initial begin
-    int result;
+    int                  result                              ;
 
     //- @tc_instance defines/binding TcInstance
-    automatic task_class tc_instance    = new ();
+    automatic task_class tc_instance         = new ()        ;
     //- @tc_instance ref TcInstance
     //- @my_task ref/call ClassTask
     tc_instance.my_task(1, 2, result);

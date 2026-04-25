@@ -9,7 +9,7 @@ class my_class3;
     //- Var1Def.node/kind variable
     //- Var1Def.complete definition
     //- Var1Def childof MyClass3
-    int var1    = 1;
+    int                 var1                = 1             ;
 
     //- @new defines/binding New
     //- New.node/kind function
@@ -60,7 +60,7 @@ module my_module;
 //- Num.node/kind variable
 //- Num.complete definition
 //- Num childof MyModule
-int num = 1;
+int                 num                 = 1                               ;
 
 //- @my_class3 ref MyClass3
 //- @handle1 defines/binding Handle1
@@ -72,6 +72,6 @@ int num = 1;
 //- @#2num ref Num
 //- @my_function ref MyFunctionOut
 //- @my_function ref/call MyFunctionOut
-static my_class3 handle1    = new (num, my_function(num, num));
+static my_class3    handle1             = new (num, my_function(num, num));
 
 endmodule

@@ -4,7 +4,7 @@ class Stack #(parameter type T  = int);
     //- @T ref T
     //- @items defines/binding _
     //- @idx defines/binding _
-    T items[64], idx    = 0;
+    T                   items               [64]            , idx                 = 0             ;
 
     //- @T ref T
     //- @val defines/binding _
@@ -17,7 +17,7 @@ endclass
 class Vector #(parameter WIDTH  = 1);
     //- @WIDTH ref WIDTH
     //- @data defines/binding _
-    bit [WIDTH-1:0] data;
+    bit                 [WIDTH-1:0]         data                                ;
 endclass
 
 //- @my_module defines/binding _
@@ -38,9 +38,9 @@ Vector #(Vector #(int)) instance2   = new;
 
 //- @Vector ref Vector
 //- @v1 defines/binding _
-Vector                v1                            = new ()      ;
+Vector              v1                  = new ()        ;
 //- @x1 defines/binding X1
-int                   x1                            ;
+int                 x1                                  ;
 //- @Vector ref Vector
 //- @v2 defines/binding _
 //- @x1 ref X1
@@ -89,7 +89,7 @@ endclass
 function void f1();
     //- @var1 defines/binding Var1
     //- @var2 defines/binding Var2
-    int var1, var2;
+    int                 var1                                , var2                                ;
 
     //- @foo_c ref FooC
     //- @bar_c ref BarC

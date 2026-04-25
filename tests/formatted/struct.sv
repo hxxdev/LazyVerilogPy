@@ -6,28 +6,28 @@ package pkg;
     struct {
         //- @aa defines/binding AA1
         //- @dd defines/binding _
-        byte                  aa                            , dd                            ;
+        byte                aa                                  , dd                                  ;
         //- @bb defines/binding _
-        reg                   bb                            ;
+        reg                 bb                                  ;
         //- @cc defines/binding CC1
-        shortint unsigned     cc                            ;
+        shortint unsigned   cc                                  ;
     }  //- @local_struct defines/binding LocalStruct1
     //- @other_struct defines/binding OtherStruct
     local_struct    = '{1, 2, 100}, other_struct;
 
     typedef struct {
         //- @xx defines/binding _
-        byte                  xx                            ;
+        byte                xx                                  ;
         //- @yy defines/binding _
-        reg                   yy                            ;
+        reg                 yy                                  ;
         //- @zz defines/binding ZZ1
-        shortint unsigned     zz                            ;
+        shortint unsigned   zz                                  ;
     }  //- @my_struct1 defines/binding MyStruct1
     my_struct1;
 
     //- @my_struct1 ref MyStruct1
     //- @struct_instance defines/binding StructInstnace
-    my_struct1 struct_instance;
+    my_struct1          struct_instance                     ;
 
     //- @f1 defines/binding _
     function int f1();
@@ -44,11 +44,11 @@ endpackage
 
 typedef struct {
     //- @xx defines/binding XX
-    byte                  xx                            ;
+    byte                xx                                  ;
     //- @yy defines/binding YY
-    reg                   yy                            ;
+    reg                 yy                                  ;
     //- @zz defines/binding ZZ
-    shortint unsigned     zz                            ;
+    shortint unsigned   zz                                  ;
 }  //- @my_struct defines/binding MyStruct
 my_struct;
 
@@ -56,18 +56,18 @@ my_struct;
 module module_with_struct;
 struct {
     //- @aa defines/binding AA
-    byte                  aa                            ;
+    byte                aa                                  ;
     //- @bb defines/binding BB
-    reg                   bb                            ;
+    reg                 bb                                  ;
     //- @cc defines/binding CC
-    shortint unsigned     cc                            ;
+    shortint unsigned   cc                                  ;
 }  //- @local_struct defines/binding LocalStruct
 local_struct    = '{1, 2, 100};
 
 //- @my_struct ref MyStruct
 //- @#0external_struct defines/binding ExternalStruct
 //- @external_struct2 defines/binding ExternalStruct2
-my_struct external_struct   = '{1, 2, 100}, external_struct2;
+my_struct           external_struct     = '{1, 2, 100}  , external_struct2                    ;
 
 //- @local_struct ref LocalStruct
 //- @cc ref CC

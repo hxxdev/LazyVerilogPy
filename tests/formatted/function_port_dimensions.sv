@@ -2,7 +2,7 @@
 //- @var2 defines/binding Var2
 //- @var3 defines/binding Var3
 //- @var4 defines/binding Var4
-int var1, var2, var3, var4;
+int                 var1                                , var2                                , var3                                , var4                                ;
 // TODO(#604): Technically, this should be a localparam.
 
 //- @f4 defines/binding _
@@ -16,8 +16,8 @@ function f4(int [var1:var2] t1[var3:var4]);
     //- @y defines/binding Y
     //- @data defines/binding Data
     struct {
-        int                   x                                 ;
-        int                   y                                 ;
+        int                 x                                   ;
+        int                 y                                   ;
     } data;
     //- @sum defines/binding _
     //- @#0data ref Data
@@ -25,5 +25,5 @@ function f4(int [var1:var2] t1[var3:var4]);
     //- @x ref X
     //- @y ref Y
     //- @t1 ref T1
-    int sum = data.x + data.y + t1;
+    int                 sum                 = data.x + data.y + t1;
 endfunction
