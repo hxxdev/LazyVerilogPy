@@ -37,20 +37,40 @@ def _word_at(text: str, line: int, character: int) -> tuple[str, tuple[int, int]
 
 
 def find_instance_at_line(state, target_line: int):
-    """Find an Instance symbol (not InstanceBody) declared on *target_line* (0-indexed)."""
+    """Find the Instance symbol (not InstanceBody) whose instantiation block contains
+    *target_line* (0-indexed).  The cursor may be on any line of the instantiation —
+    the module-type line, a port connection line, or the closing '};' line.
+    """
     compilation = state.compilation
     if compilation is None:
         return None
     sm = state.tree.sourceManager
-    candidates = []
+
+    # Collect all unique sub-module instances (deduplicated by start line).
+    # Only consider instances that are nested inside another module (hierarchical
+    # path contains '.'), so we skip the top-level module pseudo-instance that
+    # pyslang emits for the module declaration itself.
+    # We only care about instances whose header line is at or above target_line.
+    seen_lines: set[int] = set()
+    above: list[tuple[int, object]] = []  # (sym_line, sym)
 
     def _collect(sym) -> bool:
         try:
             k = str(sym.kind)
             if "Instance" in k and "InstanceBody" not in k:
+                # Only consider instances declared in the current buffer, and
+                # skip the top-level module pseudo-instance (no '.' in path).
+                try:
+                    if sm.getFileName(sym.location) != "buffer.sv":
+                        return True
+                    if "." not in str(sym.hierarchicalPath):
+                        return True
+                except Exception:
+                    pass
                 sym_line = sm.getLineNumber(sym.location) - 1
-                if sym_line == target_line:
-                    candidates.append(sym)
+                if sym_line <= target_line and sym_line not in seen_lines:
+                    seen_lines.add(sym_line)
+                    above.append((sym_line, sym))
         except Exception:
             pass
         return True
@@ -59,7 +79,17 @@ def find_instance_at_line(state, target_line: int):
         compilation.getRoot().visit(_collect)
     except Exception:
         return None
-    return candidates[0] if candidates else None
+
+    if not above:
+        return None
+
+    # Pick the candidate whose header is closest to (but not past) target_line.
+    above.sort(key=lambda t: t[0], reverse=True)
+    for sym_line, sym in above:
+        _, line_end = inst_line_range(state.text, sym, state.tree)
+        if target_line <= line_end:
+            return sym
+    return None
 
 
 def find_instance_symbol(state, name: str):
