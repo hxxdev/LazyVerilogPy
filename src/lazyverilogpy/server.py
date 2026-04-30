@@ -761,6 +761,94 @@ def execute_autofunc(
 
 
 # ---------------------------------------------------------------------------
+# Interface (workspace/executeCommand)
+# ---------------------------------------------------------------------------
+
+INTERFACE_COMMAND = "lazyverilogpy.interface"
+
+
+@server.command(INTERFACE_COMMAND)
+def execute_interface(ls: LanguageServer, *args) -> Optional[dict]:
+    try:
+        if len(args) < 3:
+            return None
+        uri, inst1_name, inst2_name = str(args[0]), str(args[1]), str(args[2])
+        analyzer.refresh_if_stale(uri)
+        return analyzer.get_interface(uri, inst1_name, inst2_name)
+    except Exception as exc:
+        logger.error("interface error: %s", exc, exc_info=True)
+        return None
+
+
+INTERFACE_CONNECT_COMMAND = "lazyverilogpy.interfaceConnect"
+
+
+@server.command(INTERFACE_CONNECT_COMMAND)
+def execute_interface_connect(ls: LanguageServer, *args) -> Optional[types.WorkspaceEdit]:
+    try:
+        if len(args) < 7:
+            return None
+        uri           = str(args[0])
+        inst1_name    = str(args[1])
+        inst2_name    = str(args[2])
+        inst1_port    = str(args[3])
+        inst2_port    = str(args[4])
+        wire_name     = str(args[5])
+        wire_type_str = str(args[6])
+        edits = analyzer.connect_interface(uri, inst1_name, inst2_name,
+                                           inst1_port, inst2_port,
+                                           wire_name, wire_type_str)
+        if not edits:
+            return None
+        return types.WorkspaceEdit(changes={uri: edits})
+    except Exception as exc:
+        logger.error("interface connect error: %s", exc, exc_info=True)
+        return None
+
+
+INTERFACE_DISCONNECT_COMMAND = "lazyverilogpy.interfaceDisconnect"
+
+
+@server.command(INTERFACE_DISCONNECT_COMMAND)
+def execute_interface_disconnect(ls: LanguageServer, *args) -> Optional[types.WorkspaceEdit]:
+    try:
+        if len(args) < 6:
+            return None
+        uri         = str(args[0])
+        inst1_name  = str(args[1])
+        inst2_name  = str(args[2])
+        inst1_port  = str(args[3])
+        inst2_port  = str(args[4])
+        signal_name = str(args[5])
+        edits = analyzer.disconnect_interface(uri, inst1_name, inst2_name,
+                                              inst1_port, inst2_port,
+                                              signal_name)
+        if not edits:
+            return None
+        return types.WorkspaceEdit(changes={uri: edits})
+    except Exception as exc:
+        logger.error("interface disconnect error: %s", exc, exc_info=True)
+        return None
+
+
+SINGLE_INTERFACE_COMMAND = "lazyverilogpy.singleInterface"
+
+
+@server.command(SINGLE_INTERFACE_COMMAND)
+def execute_single_interface(ls: LanguageServer, *args) -> Optional[dict]:
+    try:
+        if len(args) < 2:
+            return None
+        uri       = str(args[0])
+        inst_name = str(args[1])
+        analyzer.refresh_if_stale(uri)
+        return analyzer.get_single_interface(uri, inst_name)
+    except Exception as exc:
+        logger.error("single interface error: %s", exc, exc_info=True)
+        return None
+
+
+# ---------------------------------------------------------------------------
 # Code actions
 # ---------------------------------------------------------------------------
 

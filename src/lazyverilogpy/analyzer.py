@@ -835,6 +835,572 @@ class Analyzer:
 
         return _build(root_path, frozenset())
 
+    # ------------------------------------------------------------------
+    # Interface view
+    # ------------------------------------------------------------------
+
+    def get_interface(self, uri: str, inst1_name: str, inst2_name: str) -> Optional[dict]:
+        """Return port/signal data for the interface between two named instances.
+
+        Both instances must share the same parent module.  Searches the current
+        buffer first; extra files from the .f filelist are included via the
+        compiled Compilation.
+
+        Returns a dict with keys ``inst1``, ``inst2``, ``connections``, and
+        ``inst2_extra_ports``, or a dict with an ``error`` key on failure.
+        """
+        self.refresh_if_stale(uri)
+        state = self._docs.get(uri)
+        if state is None or state.compilation is None or state.tree is None:
+            return None
+
+        # --- find Instance symbols for both names ---
+        found: dict[str, list] = {inst1_name: [], inst2_name: []}
+
+        def _collect_inst(sym) -> bool:
+            try:
+                k = str(sym.kind)
+                if "Instance" in k and "InstanceBody" not in k:
+                    if sym.name in found:
+                        found[sym.name].append(sym)
+            except Exception:
+                pass
+            return True
+
+        try:
+            state.compilation.getRoot().visit(_collect_inst)
+        except Exception:
+            return None
+
+        for name in (inst1_name, inst2_name):
+            if not found[name]:
+                return {"error": f"instance '{name}' not found"}
+
+        sm = state.tree.sourceManager
+
+        def _pick(syms):
+            """Prefer buffer.sv instances; fall back to first."""
+            for sym in syms:
+                try:
+                    if sm.getFileName(sym.location) == "buffer.sv":
+                        return sym
+                except Exception:
+                    pass
+            return syms[0]
+
+        sym1 = _pick(found[inst1_name])
+        sym2 = _pick(found[inst2_name])
+
+        # --- verify same parent module via hierarchical path ---
+        try:
+            path1 = sym1.hierarchicalPath
+            path2 = sym2.hierarchicalPath
+            if "." in path1 and "." in path2:
+                if path1.rsplit(".", 1)[0] != path2.rsplit(".", 1)[0]:
+                    return {
+                        "error": (
+                            f"instances '{inst1_name}' and '{inst2_name}' "
+                            "are not in the same parent module"
+                        )
+                    }
+        except Exception:
+            pass
+
+        # --- source text for each instance (may differ if in extra files) ---
+        def _src_for(sym) -> str:
+            try:
+                fname = sm.getFileName(sym.location)
+                if fname == "buffer.sv":
+                    return state.text
+                p = Path(fname).resolve()
+                open_uri = self._path_to_uri.get(p)
+                open_st = self._docs.get(open_uri) if open_uri else None
+                if open_st:
+                    return open_st.text
+                return p.read_text(encoding="utf-8")
+            except Exception:
+                return state.text
+
+        src1 = _src_for(sym1)
+        src2 = _src_for(sym2)
+
+        # --- port lists ---
+        def _ports(sym) -> list[dict]:
+            result: list[dict] = []
+            try:
+                for port in sym.body.portList:
+                    try:
+                        result.append({
+                            "name": port.name,
+                            "direction": Analyzer._port_direction(port),
+                            "type": Analyzer._get_type_str(port),
+                        })
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+            return result
+
+        ports1 = _ports(sym1)
+        ports2 = _ports(sym2)
+
+        # --- port connections from source text ---
+        from .autoinst import inst_line_range, parse_existing_connections
+
+        r1s, r1e = inst_line_range(src1, sym1, state.tree)
+        r2s, r2e = inst_line_range(src2, sym2, state.tree)
+        conn1 = parse_existing_connections(src1, r1s, r1e)  # port → signal
+        conn2 = parse_existing_connections(src2, r2s, r2e)
+
+        # reverse map: signal → inst2_port (also index by base name for sliced signals)
+        sig_to_port2: dict[str, str] = {}
+        for pname, sig in conn2.items():
+            sig = sig.strip()
+            if sig:
+                sig_to_port2.setdefault(sig, pname)
+                base = sig.partition('[')[0].strip()
+                if base != sig:
+                    sig_to_port2.setdefault(base, pname)
+
+        # --- signal type lookup ---
+        sig_types: dict[str, str] = {}
+
+        def _collect_sigs(sym) -> bool:
+            try:
+                if str(sym.kind) in ("SymbolKind.Net", "SymbolKind.Variable"):
+                    n = sym.name
+                    if n and n not in sig_types:
+                        sig_types[n] = Analyzer._get_type_str(sym)
+            except Exception:
+                pass
+            return True
+
+        try:
+            state.compilation.getRoot().visit(_collect_sigs)
+        except Exception:
+            pass
+
+        # --- build connections ---
+        connections: list[dict] = []
+        covered2: set[str] = set()
+
+        for p in ports1:
+            sig = (conn1.get(p["name"]) or "").strip()
+            if sig:
+                sig_base = sig.partition('[')[0].strip()
+                inst2_port = sig_to_port2.get(sig) or (sig_to_port2.get(sig_base, "") if sig_base != sig else "")
+            else:
+                inst2_port = ""
+            connections.append({
+                "inst1_port": p["name"],
+                "signal": sig,
+                "signal_type": sig_types.get(sig.partition('[')[0].strip(), "") if sig else "",
+                "inst2_port": inst2_port,
+            })
+            if inst2_port:
+                covered2.add(inst2_port)
+
+        inst2_extra = [p["name"] for p in ports2 if p["name"] not in covered2]
+
+        # attach signal info to each port in ports2 for display
+        for p in ports2:
+            sig2 = conn2.get(p["name"], "").strip()
+            p["signal"] = sig2
+            p["signal_type"] = sig_types.get(sig2.partition('[')[0].strip(), "") if sig2 else ""
+
+        return {
+            "inst1": {"name": inst1_name, "ports": ports1},
+            "inst2": {"name": inst2_name, "ports": ports2},
+            "connections": connections,
+            "inst2_extra_ports": inst2_extra,
+        }
+
+    def get_single_interface(self, uri: str, inst_name: str) -> Optional[dict]:
+        """Return port/signal/connection data for a single named instance.
+
+        Each row has the instance's port, the connected wire, and (possibly
+        multiple) other instances in the same parent module that share the wire.
+        """
+        self.refresh_if_stale(uri)
+        state = self._docs.get(uri)
+        if state is None or state.compilation is None or state.tree is None:
+            return None
+
+        sm = state.tree.sourceManager
+
+        # --- find target instance ---
+        target_syms: list = []
+
+        def _collect_target(sym) -> bool:
+            try:
+                k = str(sym.kind)
+                if "Instance" in k and "InstanceBody" not in k and sym.name == inst_name:
+                    target_syms.append(sym)
+            except Exception:
+                pass
+            return True
+
+        try:
+            state.compilation.getRoot().visit(_collect_target)
+        except Exception:
+            return None
+
+        if not target_syms:
+            return {"error": f"instance '{inst_name}' not found"}
+
+        def _pick(syms):
+            for sym in syms:
+                try:
+                    if sm.getFileName(sym.location) == "buffer.sv":
+                        return sym
+                except Exception:
+                    pass
+            return syms[0]
+
+        sym_target = _pick(target_syms)
+
+        def _src_for(sym) -> str:
+            try:
+                fname = sm.getFileName(sym.location)
+                if fname == "buffer.sv":
+                    return state.text
+                p = Path(fname).resolve()
+                open_uri = self._path_to_uri.get(p)
+                open_st = self._docs.get(open_uri) if open_uri else None
+                if open_st:
+                    return open_st.text
+                return p.read_text(encoding="utf-8")
+            except Exception:
+                return state.text
+
+        def _ports(sym) -> list[dict]:
+            result: list[dict] = []
+            try:
+                for port in sym.body.portList:
+                    try:
+                        result.append({
+                            "name": port.name,
+                            "direction": Analyzer._port_direction(port),
+                            "type": Analyzer._get_type_str(port),
+                        })
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+            return result
+
+        from .autoinst import inst_line_range, parse_existing_connections
+
+        src_target = _src_for(sym_target)
+        rs, re = inst_line_range(src_target, sym_target, state.tree)
+        conn_self = parse_existing_connections(src_target, rs, re)
+        ports = _ports(sym_target)
+
+        # --- parent path for same-module filter ---
+        try:
+            target_parent = sym_target.hierarchicalPath.rsplit(".", 1)[0]
+        except Exception:
+            target_parent = ""
+
+        # --- collect all other instances in same parent ---
+        all_others: list = []
+
+        def _collect_others(sym) -> bool:
+            try:
+                k = str(sym.kind)
+                if "Instance" in k and "InstanceBody" not in k and sym.name != inst_name:
+                    if not target_parent or sym.hierarchicalPath.rsplit(".", 1)[0] == target_parent:
+                        all_others.append(sym)
+            except Exception:
+                pass
+            return True
+
+        try:
+            state.compilation.getRoot().visit(_collect_others)
+        except Exception:
+            pass
+
+        # --- signal → [(inst, port, direction)] map ---
+        sig_to_others: dict[str, list] = {}
+        for other in all_others:
+            src_other = _src_for(other)
+            ors, ore = inst_line_range(src_other, other, state.tree)
+            other_conn = parse_existing_connections(src_other, ors, ore)
+            other_ports_info = _ports(other)
+            other_dir  = {p["name"]: p["direction"] for p in other_ports_info}
+            other_type = {p["name"]: p["type"]      for p in other_ports_info}
+            for pname, sig in other_conn.items():
+                sig = sig.strip()
+                if not sig:
+                    continue
+                base = sig.partition('[')[0].strip()
+                for key in (sig, base) if base != sig else (sig,):
+                    sig_to_others.setdefault(key, []).append({
+                        "inst": other.name,
+                        "port": pname,
+                        "direction": other_dir.get(pname, ""),
+                        "type":      other_type.get(pname, ""),
+                    })
+
+        # --- signal types ---
+        sig_types: dict[str, str] = {}
+
+        def _collect_sigs(sym) -> bool:
+            try:
+                if str(sym.kind) in ("SymbolKind.Net", "SymbolKind.Variable"):
+                    n = sym.name
+                    if n and n not in sig_types:
+                        sig_types[n] = Analyzer._get_type_str(sym)
+            except Exception:
+                pass
+            return True
+
+        try:
+            state.compilation.getRoot().visit(_collect_sigs)
+        except Exception:
+            pass
+
+        # --- build rows (one per other-connection; one if none) ---
+        rows: list[dict] = []
+        for p in ports:
+            sig = conn_self.get(p["name"], "").strip()
+            sig_base = sig.partition('[')[0].strip() if sig else ""
+            sig_type = sig_types.get(sig_base, "") if sig_base else ""
+            others: list = []
+            if sig:
+                others = sig_to_others.get(sig) or (sig_to_others.get(sig_base, []) if sig_base != sig else [])
+            # For input ports, only show the driving instance (output direction).
+            if p["direction"] == "input" and others:
+                drivers = [o for o in others if o["direction"] == "output"]
+                if drivers:
+                    others = drivers
+            if others:
+                for o in others:
+                    rows.append({
+                        "port_name": p["name"],
+                        "port_type": p["type"],
+                        "port_dir": p["direction"],
+                        "signal": sig,
+                        "signal_type": sig_type,
+                        "other_inst": o["inst"],
+                        "other_port": o["port"],
+                        "other_dir":  o["direction"],
+                        "other_type": o.get("type", ""),
+                    })
+            else:
+                rows.append({
+                    "port_name": p["name"],
+                    "port_type": p["type"],
+                    "port_dir": p["direction"],
+                    "signal": sig,
+                    "signal_type": sig_type,
+                    "other_inst": "",
+                    "other_port": "",
+                    "other_dir":  "",
+                    "other_type": "",
+                })
+
+        return {"inst": {"name": inst_name}, "rows": rows}
+
+    # ------------------------------------------------------------------
+    # Interface helpers
+    # ------------------------------------------------------------------
+
+    def _find_two_instances(self, state, inst1_name: str, inst2_name: str):
+        """Return (sym1, sym2) for two named instances, or (None, None)."""
+        found: dict[str, list] = {inst1_name: [], inst2_name: []}
+
+        def _collect(sym) -> bool:
+            try:
+                if "Instance" in str(sym.kind) and "InstanceBody" not in str(sym.kind):
+                    if sym.name in found:
+                        found[sym.name].append(sym)
+            except Exception:
+                pass
+            return True
+
+        try:
+            state.compilation.getRoot().visit(_collect)
+        except Exception:
+            return None, None
+
+        if not found[inst1_name] or not found[inst2_name]:
+            return None, None
+
+        sm = state.tree.sourceManager
+
+        def _pick(syms):
+            for sym in syms:
+                try:
+                    if sm.getFileName(sym.location) == "buffer.sv":
+                        return sym
+                except Exception:
+                    pass
+            return syms[0]
+
+        return _pick(found[inst1_name]), _pick(found[inst2_name])
+
+    def _conn_text_edits(
+        self,
+        lines: list[str],
+        line_start: int,
+        line_end: int,
+        port: str,
+        new_sig: str,
+        old_sig: str = "",
+    ) -> list[tuple[int, str, str]]:
+        """Replace .port(old_sig) with .port(new_sig) in the given line range."""
+        conn_re = re.compile(r"\.\s*(\w+)\s*\(([^)]*)\)")
+        edits: list[tuple[int, str, str]] = []
+        for i in range(line_start, min(line_end + 1, len(lines))):
+            raw = lines[i]
+
+            def _repl(m, _p=port, _o=old_sig, _n=new_sig):
+                if m.group(1) != _p:
+                    return m.group(0)
+                if _o and m.group(2).strip() != _o:
+                    return m.group(0)
+                return f".{_p}({_n})"
+
+            new_raw = conn_re.sub(_repl, raw)
+            if new_raw != raw:
+                edits.append((i, raw, new_raw))
+                lines[i] = new_raw
+        return edits
+
+    def connect_interface(
+        self,
+        uri: str,
+        inst1_name: str,
+        inst2_name: str,
+        inst1_port: str,
+        inst2_port: str,
+        wire_name: str,
+        wire_type_str: str,
+    ) -> list[types.TextEdit]:
+        """Wire two instance ports together; declare the wire using autowire format."""
+        self.refresh_if_stale(uri)
+        state = self._docs.get(uri)
+        if state is None or state.compilation is None or state.tree is None:
+            return []
+
+        sym1, sym2 = self._find_two_instances(state, inst1_name, inst2_name)
+        if sym1 is None or sym2 is None:
+            return []
+
+        from .autoinst import inst_line_range
+        from .autowire import (
+            _find_insertion_line, _format_one_decl, _SignalDecl,
+            _find_declared_signals,
+        )
+
+        r1s, r1e = inst_line_range(state.text, sym1, state.tree)
+        r2s, r2e = inst_line_range(state.text, sym2, state.tree)
+
+        lines = state.text.splitlines(keepends=True)
+        raw_edits: list[tuple[int, str, str]] = []
+        raw_edits += self._conn_text_edits(lines, r1s, r1e, inst1_port, wire_name)
+        raw_edits += self._conn_text_edits(lines, r2s, r2e, inst2_port, wire_name)
+
+        text_edits: list[types.TextEdit] = []
+        for idx, old_line, new_line in raw_edits:
+            old_content = old_line.rstrip("\n\r")
+            text_edits.append(types.TextEdit(
+                range=types.Range(
+                    start=types.Position(line=idx, character=0),
+                    end=types.Position(line=idx, character=len(old_content)),
+                ),
+                new_text=new_line.rstrip("\n\r"),
+            ))
+
+        declared = _find_declared_signals(state.text, state.tree)
+        if wire_name not in declared:
+            dim_m = re.search(r'\[.*?\]', wire_type_str)
+            dim   = dim_m.group(0) if dim_m else ""
+            # Collect all words before the dimension bracket as type_kw.
+            # Strip module prefix from UDTs (e.g. "memory.fifo_entry_t" → "fifo_entry_t").
+            type_part = re.sub(r'\[.*', '', wire_type_str).strip()
+            words = type_part.split()
+            if words:
+                words[0] = words[0].rsplit(".", 1)[-1]
+            kw = " ".join(words) if words else "logic"
+            sig      = _SignalDecl(
+                name=wire_name, type_kw=kw, dimension=dim,
+                instance_module="", order=0,
+            )
+            ins_line = _find_insertion_line(state.text)
+            decl_str = _format_one_decl(sig, len(dim)) + "\n"
+            text_edits.append(types.TextEdit(
+                range=types.Range(
+                    start=types.Position(line=ins_line, character=0),
+                    end=types.Position(line=ins_line, character=0),
+                ),
+                new_text=decl_str,
+            ))
+
+        return text_edits
+
+    def disconnect_interface(
+        self,
+        uri: str,
+        inst1_name: str,
+        inst2_name: str,
+        inst1_port: str,
+        inst2_port: str,
+        signal_name: str,
+    ) -> list[types.TextEdit]:
+        """Clear port connections and remove the wire declaration for *signal_name*."""
+        self.refresh_if_stale(uri)
+        state = self._docs.get(uri)
+        if state is None or state.compilation is None or state.tree is None:
+            return []
+
+        sym1, sym2 = self._find_two_instances(state, inst1_name, inst2_name)
+        if sym1 is None or sym2 is None:
+            return []
+
+        from .autoinst import inst_line_range
+
+        r1s, r1e = inst_line_range(state.text, sym1, state.tree)
+        r2s, r2e = inst_line_range(state.text, sym2, state.tree)
+
+        lines = state.text.splitlines(keepends=True)
+        raw_edits: list[tuple[int, str, str]] = []
+        if inst1_port:
+            raw_edits += self._conn_text_edits(lines, r1s, r1e, inst1_port, "", signal_name)
+        if inst2_port:
+            raw_edits += self._conn_text_edits(lines, r2s, r2e, inst2_port, "", signal_name)
+
+        text_edits: list[types.TextEdit] = []
+        for idx, old_line, new_line in raw_edits:
+            old_content = old_line.rstrip("\n\r")
+            text_edits.append(types.TextEdit(
+                range=types.Range(
+                    start=types.Position(line=idx, character=0),
+                    end=types.Position(line=idx, character=len(old_content)),
+                ),
+                new_text=new_line.rstrip("\n\r"),
+            ))
+
+        # Remove standalone wire declaration
+        decl_re = re.compile(
+            r"^\s*(?:wire|logic|reg|tri)\b[^;]*\b"
+            + re.escape(signal_name)
+            + r"\s*;"
+        )
+        for i, line in enumerate(lines):
+            if decl_re.match(line) and "," not in line:
+                text_edits.append(types.TextEdit(
+                    range=types.Range(
+                        start=types.Position(line=i, character=0),
+                        end=types.Position(line=i + 1, character=0),
+                    ),
+                    new_text="",
+                ))
+                break
+
+        return text_edits
+
     def get_rtl_tree_reverse(self, uri: str) -> Optional[dict]:
         """Build the reverse RTL hierarchy — who instantiates the module in *uri*."""
         self.refresh_if_stale(uri)
