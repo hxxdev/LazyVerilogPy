@@ -44,6 +44,9 @@ class DocumentState:
     compilation: Optional[pyslang.Compilation] = field(default=None, repr=False)
     # Map from (line, char) offset -> SymbolInfo built lazily
     _offset_map: dict[int, SymbolInfo] = field(default_factory=dict, repr=False)
+    # Filename pyslang associates with state.tree ("buffer.sv" in real-time mode,
+    # real path string in batch/execute_lint mode).
+    tree_filename: str = "buffer.sv"
 
 
 @dataclass
@@ -204,6 +207,14 @@ class Analyzer:
         for state in self._docs.values():
             self._parse(state)
 
+    def get_extra_file_paths(self) -> list:
+        """Return a copy of the extra-file list (Path objects from the .f filelist)."""
+        return list(self._extra_files)
+
+    def get_defines(self) -> list:
+        """Return a copy of the preprocessor defines list."""
+        return list(self._defines)
+
     def set_defines(self, defines: list) -> None:
         """Set preprocessor defines (e.g. ``["RTL_SIM"]``) passed to pyslang.
 
@@ -262,6 +273,7 @@ class Analyzer:
                 state.tree = pyslang.SyntaxTree.fromText(state.text, sm, "buffer.sv", options=bag)
             else:
                 state.tree = pyslang.SyntaxTree.fromText(state.text, "buffer.sv")
+            state.tree_filename = "buffer.sv"
             compilation = pyslang.Compilation()
             compilation.addSyntaxTree(state.tree)
             for path in self._extra_files:

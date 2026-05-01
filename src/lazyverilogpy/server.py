@@ -19,6 +19,7 @@ from .autowire import AutowireOptions, autowire
 from .definition import provide_definition
 from .formatter import FormatOptions, format_source
 from .hover import provide_hover
+from .lint import LintConfig, run_lint
 
 try:
     import tomllib  # Python 3.11+
@@ -52,6 +53,9 @@ _autoarg_options = AutoargOptions()
 
 # Default autoinst options — overridden by config file
 _autoinst_options = AutoinstOptions()
+
+# Default lint config — all rules off by default; overridden by [lint.*] in config file
+_lint_config = LintConfig()
 
 
 # ---------------------------------------------------------------------------
@@ -175,6 +179,16 @@ def _load_autoinst_options_from_toml(path: Path) -> AutoinstOptions:
     return AutoinstOptions.from_dict(cfg)
 
 
+def _load_lint_config_from_toml(path: Path) -> LintConfig:
+    """Parse *path* and return :class:`LintConfig` from ``[lint]``."""
+    if tomllib is None:
+        return LintConfig()
+    with path.open("rb") as fh:
+        data = tomllib.load(fh)
+    cfg = data.get("lint", {})
+    return LintConfig.from_dict(cfg)
+
+
 def _parse_filelist(f_path: Path) -> list[Path]:
     """Parse a ``.f`` file and return a list of resolved :class:`Path` objects.
 
@@ -240,7 +254,7 @@ def _load_filelist_from_toml(path: Path) -> tuple[list[Path], list[str], str | N
 
 def _reload_config(start: Path, ls: LanguageServer | None = None) -> None:
     """Search for a config file starting at *start* and update ``_fmt_options``."""
-    global _fmt_options, _autowire_options, _autofunc_options, _autoarg_options, _autoinst_options
+    global _fmt_options, _autowire_options, _autofunc_options, _autoarg_options, _autoinst_options, _lint_config
     path = _find_config_toml(start)
     if path is not None:
         try:
@@ -271,6 +285,10 @@ def _reload_config(start: Path, ls: LanguageServer | None = None) -> None:
                 ls.show_message(warn_msg, types.MessageType.Warning)
         except Exception as exc:
             logger.warning("Failed to load filelist from %s: %s", path, exc)
+        try:
+            _lint_config = _load_lint_config_from_toml(path)
+        except Exception as exc:
+            logger.warning("Failed to load lint config from %s: %s", path, exc)
     else:
         logger.debug("No %s found above %s; using current options.", CONFIG_FILENAME, start)
 
@@ -338,7 +356,7 @@ def did_close(ls: LanguageServer, params: types.DidCloseTextDocumentParams) -> N
 def did_change_configuration(
     ls: LanguageServer, params: types.DidChangeConfigurationParams
 ) -> None:
-    global _fmt_options
+    global _fmt_options, _lint_config
     try:
         settings = params.settings
         if not isinstance(settings, dict):
@@ -350,6 +368,9 @@ def did_change_configuration(
         if not isinstance(cfg, dict):
             cfg = {}
         _fmt_options = FormatOptions.from_dict(cfg)
+        lint_cfg = lv.get("lint", {})
+        if isinstance(lint_cfg, dict):
+            _lint_config = LintConfig.from_dict(lint_cfg)
     except Exception as exc:
         logger.warning("Failed to update configuration: %s", exc)
 
@@ -1022,9 +1043,141 @@ def _publish_diagnostics(ls: LanguageServer, uri: str) -> None:
     except Exception as exc:
         logger.debug("diagnostics collection error: %s", exc)
 
+    try:
+        lint_diags = run_lint(state, _lint_config)
+        diags.extend(lint_diags)
+    except Exception as exc:
+        logger.debug("lint diagnostics error: %s", exc)
+
     ls.text_document_publish_diagnostics(
         types.PublishDiagnosticsParams(uri=uri, diagnostics=diags)
     )
+
+
+LINT_COMMAND = "lazyverilogpy.lint"
+
+
+@server.command(LINT_COMMAND)
+def execute_lint(ls: LanguageServer, *args) -> Optional[list[dict]]:
+    """Run lint on all project files (.f filelist). Builds ONE shared compilation — O(N).
+
+    args[0]: optional list containing one element — the URI of the currently open file.
+    That file's diagnostics are placed first in the returned list.
+    """
+    try:
+        extra_paths = analyzer.get_extra_file_paths()
+        if not extra_paths:
+            return []
+
+        # Resolve current file path for priority sorting (passed from Lua client)
+        current_file_path: Optional[str] = None
+        try:
+            if args and isinstance(args[0], str):
+                current_file_path = str(_uri_to_path(args[0]))
+        except Exception:
+            pass
+
+        # Build preprocessor bag if defines are configured
+        defines = analyzer.get_defines()
+        bag = None
+        if defines:
+            po = pyslang.PreprocessorOptions()
+            po.predefines = list(defines)
+            bag = pyslang.Bag()
+            bag.preprocessorOptions = po
+
+        # Phase 1: read all files and build a single shared compilation.
+        # One shared SourceManager for all files so that `include directives are
+        # deduplicated across files (e.g. params.svh included by both memory.sv
+        # and memory_top.sv → only one typedef definition in the compilation).
+        # Skip header files (.svh/.vh) — they are pulled in via `include.
+        _HEADER_SUFFIXES = {".svh", ".vh", ".h"}
+        shared_sm = pyslang.SourceManager()
+        compilation = pyslang.Compilation()
+        loaded: list[tuple] = []  # (Path, SyntaxTree, text)
+        for path in extra_paths:
+            if path.suffix.lower() in _HEADER_SUFFIXES:
+                continue
+            if not path.is_file():
+                logger.debug("lint: skip missing file %s", path)
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+                if bag is not None:
+                    tree = pyslang.SyntaxTree.fromText(text, shared_sm, str(path), options=bag)
+                else:
+                    tree = pyslang.SyntaxTree.fromText(text, shared_sm, str(path))
+                compilation.addSyntaxTree(tree)
+                loaded.append((path, tree, text))
+            except Exception as exc:
+                logger.debug("lint: skip %s: %s", path, exc)
+
+        # Phase 2: collect compile + lint diagnostics per file
+        from .analyzer import DocumentState
+        results: list[dict] = []
+        compile_diags = list(compilation.getAllDiagnostics())
+
+        # Use shared source manager for compile diagnostics lookup
+        shared_engine = pyslang.DiagnosticEngine(shared_sm)
+
+        for path, tree, text in loaded:
+            try:
+                state = DocumentState(uri=path.as_uri(), text=text)
+                state.tree = tree
+                state.compilation = compilation
+                state.tree_filename = str(path)
+
+                path_str = str(path)
+
+                logger.debug(f"compile_diags:{compile_diags}")
+                # Compile diagnostics for this file
+                for d in compile_diags:
+                    try:
+                        loc = d.location
+                        # if str(shared_sm.getFileName(loc)) != path_str:
+                        #     logger.debug(f"failed to add {str(shared_sm.getFileName(loc))} {path_str}")
+                        #     continue
+                        logger.debug(f"succeed to add")
+                        line = max(shared_sm.getLineNumber(loc) - 1, 0)
+                        col = max(shared_sm.getColumnNumber(loc) - 1, 0)
+                        results.append({
+                            "file": path_str,
+                            "line": line + 1,
+                            "col": col + 1,
+                            "message": shared_engine.formatMessage(d),
+                            "severity": "Error" if d.isError() else "Warning",
+                            "category": "compile",
+                            "source": "lazyverilogpy",
+                        })
+                    except Exception:
+                        pass
+
+                # Lint diagnostics
+                lint_diags = run_lint(state, _lint_config)
+                for d in lint_diags:
+                    results.append({
+                        "file": path_str,
+                        "line": d.range.start.line + 1,
+                        "col": d.range.start.character + 1,
+                        "message": d.message,
+                        "severity": d.severity.name if d.severity else "Warning",
+                        "category": "lint",
+                        "source": d.source,
+                    })
+            except Exception as exc:
+                logger.debug("lint: error in %s: %s", path, exc)
+
+        # Sort: current file first, then file asc, then compile before lint, then line asc
+        results.sort(key=lambda r: (
+            0 if current_file_path and r["file"] == current_file_path else 1,
+            r["file"],
+            0 if r["category"] == "compile" else 1,
+            r["line"],
+        ))
+        return results
+    except Exception as exc:
+        logger.error("lint command error: %s", exc, exc_info=True)
+        return None
 
 
 def _map_severity(is_error: bool) -> types.DiagnosticSeverity:

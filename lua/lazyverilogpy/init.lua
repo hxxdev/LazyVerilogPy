@@ -82,6 +82,11 @@ function M.setup(user_config)
         end
     end, { nargs = "+" })
 
+    -- Register :Lint user command.
+    vim.api.nvim_create_user_command("Lint", function()
+        M.lint()
+    end, { nargs = 0 })
+
     -- Register :Connect <module1> <module2> user command.
     vim.api.nvim_create_user_command("Connect", function(opts)
         local args = vim.split(vim.trim(opts.args), "%s+")
@@ -1563,6 +1568,60 @@ function M.autowire()
             end
         end)
     end)
+end
+
+--- Run lint on all project files (.f filelist) and populate the quickfix list.
+function M.lint()
+    local src_bufnr = vim.api.nvim_get_current_buf()
+    local get_clients = vim.lsp.get_clients or vim.lsp.get_active_clients
+    local clients = get_clients({ bufnr = src_bufnr, name = "lazyverilogpy" })
+    if #clients == 0 then
+        clients = get_clients({ name = "lazyverilogpy" })
+    end
+    local client = nil
+    for _, c in ipairs(clients) do
+        if c.name == "lazyverilogpy" then
+            client = c
+            break
+        end
+    end
+    if not client then
+        vim.notify("[LazyVerilogPy] no LSP client attached", vim.log.levels.WARN)
+        return
+    end
+    local current_uri = vim.uri_from_bufnr(src_bufnr)
+    client.request("workspace/executeCommand", {
+        command = "lazyverilogpy.lint",
+        arguments = { current_uri },
+    }, function(err, result)
+        if err then
+            vim.notify("[LazyVerilogPy] Lint: " .. tostring(err.message), vim.log.levels.ERROR)
+            return
+        end
+        if not result or #result == 0 then
+            vim.notify("[LazyVerilogPy] Lint: no violations found", vim.log.levels.INFO)
+            return
+        end
+        vim.schedule(function()
+            local items = {}
+            local severity_map = { Error = "E", Warning = "W", Hint = "I", Information = "I" }
+            for _, d in ipairs(result) do
+                table.insert(items, {
+                    filename = d.file,
+                    lnum     = d.line,
+                    col      = d.col,
+                    text     = d.message,
+                    type     = severity_map[d.severity] or "W",
+                })
+            end
+            vim.fn.setqflist(items, "r")
+            vim.cmd("copen")
+            vim.notify(
+                string.format("[LazyVerilogPy] Lint: %d violation(s)", #items),
+                vim.log.levels.INFO
+            )
+        end)
+    end, src_bufnr)
 end
 
 return M

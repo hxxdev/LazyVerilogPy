@@ -2,6 +2,29 @@
 vcode = "tests/demo/vcode.f"
 define = ["RTL_SIM"]   # preprocessor defines passed to pyslang for AST parsing
 
+[lint]
+enable = true   # global kill-switch; false disables all lint rules
+
+[lint.naming]
+enable = true
+severity = "warning"          # "warning" | "error" | "hint"
+module_pattern = "^[a-z_]+$" # regex; empty = skip
+input_port_pattern = "^i_.*$"  # regex; empty = skip
+output_port_pattern = "^o_.*$" # regex; empty = skip
+signal_pattern = ""           # regex for internal logic/wire/var; empty = skip
+
+[lint.port_style]
+enable = true
+severity = "warning"
+require_ansi = true           # flag modules with non-ANSI port declaration style
+
+[lint.always_block]
+enable = true
+severity = "error"
+require_ff_reset = true       # flag always_ff blocks with no conditional reset check
+no_comb_latches = true        # flag always_comb blocks with if-without-else (latch risk)
+require_explicit_sensitivity = false  # reserved; not yet enforced
+
 [rtltree]
 show_instance_name = true   # show "cpu (u_cpu)" instead of just "cpu"
 show_file = true             # show "[rtl/cpu.sv]" after module name

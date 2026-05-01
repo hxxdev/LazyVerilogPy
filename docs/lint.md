@@ -1,40 +1,110 @@
-## Multi-file codebase loading
+# Lint Rules
 
-### `[codebase]` section
+Style-lint rules for SystemVerilog. All rules are **opt-in** — disabled by default. Enable via `[lint.*]` sections in `lazyverilog.toml`.
 
-To give the language server visibility into the rest of your codebase — enabling
-cross-file hover, go-to-definition, and accurate diagnostics — point it at a
-Verilog/SystemVerilog filelist (`.f`) file.
+Diagnostics appear as inline squiggles (same channel as pyslang compiler errors). Source label: `lazyverilogpy-lint`.
+
+Run `:Lint` to check all files in the `.f` filelist and populate the quickfix list.
+
+---
+
+## Global options
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enable` | bool | `true` | Global kill-switch. `false` disables all lint rules regardless of per-rule settings. |
 
 ```toml
-[codebase]
-vcode = "rtl/files.f"
+[lint]
+enable = true
 ```
 
-The path is resolved relative to `lazyverilog.toml`.  An absolute path is also
-accepted.
+---
 
-#### `.f` file format
+## Common options (all rules)
 
-Each non-blank line that does not start with `#`, `//`, or `-` is treated as a
-file path.  Relative paths are resolved relative to the `.f` file itself.
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enable` | bool | `false` | Enable this rule |
+| `severity` | string | `"warning"` | `"warning"` \| `"error"` \| `"hint"` |
 
+---
+
+## `[lint.naming]` — Naming conventions
+
+Enforces naming patterns on modules, ports, and internal signals.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `module_pattern` | string | `""` | Regex applied to module names. Empty = skip. |
+| `input_port_pattern` | string | `""` | Regex applied to `input` port names. Empty = skip. |
+| `output_port_pattern` | string | `""` | Regex applied to `output` port names. Empty = skip. |
+| `signal_pattern` | string | `""` | Regex applied to internal `logic`/`wire`/`var` signals. Empty = skip. |
+
+**Example:**
+```toml
+[lint.naming]
+enable = true
+severity = "warning"
+module_pattern = "^[a-z_]+$"
+input_port_pattern = "^i_.*$"
+output_port_pattern = "^o_.*$"
+signal_pattern = ""
 ```
-# line comment
-// also a comment
--timescale 1ns/1ps   ← compiler flags are skipped
 
-rtl/memory.sv
-rtl/memory_top.sv
-/absolute/path/pkg.sv
+**Diagnostics emitted:**
+- `[naming] module 'BadName' does not match pattern '^[a-z_]+$'`
+- `[naming] input port 'data' does not match pattern '^i_.*$'`
+- `[naming] output port 'result' does not match pattern '^o_.*$'`
+- `[naming] signal 'BadSignal' does not match pattern '^[a-z_]+$'`
+
+**Scope:** direct members of modules defined in the current buffer only (not ports of sub-instances).
+
+---
+
+## `[lint.port_style]` — Port declaration style
+
+Detects non-ANSI port declaration style (ports listed in module header, then declared separately in the body).
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `require_ansi` | bool | `true` | Flag modules using non-ANSI port declarations. |
+
+**Example:**
+```toml
+[lint.port_style]
+enable = true
+severity = "warning"
+require_ansi = true
 ```
 
-#### How it works
+**Diagnostic emitted:**
+- `[port_style] module 'foo' uses non-ANSI port declarations`
 
-- All listed files are added to pyslang's `Compilation` alongside the file
-  currently open in the editor.
-- If the open file is also present in the list it is **not** added a second time,
-  so there is no "redefinition" error.
-- If another listed file is open in the editor its **in-memory (unsaved) text**
-  is used, so port-name changes and other edits are reflected immediately in
-  hover tooltips and diagnostics of files that instantiate it.
+**Note:** `require_explicit_direction` is reserved for future use; setting it has no effect.
+
+---
+
+## `[lint.always_block]` — Always block patterns
+
+Checks `always_ff` blocks for a reset condition and `always_comb` blocks for potential latches.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `require_ff_reset` | bool | `true` | Flag `always_ff` blocks with no conditional statement (missing reset). |
+| `no_comb_latches` | bool | `true` | Flag `always_comb` blocks containing `if` without `else` (latch risk). |
+| `require_explicit_sensitivity` | bool | `false` | Reserved; not yet enforced. |
+
+**Example:**
+```toml
+[lint.always_block]
+enable = true
+severity = "error"
+require_ff_reset = true
+no_comb_latches = true
+require_explicit_sensitivity = false
+```
+
+**Diagnostics emitted:**
+- `[always_block] always_ff block missing reset condition`
+- `[always_block] always_comb block may infer a latch (if without else)`
