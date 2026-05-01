@@ -154,6 +154,28 @@ def _add_module_port_edits(step: PropagationStep) -> list[types.TextEdit]:
     )]
 
 
+def _add_nonansi_port_edits(step: PropagationStep) -> list[types.TextEdit]:
+    """Non-ANSI module: insert port name before ')' in header + direction decl in body."""
+    edits = []
+    if step.port_insert_line >= 0:
+        edits.append(types.TextEdit(
+            range=types.Range(
+                start=types.Position(line=step.port_insert_line, character=step.port_insert_col),
+                end=types.Position(line=step.port_insert_line, character=step.port_insert_col),
+            ),
+            new_text=f",\n{step.port_insert_indent}{step.port_name}",
+        ))
+    if step.wire_insert_line >= 0:
+        edits.append(types.TextEdit(
+            range=types.Range(
+                start=types.Position(line=step.wire_insert_line, character=0),
+                end=types.Position(line=step.wire_insert_line, character=0),
+            ),
+            new_text=f"{step.direction} {step.type_str} {step.port_name};\n",
+        ))
+    return edits
+
+
 def _add_wire_decl_edits(step: PropagationStep) -> list[types.TextEdit]:
     """Insert a wire/logic declaration at wire_insert_line."""
     if step.wire_insert_line < 0:
@@ -185,6 +207,8 @@ def generate_edits(
             edits = _set_inst_port_edits(step, text, plan.wire_name)
         elif step.action == "add_module_port":
             edits = _add_module_port_edits(step)
+        elif step.action == "add_nonansi_port":
+            edits = _add_nonansi_port_edits(step)
         elif step.action == "add_wire_decl":
             edits = _add_wire_decl_edits(step)
         else:
@@ -217,6 +241,13 @@ def generate_preview(plan: ConnectPlan, file_texts: dict[str, str]) -> dict:
                 "file": fname,
                 "line": max(step.port_insert_line + 1, 1),
                 "description": f"add {step.direction} {step.type_str} {step.port_name} to {step.module_name}",
+                "is_warning": False,
+            })
+        elif step.action == "add_nonansi_port":
+            edits_desc.append({
+                "file": fname,
+                "line": max(step.port_insert_line + 1, 1),
+                "description": f"add {step.direction} {step.type_str} {step.port_name} to {step.module_name} (non-ANSI)",
                 "is_warning": False,
             })
         elif step.action == "add_wire_decl":

@@ -632,6 +632,8 @@ class Analyzer:
             lines.append("}" + suffix)
             return "\n".join(lines)
         s = re.sub(r"((?:struct|union)\b[^{]*)\{([^}]*)\}(.*)", _expand_struct, s, flags=re.DOTALL)
+        # Strip scope-qualified prefixes: "module.TypeName" -> "TypeName"
+        s = re.sub(r'\b\w+\.(\w)', r'\1', s)
         return s
 
     @staticmethod
@@ -1068,6 +1070,73 @@ class Analyzer:
 
         return port_line, end_col, indent_str, has_trailing_comma
 
+    @staticmethod
+    def _find_nonansi_port_insertion_points(text: str, module_name: str) -> Optional[tuple]:
+        """For non-ANSI modules: find where to add a port name in the header list and a
+        direction declaration in the body.
+
+        Returns (header_line, header_col, decl_insert_line, indent) or None.
+        header_line/col: position of closing ')' of the port list (insert before it).
+        decl_insert_line: 0-based line AFTER last input/output/inout declaration.
+        """
+        lines = text.splitlines()
+        mod_start = None
+        mod_end = None
+
+        mod_re = re.compile(r'\bmodule\s+' + re.escape(module_name) + r'\b')
+        for i, line in enumerate(lines):
+            if mod_re.search(line):
+                mod_start = i
+                break
+        if mod_start is None:
+            return None
+
+        for i in range(mod_start, len(lines)):
+            if re.search(r'\bendmodule\b', lines[i]):
+                mod_end = i
+                break
+        if mod_end is None:
+            mod_end = len(lines) - 1
+
+        # Find closing ) of the port-name list (first paren group after 'module name')
+        paren_depth = 0
+        header_end_line = None
+        header_end_col = None
+        found_open = False
+        for i in range(mod_start, mod_end + 1):
+            for j, ch in enumerate(lines[i]):
+                if ch == '(':
+                    paren_depth += 1
+                    found_open = True
+                elif ch == ')':
+                    paren_depth -= 1
+                    if found_open and paren_depth == 0:
+                        header_end_line = i
+                        header_end_col = j
+                        break
+            if header_end_line is not None:
+                break
+
+        if header_end_line is None:
+            return None
+
+        # Find last input/output/inout declaration line inside module
+        port_decl_re = re.compile(r'^\s*(input|output|inout)\b')
+        last_decl_line = header_end_line
+        for i in range(mod_start, mod_end + 1):
+            if port_decl_re.match(lines[i]):
+                last_decl_line = i
+
+        # Detect indent from port list entries
+        indent = "    "
+        for i in range(mod_start + 1, header_end_line + 1):
+            m = re.match(r'(\s+)\w', lines[i])
+            if m:
+                indent = m.group(1)
+                break
+
+        return header_end_line, header_end_col, last_decl_line + 1, indent
+
     def _inst_line_range_for_sym(self, sym, sm, text: str) -> tuple:
         """Return 0-based (line_start, line_end) for an instance symbol in text."""
         try:
@@ -1269,22 +1338,39 @@ class Analyzer:
                 port_insert = self._find_ansi_port_insertion_point(
                     tree_f, sm_f, parent_module_name, parent_module_text
                 )
-                if port_insert is None:
-                    return f"module '{parent_module_name}' uses non-ANSI port style (not supported in V1)"
-
-                il, ic, indent, has_comma = port_insert
-                steps.append(PropagationStep(
-                    file_uri=parent_module_file,
-                    action="add_module_port",
-                    module_name=parent_module_name,
-                    direction="output",
-                    port_name=wire_name,
-                    type_str=wire_type,
-                    port_insert_line=il,
-                    port_insert_col=ic,
-                    port_insert_indent=indent,
-                    port_has_trailing_comma=has_comma,
-                ))
+                if port_insert is not None:
+                    il, ic, indent, has_comma = port_insert
+                    steps.append(PropagationStep(
+                        file_uri=parent_module_file,
+                        action="add_module_port",
+                        module_name=parent_module_name,
+                        direction="output",
+                        port_name=wire_name,
+                        type_str=wire_type,
+                        port_insert_line=il,
+                        port_insert_col=ic,
+                        port_insert_indent=indent,
+                        port_has_trailing_comma=has_comma,
+                    ))
+                else:
+                    nonansi = self._find_nonansi_port_insertion_points(
+                        parent_module_text, parent_module_name
+                    )
+                    if nonansi is None:
+                        return f"module '{parent_module_name}' port style not supported"
+                    h_line, h_col, d_line, indent = nonansi
+                    steps.append(PropagationStep(
+                        file_uri=parent_module_file,
+                        action="add_nonansi_port",
+                        module_name=parent_module_name,
+                        direction="output",
+                        port_name=wire_name,
+                        type_str=wire_type,
+                        port_insert_line=h_line,
+                        port_insert_col=h_col,
+                        port_insert_indent=indent,
+                        wire_insert_line=d_line,
+                    ))
 
         # ---- LCA wire declaration ----
         lca_text = self._get_file_text(lca_file_uri)
@@ -1363,22 +1449,39 @@ class Analyzer:
                 port_insert = self._find_ansi_port_insertion_point(
                     tree_f, sm_f, parent_module_name, parent_module_text
                 )
-                if port_insert is None:
-                    return f"module '{parent_module_name}' uses non-ANSI port style (not supported in V1)"
-
-                il, ic, indent, has_comma = port_insert
-                steps.append(PropagationStep(
-                    file_uri=parent_module_file,
-                    action="add_module_port",
-                    module_name=parent_module_name,
-                    direction="input",
-                    port_name=wire_name,
-                    type_str=wire_type,
-                    port_insert_line=il,
-                    port_insert_col=ic,
-                    port_insert_indent=indent,
-                    port_has_trailing_comma=has_comma,
-                ))
+                if port_insert is not None:
+                    il, ic, indent, has_comma = port_insert
+                    steps.append(PropagationStep(
+                        file_uri=parent_module_file,
+                        action="add_module_port",
+                        module_name=parent_module_name,
+                        direction="input",
+                        port_name=wire_name,
+                        type_str=wire_type,
+                        port_insert_line=il,
+                        port_insert_col=ic,
+                        port_insert_indent=indent,
+                        port_has_trailing_comma=has_comma,
+                    ))
+                else:
+                    nonansi = self._find_nonansi_port_insertion_points(
+                        parent_module_text, parent_module_name
+                    )
+                    if nonansi is None:
+                        return f"module '{parent_module_name}' port style not supported"
+                    h_line, h_col, d_line, indent = nonansi
+                    steps.append(PropagationStep(
+                        file_uri=parent_module_file,
+                        action="add_nonansi_port",
+                        module_name=parent_module_name,
+                        direction="input",
+                        port_name=wire_name,
+                        type_str=wire_type,
+                        port_insert_line=h_line,
+                        port_insert_col=h_col,
+                        port_insert_indent=indent,
+                        wire_insert_line=d_line,
+                    ))
 
         # Build InstanceInfo records
         src_parent = source_path.rsplit(".", 1)[0] if "." in source_path else lca_path
