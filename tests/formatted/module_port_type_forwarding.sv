@@ -17,7 +17,7 @@ b2,  //- @x defines/binding XDef
 //- XDef.node/kind variable
 //- XDef.complete definition
 //- XDef childof MyModule
-input   x                                                               ,  //- @x2 defines/binding X2Def
+input   x                                       ,  //- @x2 defines/binding X2Def
 //- X2Def.node/kind variable
 //- X2Def.complete definition
 //- X2Def childof MyModule
@@ -25,7 +25,7 @@ x2,  //- @y defines/binding YDef
 //- YDef.node/kind variable
 //- YDef.complete definition
 //- YDef childof MyModule
-output  wire                                y                                                               ,  //- @z defines/binding ZDef
+output  wire                y                                       ,  //- @z defines/binding ZDef
 //- ZDef.node/kind variable
 //- ZDef.complete definition
 //- ZDef childof MyModule
@@ -35,6 +35,6 @@ z);
 //- NDef.node/kind variable
 //- NDef.complete definition
 //- NDef childof MyModule
-input   n1                                                              ;
+input   n1                                      ;
 
 endmodule

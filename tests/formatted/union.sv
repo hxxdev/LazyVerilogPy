@@ -36,10 +36,10 @@ union_type          my_union                            ;
 
 //- @my_module defines/binding _
 module my_module(  //- @out1 defines/binding Out1
-output  out1                                                            ,  //- @out2 defines/binding Out2
+output  out1                                    ,  //- @out2 defines/binding Out2
 out2,  //- @clk defines/binding Clk
-input   clk                                                             ,  //- @in1 defines/binding In1
-input   in1)                                                            ;
+input   clk                                     ,  //- @in1 defines/binding In1
+input   in1)                                    ;
 
 union {
     //- @var7 defines/binding Var7

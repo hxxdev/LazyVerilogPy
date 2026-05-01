@@ -6,7 +6,7 @@
 
 //- @array defines/binding _
 module array(  //- @arr1 defines/binding Arr1
-input   bit                                 [7:0]               arr1)                                                           ;
+input   bit                 [7:0]               arr1)                                   ;
 //- @mock_arr defines/binding MockArr
 bit                 [7:0]               mock_arr                            ;
 //- @arr2 defines/binding Arr2

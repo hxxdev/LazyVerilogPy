@@ -43,5 +43,5 @@ program testcase(  //- @intf defines/binding Intf
     module memory(  //- @clk ref Clk2
     clk);
     //- @clk defines/binding Clk2
-    input   clk                                                             ;
+    input   clk                                     ;
     endmodule

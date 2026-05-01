@@ -17,8 +17,8 @@ endpackage
 
 module automatic m1 import p::*, p::x;
 #(int i = 1) (a, b,, .c({a, b[0]}));
-input                       a                                                               ;
-output  [1:0]               b                                                               ;
+input                       a                                       ;
+output  [1:0]               b                                       ;
 endmodule
 
 module m2 #(parameter i = 1, localparam j = i, parameter type x_t = bit) (input int a[], (* bar = "asdf" *) output logic b = 1, ref c, interface.mod d, .e());
@@ -260,7 +260,7 @@ extern interface I(input a, output b);
                                 clocking
                                     cb @(r or s);
                                     default input posedge #3ps;
-                                    input   a                                   =                               t                               ;
+                                    input   a                   =                   t                   ;
                                 endclocking
 
                                 global clocking
@@ -290,7 +290,7 @@ extern interface I(input a, output b);
                                     extern program p(a, b);
 
                                         program p(a, b);
-                                            input   a                                                               , b                                                               ;
+                                            input   a                                       , b                                       ;
                                         endprogram
                                         : p
 
@@ -306,9 +306,9 @@ extern interface I(input a, output b);
 
                                         primitive
                                             srff(q, s, r);
-                                            output  q                                                               ;
+                                            output  q                                       ;
                                             reg                 q                                   ;
-                                            input   s                                                               , r                                                               ;
+                                            input   s                                       , r                                       ;
                                             initial q   = 1'b1;
                                             table (10) 0: ? : 1;
                                         endtable
@@ -332,9 +332,9 @@ extern interface I(input a, output b);
                                         i2,
                                         opcode
                                     );
-                                    input   [7:0]               i1                                                              , i2                                                              ;
-                                    input   [2:1]               opcode                                                          ;
-                                    output  [7:0]               o1                                                              ;
+                                    input   [7:0]               i1                                      , i2                                      ;
+                                    input   [2:1]               opcode                                  ;
+                                    output  [7:0]               o1                                      ;
 
                                     specify
                                         specparam           s1                  = 2             ;
