@@ -489,6 +489,8 @@ def execute_autoinst(
         result = autoinst_impl(state, line, character)
         if result is None:
             return None
+        if "error" in result:
+            return {"error": result["error"]}
         new_text = format_autoinst(result, state.text, _autoinst_options)
         lines = state.text.splitlines()
         line_end = result["line_end"]

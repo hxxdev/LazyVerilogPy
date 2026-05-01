@@ -158,7 +158,11 @@ local function _with_client(bufnr, uri, line, character, command, label, retries
             return
         end
         if result then
-            vim.lsp.util.apply_workspace_edit(result, client.offset_encoding)
+            if result.error then
+                vim.notify("[LazyVerilogPy] " .. result.error, vim.log.levels.WARN)
+            else
+                vim.lsp.util.apply_workspace_edit(result, client.offset_encoding)
+            end
         end
     end, bufnr)
 end

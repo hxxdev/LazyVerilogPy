@@ -184,6 +184,16 @@ def autoinst(state, line: int, col: int) -> Optional[dict]:
     # Determine the line range of the existing instantiation statement.
     line_start, line_end = inst_line_range(state.text, sym, state.tree)
 
+    # Validate: cursor must lie within [line_start, line_end].
+    # Bare/malformed instances (e.g. `inv;`) can have a wrong sym.location,
+    # producing a range that doesn't include the cursor.
+    if not (line_start <= line <= line_end):
+        logger.warning(
+            "autoinst: sym.location unreliable for '%s' (range %d-%d, cursor %d) — malformed instance?",
+            sym.name, line_start, line_end, line,
+        )
+        return {"error": f"AutoInst: cannot determine range for '{sym.name}' — instance may be malformed"}
+
     return {
         "module_name": body.name,
         "instance_name": sym.name,
