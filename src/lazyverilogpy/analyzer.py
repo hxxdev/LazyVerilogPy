@@ -46,6 +46,58 @@ class DocumentState:
     _offset_map: dict[int, SymbolInfo] = field(default_factory=dict, repr=False)
 
 
+@dataclass
+class InstanceInfo:
+    inst_name: str
+    module_name: str
+    parent_module: str
+    hierarchical_path: str
+    file_uri: str
+
+
+@dataclass
+class PortInfo:
+    name: str
+    direction: str
+    type_str: str
+    width_dim: str
+    is_ansi: bool = True
+
+
+@dataclass
+class PropagationStep:
+    file_uri: str
+    action: str          # "set_inst_port" | "add_module_port" | "add_wire_decl"
+    module_name: str = ""
+    direction: str = ""  # "output" | "input" (for add_module_port)
+    port_name: str = ""
+    type_str: str = ""
+    inst_name: str = ""
+    inst_port: str = ""
+    old_connection: str = ""
+    inst_line_start: int = -1
+    inst_line_end: int = -1
+    port_insert_line: int = -1
+    port_insert_col: int = -1
+    port_insert_indent: str = "    "
+    port_has_trailing_comma: bool = False
+    wire_insert_line: int = -1
+
+
+@dataclass
+class ConnectPlan:
+    source_inst: InstanceInfo
+    source_port: PortInfo
+    dest_inst: InstanceInfo
+    dest_port: PortInfo
+    wire_name: str
+    wire_type: str
+    lca_module: str
+    lca_file_uri: str
+    steps: list = field(default_factory=list)
+    warnings: list = field(default_factory=list)
+
+
 def _offset_to_pos(text: str, offset: int) -> SourcePos:
     """Convert a byte offset to a 0-based (line, character) position."""
     before = text[:offset]
@@ -834,6 +886,530 @@ class Analyzer:
             }
 
         return _build(root_path, frozenset())
+
+    # ------------------------------------------------------------------
+    # Connect helpers
+    # ------------------------------------------------------------------
+
+    def get_connect_info(self, uri: str) -> dict:
+        """Return {modules: {name: {ports, instances}}} for all compiled modules."""
+        self.refresh_if_stale(uri)
+        state = self._docs.get(uri)
+        if state is None or state.compilation is None or state.tree is None:
+            return {"error": "no compilation state"}
+
+        sm = state.tree.sourceManager
+        modules: dict = {}
+
+        def _collect(sym) -> bool:
+            try:
+                k = str(sym.kind)
+                if k == "SymbolKind.InstanceBody":
+                    mname = sym.name
+                    ports: list = []
+                    try:
+                        for port in sym.portList:
+                            try:
+                                ports.append({
+                                    "name": port.name,
+                                    "direction": Analyzer._port_direction(port),
+                                    "type_str": Analyzer._get_type_str(port),
+                                })
+                            except Exception:
+                                continue
+                    except Exception:
+                        pass
+                    if mname not in modules:
+                        modules[mname] = {"ports": ports, "instances": []}
+                    else:
+                        modules[mname]["ports"] = ports
+                elif "Instance" in k and "InstanceBody" not in k:
+                    try:
+                        mname = sym.body.name
+                    except Exception:
+                        return True
+                    path = sym.hierarchicalPath
+                    try:
+                        fname = sm.getFileName(sym.location)
+                        if fname == "buffer.sv":
+                            file_uri = uri
+                        else:
+                            resolved = Path(fname).resolve()
+                            file_uri = self._path_to_uri.get(resolved) or resolved.as_uri()
+                    except Exception:
+                        file_uri = uri
+                    if mname not in modules:
+                        modules[mname] = {"ports": [], "instances": []}
+                    modules[mname]["instances"].append({
+                        "inst_name": sym.name,
+                        "hierarchical_path": path,
+                        "file_uri": file_uri,
+                    })
+            except Exception:
+                pass
+            return True
+
+        try:
+            state.compilation.getRoot().visit(_collect)
+        except Exception as exc:
+            return {"error": str(exc)}
+
+        return {"modules": modules}
+
+    def _get_file_text(self, file_uri: str) -> Optional[str]:
+        """Get text for a file URI from docs cache or disk."""
+        state = self._docs.get(file_uri)
+        if state:
+            return state.text
+        try:
+            return self._uri_to_path(file_uri).read_text(encoding="utf-8")
+        except Exception:
+            return None
+
+    def _get_tree_for_file(self, file_uri: str, file_text: str):
+        """Return (SyntaxTree, SourceManager) for file_uri, building one if needed."""
+        state = self._docs.get(file_uri)
+        if state and state.tree:
+            return state.tree, state.tree.sourceManager
+        try:
+            path_str = str(self._uri_to_path(file_uri))
+            tree = pyslang.SyntaxTree.fromText(file_text, path_str)
+            return tree, tree.sourceManager
+        except Exception:
+            return None, None
+
+    @staticmethod
+    def _find_lca_path(path_a: str, path_b: str) -> Optional[str]:
+        """Find deepest common ancestor of two hierarchical instance paths."""
+        parent_a = path_a.rsplit(".", 1)[0] if "." in path_a else None
+        parent_b = path_b.rsplit(".", 1)[0] if "." in path_b else None
+        if parent_a is None or parent_b is None:
+            return None
+        parts_a = parent_a.split(".")
+        parts_b = parent_b.split(".")
+        common = []
+        for a, b in zip(parts_a, parts_b):
+            if a == b:
+                common.append(a)
+            else:
+                break
+        return ".".join(common) if common else None
+
+    @staticmethod
+    def _build_path_pairs(inst_path: str, lca_path: str) -> list:
+        """Return [(child, parent), ...] from inst_path up to lca_path (inclusive as parent)."""
+        pairs = []
+        current = inst_path
+        for _ in range(100):
+            if "." not in current:
+                break
+            parent = current.rsplit(".", 1)[0]
+            pairs.append((current, parent))
+            if parent == lca_path:
+                break
+            current = parent
+        return pairs
+
+    @staticmethod
+    def _find_ansi_port_insertion_point(tree, sm, module_name: str, text: str) -> Optional[tuple]:
+        """Find the position to append a new ANSI port to module_name.
+
+        Returns (line_0based, col_0based, indent_str, has_trailing_comma) or None.
+        Returns None when module not found or port list is non-ANSI (no ImplicitAnsiPort nodes).
+        """
+        lines = text.splitlines()
+        mod_bounds: list = []
+        last_ansi_line: list = [None]
+
+        def _visit(node) -> bool:
+            k = str(node.kind)
+            if k == "SyntaxKind.ModuleDeclaration":
+                try:
+                    name = str(node.header.name).strip()
+                    if name == module_name:
+                        sr = node.sourceRange
+                        sl = sm.getLineNumber(sr.start) - 1
+                        el = sm.getLineNumber(sr.end) - 1
+                        mod_bounds.clear()
+                        mod_bounds.extend([sl, el])
+                except Exception:
+                    pass
+            elif k == "SyntaxKind.ImplicitAnsiPort" and mod_bounds:
+                try:
+                    l = sm.getLineNumber(node.sourceRange.end) - 1
+                    if mod_bounds[0] <= l <= mod_bounds[1]:
+                        if last_ansi_line[0] is None or l >= last_ansi_line[0]:
+                            last_ansi_line[0] = l
+                except Exception:
+                    pass
+            return True
+
+        try:
+            tree.root.visit(_visit)
+        except Exception:
+            return None
+
+        if last_ansi_line[0] is None:
+            return None  # non-ANSI or no ports
+
+        port_line = last_ansi_line[0]
+        if port_line >= len(lines):
+            return None
+
+        line_text = lines[port_line]
+        stripped = re.sub(r'//.*$', '', line_text).rstrip()
+        # Strip trailing ), ;, whitespace to find actual end of port content
+        stripped_clean = re.sub(r'[);,\s]+$', '', stripped)
+        end_col = len(stripped_clean)
+        # Detect trailing comma in what follows the port content
+        after = stripped[end_col:]
+        has_trailing_comma = ',' in after.split(')')[0] if ')' in after else (',' in after)
+        indent_str = ' ' * (len(line_text) - len(line_text.lstrip()))
+
+        return port_line, end_col, indent_str, has_trailing_comma
+
+    def _inst_line_range_for_sym(self, sym, sm, text: str) -> tuple:
+        """Return 0-based (line_start, line_end) for an instance symbol in text."""
+        try:
+            line_start = max(sm.getLineNumber(sym.location) - 1, 0)
+        except Exception:
+            try:
+                name = sym.name
+                for i, line in enumerate(text.splitlines()):
+                    if re.search(r'\b' + re.escape(name) + r'\b', line):
+                        line_start = i
+                        break
+                else:
+                    line_start = 0
+            except Exception:
+                line_start = 0
+
+        lines = text.splitlines()
+        line_end = line_start
+        for i in range(line_start, len(lines)):
+            if ";" in lines[i]:
+                line_end = i
+                break
+        return line_start, line_end
+
+    def build_connect_plan(
+        self,
+        uri: str,
+        source_path: str,
+        source_port_name: str,
+        dest_path: str,
+        dest_port_name: str,
+        wire_name: str,
+    ) -> "ConnectPlan | str":
+        """Build ConnectPlan for cross-hierarchy port wiring. Returns error string on failure."""
+        self.refresh_if_stale(uri)
+        state = self._docs.get(uri)
+        if state is None or state.compilation is None or state.tree is None:
+            return "no compilation state"
+
+        sm = state.tree.sourceManager
+
+        inst_data, _ = self._collect_inst_data(state, uri, self._path_to_uri)
+
+        if source_path not in inst_data:
+            return f"instance '{source_path}' not found"
+        if dest_path not in inst_data:
+            return f"instance '{dest_path}' not found"
+
+        # Collect instance symbols by hierarchical path
+        sym_map: dict = {}
+
+        def _collect_syms(sym) -> bool:
+            try:
+                k = str(sym.kind)
+                if "Instance" in k and "InstanceBody" not in k:
+                    sym_map[sym.hierarchicalPath] = sym
+            except Exception:
+                pass
+            return True
+
+        try:
+            state.compilation.getRoot().visit(_collect_syms)
+        except Exception:
+            return "failed to collect instance symbols"
+
+        if source_path not in sym_map:
+            return f"symbol for '{source_path}' not found"
+        if dest_path not in sym_map:
+            return f"symbol for '{dest_path}' not found"
+
+        source_sym = sym_map[source_path]
+        dest_sym = sym_map[dest_path]
+
+        # Get source port info
+        source_port: Optional[PortInfo] = None
+        try:
+            for port in source_sym.body.portList:
+                try:
+                    if port.name == source_port_name:
+                        ts = Analyzer._get_type_str(port)
+                        dm = re.search(r'\[.*?\]', ts)
+                        source_port = PortInfo(
+                            name=source_port_name,
+                            direction=Analyzer._port_direction(port),
+                            type_str=ts,
+                            width_dim=dm.group(0) if dm else "",
+                        )
+                        break
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
+        if source_port is None:
+            return f"port '{source_port_name}' not found on {inst_data[source_path].get('module', '')}"
+        if source_port.direction != "output":
+            return f"port '{source_port_name}' is not an output port (got {source_port.direction})"
+
+        # Get dest port info
+        dest_port: Optional[PortInfo] = None
+        try:
+            for port in dest_sym.body.portList:
+                try:
+                    if port.name == dest_port_name:
+                        ts = Analyzer._get_type_str(port)
+                        dm = re.search(r'\[.*?\]', ts)
+                        dest_port = PortInfo(
+                            name=dest_port_name,
+                            direction=Analyzer._port_direction(port),
+                            type_str=ts,
+                            width_dim=dm.group(0) if dm else "",
+                        )
+                        break
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
+        if dest_port is None:
+            return f"port '{dest_port_name}' not found on {inst_data[dest_path].get('module', '')}"
+        if dest_port.direction != "input":
+            return f"port '{dest_port_name}' is not an input port (got {dest_port.direction})"
+
+        # Type mismatch: warn but proceed; use source port type for wire
+        wire_type = source_port.type_str
+        type_warnings: list = []
+        if source_port.type_str != dest_port.type_str:
+            type_warnings.append(
+                f"type mismatch: source port '{source_port.type_str}' vs dest port '{dest_port.type_str}' — using source type"
+            )
+
+        # Find LCA
+        lca_path = self._find_lca_path(source_path, dest_path)
+        if lca_path is None:
+            return "no common ancestor found"
+
+        lca_module = inst_data.get(lca_path, {}).get("module", "")
+        lca_file_uri = inst_data.get(lca_path, {}).get("file", uri)
+
+        source_pairs = self._build_path_pairs(source_path, lca_path)
+        dest_pairs = self._build_path_pairs(dest_path, lca_path)
+
+        steps: list = []
+        warnings: list = list(type_warnings)
+
+        from .autoinst import parse_existing_connections
+        from .autowire import _find_declared_signals, _find_insertion_line
+
+        # ---- Source side (bottom-up) ----
+        for child_path, parent_path in source_pairs:
+            child_inst_name = inst_data.get(child_path, {}).get("inst", child_path.rsplit(".", 1)[-1])
+            child_port = source_port_name if child_path == source_path else wire_name
+
+            parent_file_uri = inst_data.get(parent_path, {}).get("file", uri)
+            parent_text = self._get_file_text(parent_file_uri)
+            if parent_text is None:
+                return f"cannot read file for module at path '{parent_path}'"
+
+            child_sym = sym_map.get(child_path)
+            if child_sym:
+                c_start, c_end = self._inst_line_range_for_sym(child_sym, sm, parent_text)
+            else:
+                c_start, c_end = 0, 0
+
+            old_conn = parse_existing_connections(parent_text, c_start, c_end).get(child_port, "")
+
+            if child_path == source_path and old_conn:
+                warnings.append(
+                    f"{source_path}.{source_port_name} was connected to '{old_conn}' — will override"
+                )
+
+            steps.append(PropagationStep(
+                file_uri=parent_file_uri,
+                action="set_inst_port",
+                inst_name=child_inst_name,
+                inst_port=child_port,
+                port_name=wire_name,
+                type_str=wire_type,
+                old_connection=old_conn,
+                inst_line_start=c_start,
+                inst_line_end=c_end,
+            ))
+
+            if parent_path != lca_path:
+                parent_module_name = inst_data.get(parent_path, {}).get("module", "")
+                parent_module_file = inst_data.get(parent_path, {}).get("file", uri)
+                parent_module_text = self._get_file_text(parent_module_file)
+                if parent_module_text is None:
+                    return f"cannot read file for module '{parent_module_name}'"
+
+                tree_f, sm_f = self._get_tree_for_file(parent_module_file, parent_module_text)
+                if tree_f is None:
+                    return f"cannot parse module '{parent_module_name}'"
+
+                declared = _find_declared_signals(parent_module_text, tree_f)
+                if wire_name in declared:
+                    return f"signal '{wire_name}' already exists in module '{parent_module_name}'"
+
+                port_insert = self._find_ansi_port_insertion_point(
+                    tree_f, sm_f, parent_module_name, parent_module_text
+                )
+                if port_insert is None:
+                    return f"module '{parent_module_name}' uses non-ANSI port style (not supported in V1)"
+
+                il, ic, indent, has_comma = port_insert
+                steps.append(PropagationStep(
+                    file_uri=parent_module_file,
+                    action="add_module_port",
+                    module_name=parent_module_name,
+                    direction="output",
+                    port_name=wire_name,
+                    type_str=wire_type,
+                    port_insert_line=il,
+                    port_insert_col=ic,
+                    port_insert_indent=indent,
+                    port_has_trailing_comma=has_comma,
+                ))
+
+        # ---- LCA wire declaration ----
+        lca_text = self._get_file_text(lca_file_uri)
+        if lca_text is None:
+            return "cannot read LCA module file"
+
+        lca_tree, _ = self._get_tree_for_file(lca_file_uri, lca_text)
+        if lca_tree:
+            declared_lca = _find_declared_signals(lca_text, lca_tree)
+        else:
+            declared_lca = set()
+
+        if wire_name in declared_lca:
+            return f"signal '{wire_name}' already exists in module '{lca_module}'"
+
+        wire_insert_line = _find_insertion_line(lca_text)
+        steps.append(PropagationStep(
+            file_uri=lca_file_uri,
+            action="add_wire_decl",
+            module_name=lca_module,
+            port_name=wire_name,
+            type_str=wire_type,
+            wire_insert_line=wire_insert_line,
+        ))
+
+        # ---- Dest side (bottom-up) ----
+        for child_path, parent_path in dest_pairs:
+            child_inst_name = inst_data.get(child_path, {}).get("inst", child_path.rsplit(".", 1)[-1])
+            child_port = dest_port_name if child_path == dest_path else wire_name
+
+            parent_file_uri = inst_data.get(parent_path, {}).get("file", uri)
+            parent_text = self._get_file_text(parent_file_uri)
+            if parent_text is None:
+                return f"cannot read file for module at path '{parent_path}'"
+
+            child_sym = sym_map.get(child_path)
+            if child_sym:
+                c_start, c_end = self._inst_line_range_for_sym(child_sym, sm, parent_text)
+            else:
+                c_start, c_end = 0, 0
+
+            old_conn = parse_existing_connections(parent_text, c_start, c_end).get(child_port, "")
+
+            if child_path == dest_path and old_conn:
+                warnings.append(
+                    f"{dest_path}.{dest_port_name} was connected to '{old_conn}' — will override"
+                )
+
+            steps.append(PropagationStep(
+                file_uri=parent_file_uri,
+                action="set_inst_port",
+                inst_name=child_inst_name,
+                inst_port=child_port,
+                port_name=wire_name,
+                type_str=wire_type,
+                old_connection=old_conn,
+                inst_line_start=c_start,
+                inst_line_end=c_end,
+            ))
+
+            if parent_path != lca_path:
+                parent_module_name = inst_data.get(parent_path, {}).get("module", "")
+                parent_module_file = inst_data.get(parent_path, {}).get("file", uri)
+                parent_module_text = self._get_file_text(parent_module_file)
+                if parent_module_text is None:
+                    return f"cannot read file for module '{parent_module_name}'"
+
+                tree_f, sm_f = self._get_tree_for_file(parent_module_file, parent_module_text)
+                if tree_f is None:
+                    return f"cannot parse module '{parent_module_name}'"
+
+                declared = _find_declared_signals(parent_module_text, tree_f)
+                if wire_name in declared:
+                    return f"signal '{wire_name}' already exists in module '{parent_module_name}'"
+
+                port_insert = self._find_ansi_port_insertion_point(
+                    tree_f, sm_f, parent_module_name, parent_module_text
+                )
+                if port_insert is None:
+                    return f"module '{parent_module_name}' uses non-ANSI port style (not supported in V1)"
+
+                il, ic, indent, has_comma = port_insert
+                steps.append(PropagationStep(
+                    file_uri=parent_module_file,
+                    action="add_module_port",
+                    module_name=parent_module_name,
+                    direction="input",
+                    port_name=wire_name,
+                    type_str=wire_type,
+                    port_insert_line=il,
+                    port_insert_col=ic,
+                    port_insert_indent=indent,
+                    port_has_trailing_comma=has_comma,
+                ))
+
+        # Build InstanceInfo records
+        src_parent = source_path.rsplit(".", 1)[0] if "." in source_path else lca_path
+        dst_parent = dest_path.rsplit(".", 1)[0] if "." in dest_path else lca_path
+        source_inst = InstanceInfo(
+            inst_name=inst_data.get(source_path, {}).get("inst", ""),
+            module_name=inst_data.get(source_path, {}).get("module", ""),
+            parent_module=inst_data.get(src_parent, {}).get("module", ""),
+            hierarchical_path=source_path,
+            file_uri=inst_data.get(src_parent, {}).get("file", uri),
+        )
+        dest_inst = InstanceInfo(
+            inst_name=inst_data.get(dest_path, {}).get("inst", ""),
+            module_name=inst_data.get(dest_path, {}).get("module", ""),
+            parent_module=inst_data.get(dst_parent, {}).get("module", ""),
+            hierarchical_path=dest_path,
+            file_uri=inst_data.get(dst_parent, {}).get("file", uri),
+        )
+
+        return ConnectPlan(
+            source_inst=source_inst,
+            source_port=source_port,
+            dest_inst=dest_inst,
+            dest_port=dest_port,
+            wire_name=wire_name,
+            wire_type=wire_type,
+            lca_module=lca_module,
+            lca_file_uri=lca_file_uri,
+            steps=steps,
+            warnings=warnings,
+        )
 
     # ------------------------------------------------------------------
     # Interface view

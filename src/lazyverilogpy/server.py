@@ -654,6 +654,88 @@ def execute_autowire_preview(ls: LanguageServer, *args) -> Optional[list[str]]:
 
 
 # ---------------------------------------------------------------------------
+# Connect (workspace/executeCommand)
+# ---------------------------------------------------------------------------
+
+CONNECT_INFO_COMMAND = "lazyverilogpy.connectInfo"
+CONNECT_APPLY_COMMAND = "lazyverilogpy.connectApply"
+CONNECT_APPLY_PREVIEW_COMMAND = "lazyverilogpy.connectApplyPreview"
+
+
+@server.command(CONNECT_INFO_COMMAND)
+def execute_connect_info(ls: LanguageServer, *args) -> Optional[dict]:
+    try:
+        if len(args) < 1:
+            return {"error": "missing uri argument"}
+        uri = str(args[0])
+        analyzer.refresh_if_stale(uri)
+        return analyzer.get_connect_info(uri)
+    except Exception as exc:
+        logger.error("connectInfo error: %s", exc, exc_info=True)
+        return {"error": str(exc)}
+
+
+def _do_connect_apply(args, preview: bool) -> Optional[dict]:
+    try:
+        if len(args) < 6:
+            return {"error": "insufficient arguments (need uri, source_path, source_port, dest_path, dest_port, wire_name)"}
+        uri = str(args[0])
+        source_path = str(args[1])
+        source_port = str(args[2])
+        dest_path = str(args[3])
+        dest_port = str(args[4])
+        wire_name = str(args[5])
+
+        analyzer.refresh_if_stale(uri)
+
+        plan_or_err = analyzer.build_connect_plan(
+            uri, source_path, source_port, dest_path, dest_port, wire_name
+        )
+        if isinstance(plan_or_err, str):
+            return {"error": plan_or_err}
+
+        plan = plan_or_err
+
+        # Collect current text for each file involved in the plan
+        file_uris = {step.file_uri for step in plan.steps}
+        file_texts: dict[str, str] = {}
+        for file_uri in file_uris:
+            state = analyzer.get_state(file_uri)
+            if state:
+                file_texts[file_uri] = state.text
+            else:
+                try:
+                    file_texts[file_uri] = analyzer._uri_to_path(file_uri).read_text(encoding="utf-8")
+                except Exception:
+                    file_texts[file_uri] = ""
+
+        from .connect import generate_edits, generate_preview
+
+        if preview:
+            return generate_preview(plan, file_texts)
+
+        edits_by_uri = generate_edits(plan, file_texts)
+        if not edits_by_uri:
+            return {"error": "no edits generated"}
+
+        return types.WorkspaceEdit(changes=edits_by_uri)
+
+    except Exception as exc:
+        logger.error("connect apply error: %s", exc, exc_info=True)
+        return {"error": str(exc)}
+
+
+@server.command(CONNECT_APPLY_COMMAND)
+def execute_connect_apply(ls: LanguageServer, *args) -> Optional[dict]:
+    return _do_connect_apply(args, preview=False)
+
+
+@server.command(CONNECT_APPLY_PREVIEW_COMMAND)
+def execute_connect_apply_preview(ls: LanguageServer, *args) -> Optional[dict]:
+    return _do_connect_apply(args, preview=True)
+
+
+# ---------------------------------------------------------------------------
 # AutoFunc (workspace/executeCommand) — handles both functions and tasks
 # ---------------------------------------------------------------------------
 

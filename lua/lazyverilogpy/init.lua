@@ -82,6 +82,16 @@ function M.setup(user_config)
         end
     end, { nargs = "+" })
 
+    -- Register :Connect <module1> <module2> user command.
+    vim.api.nvim_create_user_command("Connect", function(opts)
+        local args = vim.split(vim.trim(opts.args), "%s+")
+        if #args < 2 or args[1] == "" or args[2] == "" then
+            vim.notify("[LazyVerilogPy] Usage: :Connect <module1> <module2>", vim.log.levels.ERROR)
+            return
+        end
+        M.connect(args[1], args[2])
+    end, { nargs = "+" })
+
     -- Also register .sv / .svh / .v file-type detection if not already present.
     vim.filetype.add({
         extension = {
@@ -822,15 +832,27 @@ local function _interface_show(data, src_bufnr, uri)
 
         _interface_buf = buf
 
-        vim.cmd("vsplit")
-        local iface_win = vim.api.nvim_get_current_win()
-        vim.api.nvim_win_set_buf(iface_win, buf)
+        local _width  = math.min(120, math.max(60, vim.o.columns - 10))
+        local _height = math.min(40, math.max(5, #lines + 2))
+        local _row    = math.floor((vim.o.lines   - _height) / 2)
+        local _col    = math.floor((vim.o.columns - _width)  / 2)
+        local iface_win = vim.api.nvim_open_win(buf, true, {
+            relative  = "editor",
+            row       = _row,
+            col       = _col,
+            width     = _width,
+            height    = _height,
+            style     = "minimal",
+            border    = "rounded",
+            title     = " Interface ",
+            title_pos = "center",
+            focusable = true,
+        })
         vim.api.nvim_win_call(iface_win, function()
             vim.wo.wrap           = false
             vim.wo.number         = false
             vim.wo.relativenumber = false
         end)
-        vim.api.nvim_set_current_win(source_win)
     end
 
     _interface_meta[buf] = {
@@ -1044,15 +1066,27 @@ local function _single_interface_show(data, src_bufnr, uri)
             vim.api.nvim_buf_delete(buf, { force = true })
         end, { noremap = true, silent = true, buffer = buf })
 
-        vim.cmd("vsplit")
-        local iface_win = vim.api.nvim_get_current_win()
-        vim.api.nvim_win_set_buf(iface_win, buf)
+        local _width  = math.min(120, math.max(60, vim.o.columns - 10))
+        local _height = math.min(40, math.max(5, #lines + 2))
+        local _row    = math.floor((vim.o.lines   - _height) / 2)
+        local _col    = math.floor((vim.o.columns - _width)  / 2)
+        local iface_win = vim.api.nvim_open_win(buf, true, {
+            relative  = "editor",
+            row       = _row,
+            col       = _col,
+            width     = _width,
+            height    = _height,
+            style     = "minimal",
+            border    = "rounded",
+            title     = " Single Interface ",
+            title_pos = "center",
+            focusable = true,
+        })
         vim.api.nvim_win_call(iface_win, function()
             vim.wo.wrap           = false
             vim.wo.number         = false
             vim.wo.relativenumber = false
         end)
-        vim.api.nvim_set_current_win(source_win)
     end
 
     _interface_meta[buf] = { src_bufnr = src_bufnr, uri = uri, inst_name = inst_name }
@@ -1144,6 +1178,328 @@ local function _autowire_request(bufnr, command, label, retries, callback)
         end
         callback(result, client)
     end, bufnr)
+end
+
+-- ---------------------------------------------------------------------------
+-- Connect
+-- ---------------------------------------------------------------------------
+
+local function _float_select(items, opts, callback)
+    if #items == 0 then vim.schedule(function() callback(nil) end); return end
+    local title = opts.prompt or "Select:"
+    local fmt   = opts.format_item or tostring
+    local lines = {}
+    for i, item in ipairs(items) do
+        table.insert(lines, string.format(" %-3d %s", i, fmt(item)))
+    end
+    local width  = math.min(120, math.max(40, vim.o.columns - 20))
+    local height = math.min(20, math.max(3, #lines))
+    local row    = math.floor((vim.o.lines   - height) / 2)
+    local col    = math.floor((vim.o.columns - width)  / 2)
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_option(buf, "buftype",    "nofile")
+    vim.api.nvim_buf_set_option(buf, "bufhidden",  "wipe")
+    vim.api.nvim_buf_set_option(buf, "swapfile",   false)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    vim.api.nvim_buf_set_option(buf, "modifiable", false)
+    local win = vim.api.nvim_open_win(buf, true, {
+        relative  = "editor", row = row, col = col,
+        width = width, height = height,
+        style = "minimal", border = "rounded",
+        title = " " .. title .. " ", title_pos = "center",
+    })
+    local ns  = vim.api.nvim_create_namespace("lazyverilogpy_picker")
+    local cur = 1
+    local function hl()
+        vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
+        vim.api.nvim_buf_add_highlight(buf, ns, "CursorLine", cur - 1, 0, -1)
+        vim.api.nvim_win_set_cursor(win, { cur, 0 })
+    end
+    local function close()
+        if vim.api.nvim_win_is_valid(win) then vim.api.nvim_win_close(win, true) end
+    end
+    local ko = { noremap = true, silent = true, buffer = buf }
+    vim.keymap.set("n", "j",    function() cur = math.min(cur + 1, #items); hl() end, ko)
+    vim.keymap.set("n", "k",    function() cur = math.max(cur - 1, 1);      hl() end, ko)
+    vim.keymap.set("n", "<CR>", function()
+        local sel = items[cur]; close(); vim.schedule(function() callback(sel) end)
+    end, ko)
+    for _, key in ipairs({ "<Esc>", "q" }) do
+        vim.keymap.set("n", key, function()
+            close(); vim.schedule(function() callback(nil) end)
+        end, ko)
+    end
+    hl()
+end
+
+local function _float_input(opts, callback)
+    local prompt  = opts.prompt  or "Input:"
+    local default = opts.default or ""
+    local width   = math.min(80, math.max(30, vim.o.columns - 40))
+    local row     = math.floor((vim.o.lines   - 1) / 2)
+    local col     = math.floor((vim.o.columns - width) / 2)
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_option(buf, "buftype",   "nofile")
+    vim.api.nvim_buf_set_option(buf, "bufhidden", "wipe")
+    vim.api.nvim_buf_set_option(buf, "swapfile",  false)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, { default })
+    local win = vim.api.nvim_open_win(buf, true, {
+        relative  = "editor", row = row, col = col,
+        width = width, height = 1,
+        style = "minimal", border = "rounded",
+        title = " " .. prompt .. " ", title_pos = "center",
+    })
+    vim.cmd("startinsert!")
+    local function close()
+        if vim.api.nvim_win_is_valid(win) then vim.api.nvim_win_close(win, true) end
+    end
+    local ko = { noremap = true, silent = true, buffer = buf }
+    vim.keymap.set("i", "<CR>", function()
+        local text = vim.api.nvim_get_current_line()
+        close(); vim.cmd("stopinsert")
+        vim.schedule(function() callback(text ~= "" and text or nil) end)
+    end, ko)
+    for _, key in ipairs({ "<Esc>" }) do
+        vim.keymap.set({ "i", "n" }, key, function()
+            close(); vim.cmd("stopinsert")
+            vim.schedule(function() callback(nil) end)
+        end, ko)
+    end
+    _ = win  -- suppress unused warning
+end
+
+local function _connect_show_preview(preview, callback)
+    local lines = {}
+    local hl_map = {}
+
+    table.insert(lines, string.format("Connect: %s %s  (wire at %s)",
+        preview.wire_type or "", preview.wire_name or "", preview.lca_module or ""))
+    table.insert(lines, "")
+
+    for _, edit in ipairs(preview.edits or {}) do
+        local l = string.format("  %s:%d  %s", edit.file or "", edit.line or 0, edit.description or "")
+        table.insert(lines, l)
+        hl_map[#lines] = edit.is_warning and "DiagnosticWarn" or "DiagnosticOk"
+    end
+
+    for _, w in ipairs(preview.warnings or {}) do
+        table.insert(lines, "  [WARN] " .. w)
+        hl_map[#lines] = "DiagnosticWarn"
+    end
+
+    table.insert(lines, "")
+    table.insert(lines, "  [y] Apply    [n / Esc / q] Cancel")
+
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_option(buf, "buftype", "nofile")
+    vim.api.nvim_buf_set_option(buf, "bufhidden", "wipe")
+    vim.api.nvim_buf_set_option(buf, "swapfile", false)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    vim.api.nvim_buf_set_option(buf, "modifiable", false)
+
+    local width  = math.min(100, math.max(50, vim.o.columns - 20))
+    local height = math.min(30, #lines + 2)
+    local row    = math.floor((vim.o.lines   - height) / 2)
+    local col    = math.floor((vim.o.columns - width)  / 2)
+
+    local win = vim.api.nvim_open_win(buf, true, {
+        relative  = "editor",
+        row       = row,
+        col       = col,
+        width     = width,
+        height    = height,
+        style     = "minimal",
+        border    = "rounded",
+        title     = " Connect Preview ",
+        title_pos = "center",
+    })
+
+    local ns = vim.api.nvim_create_namespace("lazyverilogpy_connect")
+    for i, hl in pairs(hl_map) do
+        vim.api.nvim_buf_add_highlight(buf, ns, hl, i - 1, 0, -1)
+    end
+    vim.api.nvim_buf_add_highlight(buf, ns, "DiagnosticInfo", #lines - 1, 0, -1)
+
+    local function close_win()
+        if vim.api.nvim_win_is_valid(win) then
+            vim.api.nvim_win_close(win, true)
+        end
+    end
+
+    local opts = { noremap = true, silent = true }
+    vim.api.nvim_buf_set_keymap(buf, "n", "y", "", vim.tbl_extend("force", opts, {
+        callback = function() close_win(); callback(true) end,
+    }))
+    for _, key in ipairs({ "n", "<Esc>", "q" }) do
+        vim.api.nvim_buf_set_keymap(buf, "n", key, "", vim.tbl_extend("force", opts, {
+            callback = function() close_win(); callback(false) end,
+        }))
+    end
+end
+
+--- Connect an output port of module1 instances to an input port of module2 instances
+--- via interactive pickers and a floating preview.
+function M.connect(module1, module2)
+    if not module1 or module1 == "" or not module2 or module2 == "" then
+        vim.notify("[LazyVerilogPy] Usage: :Connect <module1> <module2>", vim.log.levels.ERROR)
+        return
+    end
+
+    local src_bufnr = vim.api.nvim_get_current_buf()
+    local uri = vim.uri_from_bufnr(src_bufnr)
+
+    local get_clients = vim.lsp.get_clients or vim.lsp.get_active_clients
+    local function _try_connect(retries)
+        local clients = get_clients({ bufnr = src_bufnr, name = "lazyverilogpy" })
+        local client = vim.tbl_filter(function(c) return c.name == "lazyverilogpy" end, clients)[1]
+        if not client then
+            if retries > 0 then
+                if _cfg then lsp.start(_cfg) end
+                vim.defer_fn(function() _try_connect(retries - 1) end, 500)
+            else
+                vim.notify("[LazyVerilogPy] no LSP client attached", vim.log.levels.WARN)
+            end
+            return
+        end
+
+        client.request("workspace/executeCommand", {
+            command   = "lazyverilogpy.connectInfo",
+            arguments = { uri },
+        }, function(err, data)
+            if err then
+                vim.notify("[LazyVerilogPy] Connect: " .. tostring(err.message), vim.log.levels.ERROR)
+                return
+            end
+            if not data or data.error then
+                vim.notify("[LazyVerilogPy] Connect: " .. (data and data.error or "no data"),
+                    vim.log.levels.ERROR)
+                return
+            end
+
+            local mods = data.modules or {}
+            if not mods[module1] then
+                vim.notify("[LazyVerilogPy] Connect: module '" .. module1 .. "' not found",
+                    vim.log.levels.ERROR); return
+            end
+            if not mods[module2] then
+                vim.notify("[LazyVerilogPy] Connect: module '" .. module2 .. "' not found",
+                    vim.log.levels.ERROR); return
+            end
+
+            local mod1 = mods[module1]
+            local mod2 = mods[module2]
+
+            vim.schedule(function()
+                -- Step 1: pick inst1
+                local insts1 = mod1.instances or {}
+                if #insts1 == 0 then
+                    vim.notify("[LazyVerilogPy] Connect: no instances of '" .. module1 .. "' found",
+                        vim.log.levels.ERROR); return
+                end
+                _float_select(insts1, {
+                    prompt      = "Select " .. module1 .. " instance:",
+                    format_item = function(it) return it.inst_name .. "  (" .. it.hierarchical_path .. ")" end,
+                }, function(inst1)
+                    if not inst1 then return end
+
+                    -- Step 2: pick output port
+                    local out_ports = vim.tbl_filter(
+                        function(p) return p.direction == "output" end, mod1.ports or {})
+                    if #out_ports == 0 then
+                        vim.notify("[LazyVerilogPy] Connect: no output ports on " .. module1,
+                            vim.log.levels.ERROR); return
+                    end
+                    _float_select(out_ports, {
+                        prompt      = "Select output port of " .. module1 .. ":",
+                        format_item = function(p) return p.name .. "  [" .. p.type_str .. "]" end,
+                    }, function(port1)
+                        if not port1 then return end
+
+                        -- Step 3: pick inst2
+                        local insts2 = mod2.instances or {}
+                        if #insts2 == 0 then
+                            vim.notify("[LazyVerilogPy] Connect: no instances of '" .. module2 .. "' found",
+                                vim.log.levels.ERROR); return
+                        end
+                        _float_select(insts2, {
+                            prompt      = "Select " .. module2 .. " instance:",
+                            format_item = function(it) return it.inst_name .. "  (" .. it.hierarchical_path .. ")" end,
+                        }, function(inst2)
+                            if not inst2 then return end
+
+                            -- Step 4: pick input port
+                            local in_ports = vim.tbl_filter(
+                                function(p) return p.direction == "input" end, mod2.ports or {})
+                            if #in_ports == 0 then
+                                vim.notify("[LazyVerilogPy] Connect: no input ports on " .. module2,
+                                    vim.log.levels.ERROR); return
+                            end
+                            _float_select(in_ports, {
+                                prompt      = "Select input port of " .. module2 .. ":",
+                                format_item = function(p) return p.name .. "  [" .. p.type_str .. "]" end,
+                            }, function(port2)
+                                if not port2 then return end
+
+                                -- Step 5: wire name
+                                _float_input({ prompt = "Wire name:" }, function(wire_name)
+                                    if not wire_name then return end
+
+                                    -- Step 6: preview
+                                    local apply_args = {
+                                        uri,
+                                        inst1.hierarchical_path,
+                                        port1.name,
+                                        inst2.hierarchical_path,
+                                        port2.name,
+                                        wire_name,
+                                    }
+                                    client.request("workspace/executeCommand", {
+                                        command   = "lazyverilogpy.connectApplyPreview",
+                                        arguments = apply_args,
+                                    }, function(perr, preview)
+                                        if perr then
+                                            vim.notify("[LazyVerilogPy] Connect: " .. tostring(perr.message),
+                                                vim.log.levels.ERROR); return
+                                        end
+                                        if not preview or preview.error then
+                                            vim.notify("[LazyVerilogPy] Connect: " ..
+                                                (preview and preview.error or "no preview"),
+                                                vim.log.levels.ERROR); return
+                                        end
+
+                                        vim.schedule(function()
+                                            _connect_show_preview(preview, function(confirmed)
+                                                if not confirmed then return end
+
+                                                -- Step 7: apply
+                                                client.request("workspace/executeCommand", {
+                                                    command   = "lazyverilogpy.connectApply",
+                                                    arguments = apply_args,
+                                                }, function(aerr, result)
+                                                    if aerr then
+                                                        vim.notify("[LazyVerilogPy] Connect apply: " ..
+                                                            tostring(aerr.message), vim.log.levels.ERROR); return
+                                                    end
+                                                    if result and result.error then
+                                                        vim.notify("[LazyVerilogPy] Connect: " .. result.error,
+                                                            vim.log.levels.ERROR); return
+                                                    end
+                                                    if result and result.changes then
+                                                        vim.lsp.util.apply_workspace_edit(result, "utf-8")
+                                                    end
+                                                end, src_bufnr)
+                                            end)
+                                        end)
+                                    end, src_bufnr)
+                                end)
+                            end)
+                        end)
+                    end)
+                end)
+            end)
+        end, src_bufnr)
+    end
+    _try_connect(3)
 end
 
 --- AutoWire: show a colored preview split, then prompt at cmdline with confirm().
