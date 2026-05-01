@@ -25,10 +25,10 @@ wrap_end_else_clauses = true
 [formatter.port_declaration]
 align = true
 section1_min_width = 6
-section2_min_width = 33
+section2_min_width = 20
 section3_min_width = 20
-section4_min_width = 30
-section5_min_width = 30
+section4_min_width = 20
+section5_min_width = 20
 
 [formatter.var_declaration]
 align = true
