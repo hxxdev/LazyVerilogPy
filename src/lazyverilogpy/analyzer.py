@@ -150,6 +150,7 @@ class Analyzer:
         self._defines: list[str] = []      # preprocessor defines passed to pyslang
         self._path_to_uri: dict[Path, str] = {}  # resolved path → open document URI
         self._extra_mtimes: dict = {}      # Path → float mtime at last disk read
+        self._extra_trees: dict[str, "pyslang.SyntaxTree"] = {}  # URI → cached SyntaxTree for extra files
 
     @staticmethod
     def _uri_to_path(uri: str) -> Path:
@@ -211,6 +212,7 @@ class Analyzer:
         """
         self._extra_files = list(paths)
         self._extra_mtimes.clear()
+        self._extra_trees.clear()
         for state in self._docs.values():
             self._parse(state)
 
@@ -310,6 +312,8 @@ class Analyzer:
                             extra_tree = pyslang.SyntaxTree.fromFile(str(path))
                         self._record_mtime(path)
                     compilation.addSyntaxTree(extra_tree)
+                    path_uri = str(path.as_uri())
+                    self._extra_trees[path_uri] = extra_tree
                 except Exception as exc:
                     logger.warning("Failed to add extra file %s: %s", path, exc)
             state.compilation = compilation
@@ -394,8 +398,11 @@ class Analyzer:
 
         results: list[SourceRange] = []
 
-        # Build list of (tree, file_uri, file_text) for all files to walk
-        trees_to_walk: list[tuple] = [(state.tree, uri, state.text)]
+        # Build list of (tree, file_uri, file_text, expected_fname) for all files to walk.
+        # expected_fname is the filename pyslang uses for tokens belonging to this file;
+        # tokens from `include'd files will have a different getFileName() and must be skipped.
+        buffer_fname: str = getattr(state, "tree_filename", None) or "buffer.sv"
+        trees_to_walk: list[tuple] = [(state.tree, uri, state.text, buffer_fname)]
 
         # Resolve buffer path to avoid duplicating it from extra_files
         buffer_path: Optional[Path] = None
@@ -415,14 +422,14 @@ class Analyzer:
                 tree, _ = self._get_tree_for_file(path_uri, file_text)
                 if tree is None:
                     continue
-                trees_to_walk.append((tree, path_uri, file_text))
+                trees_to_walk.append((tree, path_uri, file_text, str(self._uri_to_path(path_uri))))
             except Exception:
                 continue
 
         # Per-invocation cache: (target_name, cursor_module) -> SymbolInfo
         _verify_cache: dict[tuple[str, str], Optional[SymbolInfo]] = {}
 
-        for tree, file_uri, file_text in trees_to_walk:
+        for tree, file_uri, file_text, expected_fname in trees_to_walk:
             sm = tree.sourceManager
 
             _REF_KINDS = {
@@ -431,7 +438,7 @@ class Analyzer:
                 "TokenKind.Identifier",
             }
 
-            def _visit(node, _file_uri=file_uri, _file_text=file_text, _sm=sm) -> bool:
+            def _visit(node, _file_uri=file_uri, _file_text=file_text, _sm=sm, _expected_fname=expected_fname) -> bool:
                 try:
                     nk = str(node.kind)
                     if nk not in _REF_KINDS:
@@ -446,6 +453,15 @@ class Analyzer:
                         loc = node.location
                     else:
                         return True
+
+                    # Skip tokens that belong to `include'd files, not the file being walked.
+                    # getFileName returns a path relative to CWD; resolve both sides.
+                    try:
+                        if Path(_sm.getFileName(loc)).resolve() != Path(_expected_fname).resolve():
+                            return True
+                    except Exception:
+                        pass
+
                     t_line = max(_sm.getLineNumber(loc) - 1, 0)
                     t_col = max(_sm.getColumnNumber(loc) - 1, 0)
 
@@ -687,11 +703,13 @@ class Analyzer:
                         return None
             else:
                 # Cursor is at file scope (not inside any module).
-                # Module-local symbols cannot be the target; suppress them so
-                # struct fields / typedefs are preferred over module variables.
+                # Module-local/interface symbols (Variable, Net) cannot be the
+                # target.  If no non-local candidates exist, refuse to resolve.
                 non_local = [s for s in candidates if str(s.kind) not in _MODULE_LOCAL_KINDS]
                 if non_local:
                     candidates = non_local
+                else:
+                    return None
 
         best = min(candidates, key=lambda s: self._KIND_PRIORITY.get(str(s.kind), 50))
         return self._build_info(best, tree, state.uri)
@@ -1208,6 +1226,9 @@ class Analyzer:
         state = self._docs.get(file_uri)
         if state and state.tree:
             return state.tree, state.tree.sourceManager
+        cached = self._extra_trees.get(file_uri)
+        if cached is not None:
+            return cached, cached.sourceManager
         try:
             path_str = str(self._uri_to_path(file_uri))
             tree = pyslang.SyntaxTree.fromText(file_text, path_str)
