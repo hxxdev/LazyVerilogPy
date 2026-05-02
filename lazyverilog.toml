@@ -1,5 +1,5 @@
 [design]
-vcode = "tests/demo/vcode.f"
+vcode = "demo/vcode.f"
 define = ["RTL_SIM"]   # preprocessor defines passed to pyslang for AST parsing
 
 [lint]
