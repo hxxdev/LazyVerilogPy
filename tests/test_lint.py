@@ -4,7 +4,10 @@ from lazyverilogpy.lint import (
     LintConfig,
     NamingConfig,
     PortStyleConfig,
-    AlwaysBlockConfig,
+    ModuleConfig,
+    StatementConfig,
+    FunctionConfig,
+    DesignConfig,
     run_lint,
 )
 from lazyverilogpy.analyzer import Analyzer
@@ -29,7 +32,10 @@ class TestLintConfig:
         cfg = LintConfig()
         assert not cfg.naming.enable
         assert not cfg.port_style.enable
-        assert not cfg.always_block.enable
+        assert not cfg.module.enable
+        assert not cfg.statement.enable
+        assert not cfg.function.enable
+        assert not cfg.design.enable
 
     def test_from_dict_empty(self):
         cfg = LintConfig.from_dict({})
@@ -160,46 +166,24 @@ class TestPortStyleRule:
 
 
 # ---------------------------------------------------------------------------
-# Always block rule
+# Statement rule (replaces always_block)
 # ---------------------------------------------------------------------------
 
 
-class TestAlwaysBlockRule:
-    def test_ff_with_reset_no_violation(self):
-        source = """
-module t (input logic clk, input logic rst_n, output logic q);
-    always_ff @(posedge clk) begin
-        if (!rst_n) q <= 1'b0;
-        else q <= 1'b1;
-    end
-endmodule
-"""
-        state = _make_state(source)
-        cfg = LintConfig.from_dict({"always_block": {"enable": True, "require_ff_reset": True}})
+class TestStatementRule:
+    def test_no_raw_always_violation(self):
+        state = _make_state("module foo; always @(posedge clk) begin end endmodule")
+        cfg = LintConfig.from_dict({"statement": {"enable": True, "no_raw_always": True}})
         diags = run_lint(state, cfg)
-        assert not any("reset" in d.message.lower() for d in diags)
+        assert any("raw always" in d.message.lower() for d in diags)
 
-    def test_ff_without_reset_violation(self):
-        source = """
-module t (input logic clk, output logic q);
-    always_ff @(posedge clk) begin
-        q <= 1'b0;
-    end
-endmodule
-"""
-        state = _make_state(source)
-        cfg = LintConfig.from_dict({"always_block": {"enable": True, "require_ff_reset": True}})
+    def test_no_raw_always_pass(self):
+        state = _make_state("module foo; always_ff @(posedge clk) begin end endmodule")
+        cfg = LintConfig.from_dict({"statement": {"enable": True, "no_raw_always": True}})
         diags = run_lint(state, cfg)
-        assert any("reset" in d.message.lower() for d in diags)
+        assert not any("raw always" in d.message.lower() for d in diags)
 
     def test_disabled_no_violation(self):
-        source = """
-module t (input logic clk, output logic q);
-    always_ff @(posedge clk) begin
-        q <= 1'b0;
-    end
-endmodule
-"""
-        state = _make_state(source)
+        state = _make_state("module foo; always @(posedge clk) begin end endmodule")
         cfg = LintConfig()
         assert run_lint(state, cfg) == []
