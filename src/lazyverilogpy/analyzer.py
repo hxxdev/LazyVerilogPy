@@ -359,6 +359,150 @@ class Analyzer:
             return info.definition_range
         return None
 
+    def find_references(
+        self,
+        uri: str,
+        line: int,
+        character: int,
+        include_declaration: bool = True,
+    ) -> list[SourceRange]:
+        state = self._docs.get(uri)
+        if state is None or state.compilation is None or state.tree is None:
+            return []
+
+        target_info = self.symbol_at(uri, line, character)
+        if target_info is None or target_info.definition_range is None:
+            return []
+
+        target_name = target_info.name
+        target_def = target_info.definition_range
+
+        # Determine the module scope of both cursor and target definition.
+        # If they disagree (e.g. cursor is on a struct field at file scope but
+        # _find_symbol resolved to a module-scoped variable of the same name),
+        # the resolution is ambiguous — return nothing rather than wrong results.
+        _target_text = state.text
+        if target_def.uri and target_def.uri != uri:
+            _target_text = self._get_file_text(target_def.uri) or state.text
+        target_module = Analyzer._module_at_line(_target_text, target_def.start.line)
+        cursor_ctx_module = Analyzer._module_at_line(state.text, line)
+        # Only enforce module-scope matching when the target is module-scoped.
+        # File-scope targets (struct fields, typedefs) can be referenced from inside
+        # any module, so skip the guard when target_module is empty.
+        if target_module and cursor_ctx_module != target_module:
+            return []
+
+        results: list[SourceRange] = []
+
+        # Build list of (tree, file_uri, file_text) for all files to walk
+        trees_to_walk: list[tuple] = [(state.tree, uri, state.text)]
+
+        # Resolve buffer path to avoid duplicating it from extra_files
+        buffer_path: Optional[Path] = None
+        try:
+            buffer_path = self._uri_to_path(uri)
+        except Exception:
+            pass
+
+        for path in self._extra_files:
+            try:
+                if buffer_path is not None and path == buffer_path:
+                    continue
+                path_uri = str(path.as_uri())
+                file_text = self._get_file_text(path_uri)
+                if file_text is None:
+                    continue
+                tree, _ = self._get_tree_for_file(path_uri, file_text)
+                if tree is None:
+                    continue
+                trees_to_walk.append((tree, path_uri, file_text))
+            except Exception:
+                continue
+
+        # Per-invocation cache: (target_name, cursor_module) -> SymbolInfo
+        _verify_cache: dict[tuple[str, str], Optional[SymbolInfo]] = {}
+
+        for tree, file_uri, file_text in trees_to_walk:
+            sm = tree.sourceManager
+
+            _REF_KINDS = {
+                "SyntaxKind.IdentifierName",
+                "SyntaxKind.Declarator",
+                "TokenKind.Identifier",
+            }
+
+            def _visit(node, _file_uri=file_uri, _file_text=file_text, _sm=sm) -> bool:
+                try:
+                    nk = str(node.kind)
+                    if nk not in _REF_KINDS:
+                        return True
+                    if str(node).strip() != target_name:
+                        return True
+
+                    # Tokens use .location; syntax nodes use .sourceRange.start
+                    if hasattr(node, "sourceRange"):
+                        loc = node.sourceRange.start
+                    elif hasattr(node, "location"):
+                        loc = node.location
+                    else:
+                        return True
+                    t_line = max(_sm.getLineNumber(loc) - 1, 0)
+                    t_col = max(_sm.getColumnNumber(loc) - 1, 0)
+
+                    cursor_module = Analyzer._module_at_line(_file_text, t_line)
+                    # Token outside any module scope cannot reference a module-scoped symbol
+                    if not cursor_module and target_module:
+                        return True
+
+                    # Verify token refers to same symbol via semantic resolution.
+                    cache_key = (target_name, cursor_module)
+                    if cache_key in _verify_cache:
+                        candidate_info = _verify_cache[cache_key]
+                    else:
+                        candidate_info = self._find_symbol_with_text(
+                            state, target_name, _file_uri, _file_text, cursor_line=t_line
+                        )
+                        _verify_cache[cache_key] = candidate_info
+                    if candidate_info is None or candidate_info.definition_range is None:
+                        return True
+                    cd = candidate_info.definition_range
+                    td = target_def
+                    if not (cd.start.line == td.start.line
+                            and cd.start.character == td.start.character
+                            and cd.uri == td.uri):
+                        return True
+
+                    results.append(SourceRange(
+                        start=SourcePos(line=t_line, character=t_col),
+                        end=SourcePos(line=t_line, character=t_col + len(target_name)),
+                        uri=_file_uri,
+                    ))
+                except Exception:
+                    pass
+                return True
+
+            try:
+                tree.root.visit(_visit)
+            except Exception:
+                continue
+
+        if not include_declaration:
+            def _is_decl(r: SourceRange) -> bool:
+                return (r.start.line == target_def.start.line
+                        and r.start.character == target_def.start.character
+                        and r.uri == target_def.uri)
+            results = [r for r in results if not _is_decl(r)]
+
+        seen: set = set()
+        deduped = []
+        for r in results:
+            key = (r.uri, r.start.line, r.start.character)
+            if key not in seen:
+                seen.add(key)
+                deduped.append(r)
+        deduped.sort(key=lambda r: (r.uri, r.start.line, r.start.character))
+        return deduped
+
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
@@ -386,6 +530,20 @@ class Analyzer:
         r"`define\s+(\w+)(?:\([^)]*\))?\s*((?:[^\n]*\\\n)*[^\n]*)",
         re.MULTILINE,
     )
+
+    # Prefer definitions over usages when multiple candidates share a name.
+    # Lower number = higher priority.
+    _KIND_PRIORITY: dict[str, int] = {
+        "SymbolKind.Port": 0,
+        "SymbolKind.InstanceBody": 1,   # module body = where module is declared
+        "SymbolKind.Subroutine": 2,     # function / task definition
+        "SymbolKind.Package": 3,
+        "SymbolKind.TypeAlias": 4,      # typedef declaration
+        "SymbolKind.Variable": 5,
+        "SymbolKind.Net": 6,
+        "SymbolKind.FormalArgument": 7,
+        "SymbolKind.Instance": 99,      # instantiation site, not definition
+    }
 
     @staticmethod
     def _find_macro(text: str, name: str, cursor_line: int, uri: str, tree=None) -> Optional["SymbolInfo"]:
@@ -500,23 +658,10 @@ class Analyzer:
         if not candidates:
             return None
 
-        # Prefer definitions over usages when multiple candidates share a name.
-        # Lower number = higher priority.
-        _KIND_PRIORITY: dict[str, int] = {
-            "SymbolKind.Port": 0,
-            "SymbolKind.InstanceBody": 1,   # module body = where module is declared
-            "SymbolKind.Subroutine": 2,     # function / task definition
-            "SymbolKind.Package": 3,
-            "SymbolKind.TypeAlias": 4,      # typedef declaration
-            "SymbolKind.Variable": 5,
-            "SymbolKind.Net": 6,
-            "SymbolKind.FormalArgument": 7,
-            "SymbolKind.Instance": 99,      # instantiation site, not definition
-        }
-
         # When cursor line is known, scope Variable/Net candidates to the
         # module that contains the cursor.  This prevents cross-module leakage
         # when two modules have identically-named local signals.
+        _MODULE_LOCAL_KINDS = {"SymbolKind.Variable", "SymbolKind.Net"}
         if cursor_line >= 0:
             cursor_module = self._module_at_line(state.text, cursor_line)
             if cursor_module:
@@ -535,14 +680,85 @@ class Analyzer:
                     # kinds (typedefs, subroutines, packages) that are legitimately
                     # cross-scope.  Suppress Variable/Net — they belong to a module
                     # scope and finding one from a different module is misleading.
-                    _MODULE_LOCAL_KINDS = {"SymbolKind.Variable", "SymbolKind.Net"}
                     cross_scope = [s for s in candidates if str(s.kind) not in _MODULE_LOCAL_KINDS]
                     if cross_scope:
                         candidates = cross_scope
                     else:
                         return None
+            else:
+                # Cursor is at file scope (not inside any module).
+                # Module-local symbols cannot be the target; suppress them so
+                # struct fields / typedefs are preferred over module variables.
+                non_local = [s for s in candidates if str(s.kind) not in _MODULE_LOCAL_KINDS]
+                if non_local:
+                    candidates = non_local
 
-        best = min(candidates, key=lambda s: _KIND_PRIORITY.get(str(s.kind), 50))
+        best = min(candidates, key=lambda s: self._KIND_PRIORITY.get(str(s.kind), 50))
+        return self._build_info(best, tree, state.uri)
+
+    def _find_symbol_with_text(
+        self,
+        state: DocumentState,
+        name: str,
+        file_uri: str,
+        file_text: str,
+        cursor_line: int = -1,
+    ) -> Optional[SymbolInfo]:
+        """Like _find_symbol but uses file_text (not state.text) for _module_at_line.
+
+        Required for cross-file reference verification: state.text is the buffer file,
+        but the candidate token may be in an extra file with different content.
+        """
+        compilation = state.compilation
+        tree = state.tree
+        if compilation is None or tree is None:
+            return None
+
+        candidates: list = []
+
+        def _collect(sym) -> bool:
+            try:
+                if sym.name == name:
+                    candidates.append(sym)
+            except Exception:
+                pass
+            return True
+
+        try:
+            compilation.getRoot().visit(_collect)
+        except Exception:
+            return None
+
+        if not candidates:
+            return None
+
+        _MODULE_LOCAL_KINDS = {"SymbolKind.Variable", "SymbolKind.Net"}
+        if cursor_line >= 0:
+            cursor_module = self._module_at_line(file_text, cursor_line)
+            if cursor_module:
+                def _sym_module(sym) -> str:
+                    try:
+                        path = str(sym.hierarchicalPath)
+                        return path.split(".")[0]
+                    except Exception:
+                        return ""
+
+                local = [s for s in candidates if _sym_module(s) == cursor_module]
+                if local:
+                    candidates = local
+                else:
+                    cross_scope = [s for s in candidates if str(s.kind) not in _MODULE_LOCAL_KINDS]
+                    if cross_scope:
+                        candidates = cross_scope
+                    else:
+                        return None
+            else:
+                # Cursor at file scope: suppress module-local symbols.
+                non_local = [s for s in candidates if str(s.kind) not in _MODULE_LOCAL_KINDS]
+                if non_local:
+                    candidates = non_local
+
+        best = min(candidates, key=lambda s: self._KIND_PRIORITY.get(str(s.kind), 50))
         return self._build_info(best, tree, state.uri)
 
     @staticmethod

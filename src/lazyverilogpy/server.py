@@ -19,6 +19,7 @@ from .autowire import AutowireOptions, autowire
 from .definition import provide_definition
 from .formatter import FormatOptions, format_source
 from .hover import provide_hover
+from .references import provide_references
 from .lint import LintConfig, run_lint
 
 try:
@@ -405,6 +406,22 @@ def definition(
     except Exception as exc:
         logger.error("definition error: %s", exc, exc_info=True)
         return None
+
+
+# ---------------------------------------------------------------------------
+# Find references
+# ---------------------------------------------------------------------------
+
+
+@server.feature(types.TEXT_DOCUMENT_REFERENCES)
+def references(
+    ls: LanguageServer, params: types.ReferenceParams
+) -> list[types.Location]:
+    try:
+        return provide_references(analyzer, params)
+    except Exception as exc:
+        logger.error("references error: %s", exc, exc_info=True)
+        return []
 
 
 # ---------------------------------------------------------------------------
