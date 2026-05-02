@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-# tests/demo
+# demo
 
 Manual testing fixtures for live Neovim plugin development.
 
