@@ -1129,15 +1129,12 @@ def execute_lint(ls: LanguageServer, *args) -> Optional[list[dict]]:
 
                 path_str = str(path)
 
-                logger.debug(f"compile_diags:{compile_diags}")
                 # Compile diagnostics for this file
                 for d in compile_diags:
                     try:
                         loc = d.location
-                        # if str(shared_sm.getFileName(loc)) != path_str:
-                        #     logger.debug(f"failed to add {str(shared_sm.getFileName(loc))} {path_str}")
-                        #     continue
-                        logger.debug(f"succeed to add")
+                        if str(shared_sm.getFileName(loc)) != path_str:
+                            continue
                         line = max(shared_sm.getLineNumber(loc) - 1, 0)
                         col = max(shared_sm.getColumnNumber(loc) - 1, 0)
                         results.append({

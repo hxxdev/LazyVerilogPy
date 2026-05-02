@@ -177,11 +177,18 @@ class Analyzer:
         state.text = _apply_change(state.text, change)
         state._offset_map.clear()
         self._parse(state)
-        # Re-parse other open documents so they pick up the new content of this file
-        # (relevant when this file is part of another document's extra-files compilation).
-        for other_uri, other_state in self._docs.items():
-            if other_uri != uri:
-                self._parse(other_state)
+        # Re-parse other open documents only if the changed file is part of the
+        # extra-files compilation — avoids unnecessary re-parsing on every keystroke.
+        try:
+            changed_path = self._uri_to_path(uri)
+            affects_others = changed_path in self._extra_files
+        except Exception:
+            affects_others = True  # safe fallback
+
+        if affects_others:
+            for other_uri, other_state in self._docs.items():
+                if other_uri != uri:
+                    self._parse(other_state)
 
     def close(self, uri: str) -> None:
         try:
