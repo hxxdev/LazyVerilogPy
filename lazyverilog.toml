@@ -11,19 +11,44 @@ severity = "warning"          # "warning" | "error" | "hint"
 module_pattern = "^[a-z_]+$" # regex; empty = skip
 input_port_pattern = "^i_.*$"  # regex; empty = skip
 output_port_pattern = "^o_.*$" # regex; empty = skip
-signal_pattern = ""           # regex for internal logic/wire/var; empty = skip
+signal_pattern = "^(?!q_).*"           # regex for internal logic/wire/var; empty = skip
+interface_pattern = ".*_intf$"        # regex for interface names; empty = skip
+struct_pattern = ".*_t$"           # regex for struct names; empty = skip
+union_pattern = ".*_u$"            # regex for union names; empty = skip
+enum_pattern = ""             # regex for enum names; empty = skip
+parameter_pattern = "^W_.*$"        # regex for parameter names; empty = skip
+localparam_pattern = "^LP_.*$"       # regex for localparam names; empty = skip
+check_module_filename = false # check that module name matches filename
+check_package_filename = false # check that package name matches filename
 
-[lint.port_style]
+[lint.module]
 enable = true
-severity = "warning"
-require_ansi = true           # flag modules with non-ANSI port declaration style
+severity = "warning"          # "warning" | "error" | "hint"
+one_module_per_file = false   # check that at most one module is declared per file
+module_instantiation_style = ""  # "positional", "named", or "both"
 
-[lint.always_block]
+[lint.statement]
 enable = true
-severity = "error"
-require_ff_reset = true       # flag always_ff blocks with no conditional reset check
-no_comb_latches = true        # flag always_comb blocks with if-without-else (latch risk)
-require_explicit_sensitivity = false  # reserved; not yet enforced
+severity = "warning"          # "warning" | "error" | "hint"
+no_raw_always = false         # check that there are no occurrences of raw always
+blocking_nonblocking_assignments = false  # check blocking vs non-blocking assignments
+latch_inference_detection = false         # check for latch inference
+case_missing_default = false              # check that default case-item is always defined
+explicit_begin = false              # check that Verilog begin directive follows all applicable statements
+
+[lint.function]
+enable = true
+severity = "warning"          # "warning" | "error" | "hint"
+functions_automatic = false   # functions should be automatic type
+function_call_style = ""      # "positional", "named", or "both"
+function_return_type = ""     # comma-separated list of allowed return types or empty for all
+explicit_function_lifetime = false  # check that functions have explicit lifetime (static/automatic)
+explicit_task_lifetime = false    # check that tasks have explicit lifetime (static/automatic)
+
+[lint.design]
+enable = true
+severity = "warning"          # "warning" | "error" | "hint"
+max_file_size = 0             # file size limit in bytes (0 = no limit)
 
 [rtltree]
 show_instance_name = true   # show "cpu (u_cpu)" instead of just "cpu"
