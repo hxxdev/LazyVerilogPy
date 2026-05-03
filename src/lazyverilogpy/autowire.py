@@ -530,8 +530,8 @@ class _SignalDecl:
 
 def _extract_instantiation_signals(
     source: str, compilation, tree
-) -> list[tuple[str, str, str, int]]:
-    """Extract (signal_name, module_name, dimension, first_seen_order) from port connections.
+) -> list[tuple[str, str, str, str, int]]:
+    """Extract (signal_name, module_name, type_kw, dimension, first_seen_order) from port connections.
 
     Only includes output/inout ports connected to simple identifiers.
     """
@@ -576,8 +576,8 @@ def _extract_instantiation_signals(
         except Exception:
             continue
 
-        # Build port info: port_name -> (direction, dimension)
-        port_info: dict[str, tuple[str, str]] = {}
+        # Build port info: port_name -> (direction, type_kw, dimension)
+        port_info: dict[str, tuple[str, str, str]] = {}
         try:
             for port in body.portList:
                 try:
@@ -589,12 +589,20 @@ def _extract_instantiation_signals(
 
                     # Skip typedef/interface ports (ErrorType in pyslang)
                     if "Error" in type_kind:
-                        port_info[port.name] = ("skip", "")
+                        port_info[port.name] = ("skip", "", "")
                         continue
 
                     dim_match = re.search(r"(\[.+\])", type_str)
                     dimension = dim_match.group(1) if dim_match else ""
-                    port_info[port.name] = (direction, dimension)
+                    if dim_match:
+                        base = type_str[: dim_match.start()].strip()
+                    else:
+                        base = type_str.strip()
+                    base = re.sub(r"\b(signed|unsigned|logic|wire|reg|bit|tri)\b", "", base).strip()
+                    # Strip scope prefix (e.g. "pkg::t" → "t", "mod.t" → "t")
+                    base = re.split(r"[.:]", base)[-1].strip()
+                    type_kw = base if base else "logic"
+                    port_info[port.name] = (direction, type_kw, dimension)
                 except Exception:
                     continue
         except Exception:
@@ -623,7 +631,7 @@ def _extract_instantiation_signals(
                 continue
 
             if port_name in port_info:
-                direction, dimension = port_info[port_name]
+                direction, type_kw, dimension = port_info[port_name]
                 if direction == "In":
                     continue  # input — already driven
                 if direction == "skip":
@@ -634,11 +642,12 @@ def _extract_instantiation_signals(
                     port_name,
                     module_name,
                 )
+                type_kw = "logic"
                 dimension = ""
 
             if signal_expr not in seen:
                 seen.add(signal_expr)
-                results.append((signal_expr, module_name, dimension, order_counter))
+                results.append((signal_expr, module_name, type_kw, dimension, order_counter))
                 order_counter += 1
 
     return results
@@ -1250,17 +1259,17 @@ def autowire(
                 )
             )
 
-    for sig_name, module_name, dimension, _ in inst_signals:
+    for sig_name, module_name, type_kw, dimension, _ in inst_signals:
         if sig_name in seen:
             continue
         seen.add(sig_name)
         if sig_name in declared:
-            _check_update(sig_name, "logic", dimension)
+            _check_update(sig_name, type_kw, dimension)
             continue
         all_decls.append(
             _SignalDecl(
                 name=sig_name,
-                type_kw="logic",
+                type_kw=type_kw,
                 dimension=dimension,
                 instance_module=module_name,
                 order=order,

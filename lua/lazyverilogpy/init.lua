@@ -156,65 +156,6 @@ function M.get_config()
     return _cfg
 end
 
---- Expand the module instantiation under the cursor into full port connections.
---- Called by the AutoInst() Vimscript function.
----@param _mode integer  reserved (0 = default, future: prefix/suffix modes)
-local function _send_command(bufnr, command, uri, line, character, label)
-    local get_clients = vim.lsp.get_clients or vim.lsp.get_active_clients
-    local clients = get_clients({ bufnr = bufnr, name = "lazyverilogpy" })
-    if #clients == 0 then
-        vim.notify("[LazyVerilogPy] no LSP client attached", vim.log.levels.WARN)
-        return
-    end
-    local client = vim.tbl_filter(function(c) return c.name == "lazyverilogpy" end, clients)[1]
-    client.request("workspace/executeCommand", {
-        command = command,
-        arguments = { uri, line, character },
-    }, function(err, result)
-        if err then
-            vim.notify("[LazyVerilogPy] " .. label .. ": " .. tostring(err.message), vim.log.levels.ERROR)
-            return
-        end
-        if result then
-            vim.lsp.util.apply_workspace_edit(result, client.offset_encoding)
-        end
-    end, bufnr)
-end
-
-local function _with_client(bufnr, uri, line, character, command, label, retries)
-    local get_clients = vim.lsp.get_clients or vim.lsp.get_active_clients
-    local clients = get_clients({ bufnr = bufnr, name = "lazyverilogpy" })
-    if #clients == 0 then
-        if retries > 0 then
-            -- LSP may still be initializing — start it if needed and retry.
-            if _cfg then lsp.start(_cfg) end
-            vim.defer_fn(function()
-                _with_client(bufnr, uri, line, character, command, label, retries - 1)
-            end, 500)
-        else
-            vim.notify("[LazyVerilogPy] no LSP client attached", vim.log.levels.WARN)
-        end
-        return
-    end
-    local client = vim.tbl_filter(function(c) return c.name == "lazyverilogpy" end, clients)[1]
-    client.request("workspace/executeCommand", {
-        command = command,
-        arguments = { uri, line, character },
-    }, function(err, result)
-        if err then
-            vim.notify("[LazyVerilogPy] " .. label .. ": " .. tostring(err.message), vim.log.levels.ERROR)
-            return
-        end
-        if result then
-            if result.error then
-                vim.notify("[LazyVerilogPy] " .. result.error, vim.log.levels.WARN)
-            else
-                vim.lsp.util.apply_workspace_edit(result, client.offset_encoding)
-            end
-        end
-    end, bufnr)
-end
-
 -- ---------------------------------------------------------------------------
 -- RtlTree helpers
 -- ---------------------------------------------------------------------------
@@ -470,43 +411,6 @@ function M.rtltreereverse()
     local cmd = "lazyverilogpy.rtlTreeReverse"
     _rtltree.command = cmd
     _rtltree_request(vim.api.nvim_get_current_buf(), cmd, 3)
-end
-
--- ---------------------------------------------------------------------------
--- autoinst / autoarg
--- ---------------------------------------------------------------------------
-
-function M.autoinst(_mode)
-    local bufnr = vim.api.nvim_get_current_buf()
-    local cursor = vim.api.nvim_win_get_cursor(0)
-    local uri = vim.uri_from_bufnr(bufnr)
-    local line = cursor[1] - 1 -- LSP uses 0-indexed lines
-    local character = cursor[2]
-    _with_client(bufnr, uri, line, character, "lazyverilogpy.autoInst", "AutoInst", 3)
-end
-
---- Replace the module header port list with signal names from port declarations.
---- Called by the AutoArg() Vimscript function.
-function M.autoarg()
-    local bufnr = vim.api.nvim_get_current_buf()
-    local cursor = vim.api.nvim_win_get_cursor(0)
-    local uri = vim.uri_from_bufnr(bufnr)
-    local line = cursor[1] - 1 -- LSP uses 0-indexed lines
-    local character = cursor[2]
-    _with_client(bufnr, uri, line, character, "lazyverilogpy.autoArg", "AutoArg", 3)
-end
-
--- ---------------------------------------------------------------------------
--- autofunc / autotask
--- ---------------------------------------------------------------------------
-
-function M.autofunc()
-    local bufnr = vim.api.nvim_get_current_buf()
-    local cursor = vim.api.nvim_win_get_cursor(0)
-    local uri = vim.uri_from_bufnr(bufnr)
-    local line = cursor[1] - 1 -- LSP uses 0-indexed lines
-    local character = cursor[2]
-    _with_client(bufnr, uri, line, character, "lazyverilogpy.autofunc", "AutoFunc", 3)
 end
 
 -- ---------------------------------------------------------------------------
@@ -1232,6 +1136,82 @@ local function _autowire_request(bufnr, command, label, retries, callback)
     end, bufnr)
 end
 
+--- AutoWire: show a floating preview window; [y] applies, [n/Esc/q] cancels.
+function M.autowire()
+    local src_bufnr = vim.api.nvim_get_current_buf()
+    _autowire_request(src_bufnr, "lazyverilogpy.autowirepreview", "AutoWire", 3, function(result, _client)
+        if not result or #result == 0 then
+            vim.notify("[LazyVerilogPy] AutoWire: nothing to add or update", vim.log.levels.INFO)
+            return
+        end
+        vim.schedule(function()
+            local hint = "  [y] Apply  [n/Esc/q] Cancel"
+            local lines = vim.list_extend(vim.deepcopy(result), { "", hint })
+
+            local width  = math.min(120, math.max(50, vim.o.columns - 20))
+            local height = math.min(40, math.max(5, #lines))
+            local row    = math.floor((vim.o.lines   - height) / 2)
+            local col    = math.floor((vim.o.columns - width)  / 2)
+
+            local buf = vim.api.nvim_create_buf(false, true)
+            vim.api.nvim_buf_set_option(buf, "buftype",    "nofile")
+            vim.api.nvim_buf_set_option(buf, "bufhidden",  "wipe")
+            vim.api.nvim_buf_set_option(buf, "buflisted",  false)
+            vim.api.nvim_buf_set_option(buf, "swapfile",   false)
+            vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+            vim.api.nvim_buf_set_option(buf, "modifiable", false)
+
+            local win = vim.api.nvim_open_win(buf, true, {
+                relative  = "editor",
+                row       = row,
+                col       = col,
+                width     = width,
+                height    = height,
+                style     = "minimal",
+                border    = "rounded",
+                title     = " AutoWire Preview ",
+                title_pos = "center",
+            })
+
+            -- Syntax highlights
+            local ns = vim.api.nvim_create_namespace("lazyverilogpy_autowire")
+            local section_hl = {
+                ["Will add:"]      = "DiagnosticOk",
+                ["Will update:"]   = "DiagnosticWarn",
+                ["Failed to add:"] = "DiagnosticError",
+            }
+            for i, line in ipairs(result) do
+                local hl = section_hl[vim.trim(line)]
+                if hl then
+                    vim.api.nvim_buf_add_highlight(buf, ns, hl, i - 1, 0, -1)
+                end
+            end
+            vim.api.nvim_buf_add_highlight(buf, ns, "DiagnosticInfo", #lines - 1, 0, -1)
+
+            local function close()
+                if vim.api.nvim_win_is_valid(win) then
+                    vim.api.nvim_win_close(win, true)
+                end
+            end
+
+            local function apply()
+                close()
+                _autowire_request(src_bufnr, "lazyverilogpy.autowire", "AutoWire", 3, function(edit, client)
+                    if edit then
+                        vim.lsp.util.apply_workspace_edit(edit, client.offset_encoding)
+                    end
+                end)
+            end
+
+            local ko = { noremap = true, silent = true, buffer = buf }
+            vim.keymap.set("n", "y",     apply, ko)
+            vim.keymap.set("n", "n",     close, ko)
+            vim.keymap.set("n", "<Esc>", close, ko)
+            vim.keymap.set("n", "q",     close, ko)
+        end)
+    end)
+end
+
 -- ---------------------------------------------------------------------------
 -- Connect
 -- ---------------------------------------------------------------------------
@@ -1552,65 +1532,6 @@ function M.connect(module1, module2)
         end, src_bufnr)
     end
     _try_connect(3)
-end
-
---- AutoWire: show a colored preview split, then prompt at cmdline with confirm().
-function M.autowire()
-    local src_bufnr = vim.api.nvim_get_current_buf()
-    _autowire_request(src_bufnr, "lazyverilogpy.autowirepreview", "AutoWire", 3, function(result, _client)
-        if not result or #result == 0 then
-            vim.notify("[LazyVerilogPy] AutoWire: nothing to add or update", vim.log.levels.INFO)
-            return
-        end
-        vim.schedule(function()
-            -- Build and open preview buffer.
-            local buf = vim.api.nvim_create_buf(false, true)
-            pcall(vim.api.nvim_buf_set_name, buf, "AutoWire Preview")
-            vim.api.nvim_buf_set_option(buf, "buftype", "nofile")
-            vim.api.nvim_buf_set_option(buf, "bufhidden", "wipe")
-            vim.api.nvim_buf_set_option(buf, "buflisted", false)
-            vim.api.nvim_buf_set_option(buf, "swapfile", false)
-            vim.api.nvim_buf_set_lines(buf, 0, -1, false, result)
-            vim.api.nvim_buf_set_option(buf, "modifiable", false)
-            vim.api.nvim_buf_set_option(buf, "readonly", true)
-            vim.cmd("vsplit")
-            local preview_win = vim.api.nvim_get_current_win()
-            vim.api.nvim_win_set_buf(preview_win, buf)
-
-            -- Apply colors to section headers.
-            local ns = vim.api.nvim_create_namespace("lazyverilogpy_autowire")
-            local section_hl = {
-                ["Will add:"]        = "DiagnosticOk",
-                ["Will update:"]     = "DiagnosticWarn",
-                ["Failed to add:"]   = "DiagnosticError",
-            }
-            for i, line in ipairs(result) do
-                local hl = section_hl[vim.trim(line)]
-                if hl then
-                    vim.api.nvim_buf_add_highlight(buf, ns, hl, i - 1, 0, -1)
-                end
-            end
-
-            local function close_preview()
-                if vim.api.nvim_buf_is_valid(buf) then
-                    vim.api.nvim_buf_delete(buf, { force = true })
-                end
-            end
-
-            -- Force redraw so the vsplit is visible before the cmdline prompt.
-            vim.cmd("redraw")
-            -- Prompt at cmdline; user can read the preview while answering.
-            local ans = vim.fn.input("Apply AutoWire? [Y]es/[N]o: ")
-            close_preview()
-            if ans:lower():sub(1, 1) == "y" then
-                _autowire_request(src_bufnr, "lazyverilogpy.autowire", "AutoWire", 3, function(edit, client)
-                    if edit then
-                        vim.lsp.util.apply_workspace_edit(edit, client.offset_encoding)
-                    end
-                end)
-            end
-        end)
-    end)
 end
 
 --- Internal: request lint results and populate quickfix.

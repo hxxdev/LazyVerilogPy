@@ -86,10 +86,14 @@ def _scan_port_names(text: str, mod_line: int) -> list[str]:
 @dataclass
 class AutoargOptions:
     indent_size: int = 2
+    autoarg_on_save: bool = False
 
     @classmethod
     def from_dict(cls, d: dict) -> "AutoargOptions":
-        return cls(indent_size=int(d.get("indent_size", 2)))
+        return cls(
+            indent_size=int(d.get("indent_size", 2)),
+            autoarg_on_save=bool(d.get("on_save", False)),
+        )
 
 
 

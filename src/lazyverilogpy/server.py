@@ -546,7 +546,6 @@ def range_formatting(
 AUTOINST_COMMAND = "lazyverilogpy.autoInst"
 
 
-@server.command(AUTOINST_COMMAND)
 def execute_autoinst(
     ls: LanguageServer, *args
 ) -> Optional[types.WorkspaceEdit]:
@@ -587,7 +586,6 @@ def execute_autoinst(
 AUTOARG_COMMAND = "lazyverilogpy.autoArg"
 
 
-@server.command(AUTOARG_COMMAND)
 def execute_autoarg(
     ls: LanguageServer, *args
 ) -> Optional[types.WorkspaceEdit]:
@@ -706,12 +704,10 @@ def execute_autowire_preview(ls: LanguageServer, *args) -> Optional[list[str]]:
         if len(args) < 1:
             return None
         uri = str(args[0])
-
         analyzer.refresh_if_stale(uri)
         state = analyzer.get_state(uri)
         if state is None:
             return None
-
         result = autowire(
             state.text,
             compilation=state.compilation,
@@ -816,7 +812,6 @@ def execute_connect_apply_preview(ls: LanguageServer, *args) -> Optional[dict]:
 AUTOFUNC_COMMAND = "lazyverilogpy.autofunc"
 
 
-@server.command(AUTOFUNC_COMMAND)
 def execute_autofunc(
     ls: LanguageServer, *args
 ) -> Optional[types.WorkspaceEdit]:
@@ -1002,6 +997,54 @@ def execute_single_interface(ls: LanguageServer, *args) -> Optional[dict]:
     except Exception as exc:
         logger.error("single interface error: %s", exc, exc_info=True)
         return None
+
+
+# ---------------------------------------------------------------------------
+# textDocument/didSave — autoarg on save
+# ---------------------------------------------------------------------------
+
+
+def _autoarg_edits(uri: str) -> Optional[list[types.TextEdit]]:
+    """Compute autoarg TextEdits for every module in *uri*. Returns None if no changes."""
+    state = analyzer.get_state(uri)
+    if state is None or not state.text:
+        return None
+    lines = state.text.splitlines()
+    module_re = re.compile(r'^\s*module\b', re.IGNORECASE)
+    edits: list[types.TextEdit] = []
+    for i, line_text in enumerate(lines):
+        if not module_re.match(line_text):
+            continue
+        result = autoarg_impl(state, i, 0)
+        if result is None:
+            continue
+        new_text = format_autoarg(result, _autoarg_options)
+        ol, oc = result["open_line"], result["open_col"]
+        el, ec = result["end_line"], result["end_col"]
+        range_lines = lines[ol:el + 1]
+        if range_lines:
+            range_lines[0] = range_lines[0][oc:]
+            range_lines[-1] = range_lines[-1][:ec] if ol != el else range_lines[-1][:ec - oc]
+        if new_text == "\n".join(range_lines):
+            continue
+        edits.append(types.TextEdit(
+            range=types.Range(
+                start=types.Position(line=ol, character=oc),
+                end=types.Position(line=el, character=ec),
+            ),
+            new_text=new_text,
+        ))
+    return edits if edits else None
+
+
+@server.feature(types.TEXT_DOCUMENT_WILL_SAVE_WAIT_UNTIL)
+def will_save_wait_until(
+    ls: LanguageServer, params: types.WillSaveTextDocumentParams
+) -> Optional[list[types.TextEdit]]:
+    """Return autoarg edits before save so they're applied before the formatter runs."""
+    if not _autoarg_options.autoarg_on_save:
+        return None
+    return _autoarg_edits(params.text_document.uri)
 
 
 # ---------------------------------------------------------------------------

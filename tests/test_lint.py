@@ -2,6 +2,7 @@
 import pytest
 from lazyverilogpy.lint import (
     LintConfig,
+    LINT_SOURCE,
     NamingConfig,
     PortStyleConfig,
     ModuleConfig,
@@ -134,7 +135,7 @@ class TestNamingRule:
         state = _make_state("module BadName (); endmodule")
         cfg = LintConfig.from_dict({"naming": {"enable": True, "module_pattern": "^[a-z]+$"}})
         diags = run_lint(state, cfg)
-        assert all(d.source == "lazyverilogpy-lint" for d in diags)
+        assert all(d.source == LINT_SOURCE for d in diags)
 
 
 # ---------------------------------------------------------------------------

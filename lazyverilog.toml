@@ -102,6 +102,7 @@ use_named_arguments = true
 
 [autoarg]
 indent_size = 4
+on_save = true
 
 [autoinst]
 indent_size = 4
