@@ -36,6 +36,7 @@ dist:
 		--optimize 2 \
 		--strip \
 		--name lazyverilogpy-lsp \
+		--collect-submodules lazyverilogpy \
 		--collect-all pyslang \
 		src/lazyverilogpy/server.py
 	@echo "Binary: dist/lazyverilogpy-lsp"
