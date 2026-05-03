@@ -18,6 +18,7 @@ union_pattern = ".*_u$"            # regex for union names; empty = skip
 enum_pattern = ""             # regex for enum names; empty = skip
 parameter_pattern = "^W_.*$"        # regex for parameter names; empty = skip
 localparam_pattern = "^LP_.*$"       # regex for localparam names; empty = skip
+register_pattern = "^r_.*$"
 check_module_filename = false # check that module name matches filename
 check_package_filename = false # check that package name matches filename
 

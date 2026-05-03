@@ -44,6 +44,7 @@ class NamingConfig(LintRuleConfig):
     enum_pattern: str = ""
     parameter_pattern: str = ""
     localparam_pattern: str = ""
+    register_pattern: str = ""  # pattern for always_ff LHS signals; empty = disabled
     check_module_filename: bool = False
     check_package_filename: bool = False
     # Pre-compiled regex objects (populated by LintConfig.from_dict)
@@ -57,6 +58,7 @@ class NamingConfig(LintRuleConfig):
     _enum_re: Optional[re.Pattern] = field(default=None, repr=False)
     _parameter_re: Optional[re.Pattern] = field(default=None, repr=False)
     _localparam_re: Optional[re.Pattern] = field(default=None, repr=False)
+    _register_re: Optional[re.Pattern] = field(default=None, repr=False)
 
 
 @dataclass
@@ -106,6 +108,7 @@ def _compile_naming_regexes(naming: NamingConfig) -> None:
     naming._enum_re = re.compile(naming.enum_pattern) if naming.enum_pattern else None
     naming._parameter_re = re.compile(naming.parameter_pattern) if naming.parameter_pattern else None
     naming._localparam_re = re.compile(naming.localparam_pattern) if naming.localparam_pattern else None
+    naming._register_re = re.compile(naming.register_pattern) if naming.register_pattern else None
 
 
 @dataclass
@@ -886,6 +889,94 @@ def _check_design(state: "DocumentState", config: DesignConfig) -> list[types.Di
 # ---------------------------------------------------------------------------
 
 
+def _check_register_naming(state: "DocumentState", config: LintConfig) -> list[types.Diagnostic]:
+    """Check always_ff LHS signal names against naming.register_pattern.
+
+    Only called when config.naming._register_re is not None.
+    Walks the syntax tree for AlwaysFF blocks and inspects nonblocking assignment LHS.
+    """
+    tree = state.tree
+    if tree is None:
+        return []
+
+    register_re = config.naming._register_re
+    if register_re is None:
+        return []
+
+    pattern_str = config.naming.register_pattern
+    sm = tree.sourceManager
+    current_file = _tree_filename(state)
+    diags: list[types.Diagnostic] = []
+
+    def _visit(node) -> bool:
+        try:
+            k = str(node.kind)
+            # Enter AlwaysFF blocks
+            if "AlwaysFF" not in k:
+                return True
+            if not _same_file(str(sm.getFileName(node.sourceRange.start)), current_file):
+                return True
+
+            # Within AlwaysFF, scan for nonblocking assignments
+            def _visit_ff(inner) -> bool:
+                try:
+                    ik = str(inner.kind)
+                    if "NonblockingAssignment" in ik:
+                        try:
+                            lhs = inner.left
+                            # Walk lhs to find the outermost identifier
+                            name = None
+                            def _get_name(n) -> bool:
+                                nonlocal name
+                                try:
+                                    if "IdentifierName" in str(n.kind) or "NameExpression" in str(n.kind):
+                                        candidate = str(n).strip()
+                                        if candidate and candidate.isidentifier():
+                                            name = candidate
+                                            return False
+                                except Exception:
+                                    pass
+                                return True
+                            try:
+                                lhs.visit(_get_name)
+                            except Exception:
+                                try:
+                                    name = str(lhs).strip().split()[0]
+                                except Exception:
+                                    pass
+                            if name and not register_re.search(name):
+                                loc = inner.sourceRange.start
+                                line = max(sm.getLineNumber(loc) - 1, 0)
+                                col = max(sm.getColumnNumber(loc) - 1, 0)
+                                diags.append(_make_diagnostic(
+                                    line, col,
+                                    f"[naming] register '{name}' does not match pattern '{pattern_str}'",
+                                    config.naming.severity,
+                                    code="register_naming",
+                                ))
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                return True
+
+            try:
+                node.visit(_visit_ff)
+            except Exception:
+                pass
+            return False  # don't recurse further into AlwaysFF from outer walk
+        except Exception:
+            pass
+        return True
+
+    try:
+        tree.root.visit(_visit)
+    except Exception as exc:
+        logger.debug("register_naming walk error: %s", exc)
+
+    return diags
+
+
 def run_lint(state: "DocumentState", config: LintConfig) -> list[types.Diagnostic]:
     """Run all enabled lint rules against *state*.
 
@@ -928,4 +1019,12 @@ def run_lint(state: "DocumentState", config: LintConfig) -> list[types.Diagnosti
             diags.extend(_check_design(state, config.design))
         except Exception as exc:
             logger.debug("design rule failed: %s", exc)
+
+    # Register naming check — opt-in when naming.register_pattern configured
+    if config.naming.enable and config.naming._register_re is not None:
+        try:
+            diags.extend(_check_register_naming(state, config))
+        except Exception as exc:
+            logger.debug("register_naming rule failed: %s", exc)
+
     return diags

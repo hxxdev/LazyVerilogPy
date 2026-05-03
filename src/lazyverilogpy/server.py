@@ -13,6 +13,7 @@ from pygls.lsp.server import LanguageServer
 
 from .analyzer import Analyzer
 from .autofunc import AutoFuncOptions, find_func_or_task_ports, generate_func_call, find_nearest_identifier, find_call_extent, parse_existing_args
+from .autoff import autoff as autoff_impl, DEFAULT_REGISTER_PATTERN
 from .autoarg import autoarg as autoarg_impl, format_autoarg, AutoargOptions
 from .autoinst import autoinst as autoinst_impl, format_autoinst, parse_existing_connections, AutoinstOptions
 from .autowire import AutowireOptions, autowire
@@ -1125,6 +1126,7 @@ _LINT_QUICK_FIX: dict[str, Any] = {
     "module_instantiation_style": lambda *_: None,
     "latch_inference_detection": lambda *_: None,
     "explicit_begin": lambda *_: None,
+    "register_naming": lambda *_: None,
 }
 
 _LINT_QUICK_FIX_TITLES: dict[str, str] = {
@@ -1135,6 +1137,7 @@ _LINT_QUICK_FIX_TITLES: dict[str, str] = {
     "module_instantiation_style": "Fix instantiation style",
     "latch_inference_detection": "Fix latch inference",
     "explicit_begin": "Add begin/end block",
+    "register_naming": "Rename to match register pattern",
 }
 
 
@@ -1198,6 +1201,30 @@ def code_action(
                                 kind=types.CodeActionKind.RefactorRewrite,
                                 edit=we,
                             ))
+
+        # Phase 3b: autoFF (cursor on two-signal logic/wire/reg declaration)
+        if state.text:
+            try:
+                _ff_pat = _lint_config.naming.register_pattern or DEFAULT_REGISTER_PATTERN
+                _ff_result = autoff_impl(state, line, _ff_pat)
+                if "edits" in _ff_result:
+                    _ff_edits = [
+                        types.TextEdit(
+                            range=types.Range(
+                                start=types.Position(line=e["line"], character=e["character"]),
+                                end=types.Position(line=e["line"], character=e["character"]),
+                            ),
+                            new_text=e["text"],
+                        )
+                        for e in _ff_result["edits"]
+                    ]
+                    actions.append(types.CodeAction(
+                        title="AutoFF: insert flip-flop assignments",
+                        kind=types.CodeActionKind.RefactorRewrite,
+                        edit=types.WorkspaceEdit(changes={uri: _ff_edits}),
+                    ))
+            except Exception:
+                pass
 
         # Phase 4a: autowire (file-wide, always offered when state is available)
         we = execute_autowire(ls, uri)
@@ -1505,6 +1532,46 @@ def _map_severity(is_error: bool) -> types.DiagnosticSeverity:
     if is_error:
         return types.DiagnosticSeverity.Error
     return types.DiagnosticSeverity.Warning
+
+
+# ---------------------------------------------------------------------------
+# AutoFF (code action helper — not a standalone command)
+# ---------------------------------------------------------------------------
+
+
+def execute_autoff(ls: LanguageServer, uri: str, line: int) -> Optional[types.WorkspaceEdit]:
+    """Insert flip-flop reset/capture assignments into the first always_ff if/else block.
+
+    Called from the code_action handler when cursor is on a two-signal declaration.
+    Returns a WorkspaceEdit on success, or None (after showing a message) on failure.
+    """
+    try:
+        state = analyzer.get_state(uri)
+        if state is None:
+            return None
+
+        register_pattern = _lint_config.naming.register_pattern or DEFAULT_REGISTER_PATTERN
+        result = autoff_impl(state, line, register_pattern)
+
+        if "error" in result:
+            msg_type = types.MessageType.Warning if result.get("warn") else types.MessageType.Error
+            ls.show_message(result["error"], msg_type)
+            return None
+
+        edits = [
+            types.TextEdit(
+                range=types.Range(
+                    start=types.Position(line=e["line"], character=e["character"]),
+                    end=types.Position(line=e["line"], character=e["character"]),
+                ),
+                new_text=e["text"],
+            )
+            for e in result["edits"]
+        ]
+        return types.WorkspaceEdit(changes={uri: edits})
+    except Exception as exc:
+        logger.error("autoFF error: %s", exc, exc_info=True)
+        return None
 
 
 # ---------------------------------------------------------------------------

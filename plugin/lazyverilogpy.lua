@@ -18,3 +18,4 @@ end, { desc = "RtlTreeReverse: show reverse RTL hierarchy tree" })
 vim.api.nvim_create_user_command("AutoWire", function()
     require("lazyverilogpy").autowire()
 end, { desc = "AutoWire: wire signals with preview" })
+
