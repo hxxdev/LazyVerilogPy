@@ -33,7 +33,7 @@ except ModuleNotFoundError:
 
 logger = logging.getLogger(__name__)
 
-SERVER_NAME = "lazyverilogpy"
+SERVER_NAME = "lvpy"
 SERVER_VERSION = "0.1.0"
 
 CONFIG_FILENAME = "lazyverilog.toml"
