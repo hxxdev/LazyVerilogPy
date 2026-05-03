@@ -21,7 +21,7 @@ from __future__ import annotations
 import re
 from typing import Optional
 
-from .analyzer import DocumentState
+from lazyverilogpy.analyzer import DocumentState
 
 # ---------------------------------------------------------------------------
 # Constants

@@ -6,7 +6,7 @@ from typing import Optional
 
 from lsprotocol import types
 
-from .analyzer import Analyzer
+from lazyverilogpy.analyzer import Analyzer
 
 
 def provide_hover(

@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Optional
 from lsprotocol import types
 
 if TYPE_CHECKING:
-    from .analyzer import DocumentState
+    from lazyverilogpy.analyzer import DocumentState
 
 logger = logging.getLogger(__name__)
 

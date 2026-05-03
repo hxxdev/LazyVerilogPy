@@ -1559,8 +1559,8 @@ class Analyzer:
         steps: list = []
         warnings: list = list(type_warnings)
 
-        from .autoinst import parse_existing_connections
-        from .autowire import _find_declared_signals, _find_insertion_line
+        from lazyverilogpy.autoinst import parse_existing_connections
+        from lazyverilogpy.autowire import _find_declared_signals, _find_insertion_line
 
         # ---- Source side (bottom-up) ----
         for child_path, parent_path in source_pairs:
@@ -1901,7 +1901,7 @@ class Analyzer:
         ports2 = _ports(sym2)
 
         # --- port connections from source text ---
-        from .autoinst import inst_line_range, parse_existing_connections
+        from lazyverilogpy.autoinst import inst_line_range, parse_existing_connections
 
         r1s, r1e = inst_line_range(src1, sym1, state.tree)
         r2s, r2e = inst_line_range(src2, sym2, state.tree)
@@ -2045,7 +2045,7 @@ class Analyzer:
                 pass
             return result
 
-        from .autoinst import inst_line_range, parse_existing_connections
+        from lazyverilogpy.autoinst import inst_line_range, parse_existing_connections
 
         src_target = _src_for(sym_target)
         rs, re = inst_line_range(src_target, sym_target, state.tree)
@@ -2244,8 +2244,8 @@ class Analyzer:
         if sym1 is None or sym2 is None:
             return []
 
-        from .autoinst import inst_line_range
-        from .autowire import (
+        from lazyverilogpy.autoinst import inst_line_range
+        from lazyverilogpy.autowire import (
             _find_insertion_line, _format_one_decl, _SignalDecl,
             _find_declared_signals,
         )
@@ -2315,7 +2315,7 @@ class Analyzer:
         if sym1 is None or sym2 is None:
             return []
 
-        from .autoinst import inst_line_range
+        from lazyverilogpy.autoinst import inst_line_range
 
         r1s, r1e = inst_line_range(state.text, sym1, state.tree)
         r2s, r2e = inst_line_range(state.text, sym2, state.tree)

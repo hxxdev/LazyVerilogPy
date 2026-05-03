@@ -6,7 +6,7 @@ from pathlib import Path
 from lsprotocol import types
 from typing import Optional
 
-from .analyzer import ConnectPlan, PropagationStep
+from lazyverilogpy.analyzer import ConnectPlan, PropagationStep
 
 
 def _wire_type_parts(type_str: str) -> tuple[str, str]:
@@ -180,7 +180,7 @@ def _add_wire_decl_edits(step: PropagationStep) -> list[types.TextEdit]:
     """Insert a wire/logic declaration at wire_insert_line."""
     if step.wire_insert_line < 0:
         return []
-    from .autowire import _format_one_decl, _SignalDecl
+    from lazyverilogpy.autowire import _format_one_decl, _SignalDecl
     kw, dim = _wire_type_parts(step.type_str)
     sig = _SignalDecl(name=step.port_name, type_kw=kw, dimension=dim,
                       instance_module="", order=0)

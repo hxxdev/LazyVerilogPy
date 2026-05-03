@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from lsprotocol import types
 
-from .analyzer import Analyzer
+from lazyverilogpy.analyzer import Analyzer
 
 
 def provide_references(

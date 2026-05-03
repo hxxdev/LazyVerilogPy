@@ -11,18 +11,18 @@ import pyslang
 from lsprotocol import types
 from pygls.lsp.server import LanguageServer
 
-from .analyzer import Analyzer
-from .autofunc import AutoFuncOptions, find_func_or_task_ports, generate_func_call, find_nearest_identifier, find_call_extent, parse_existing_args
-from .autoff import autoff as autoff_impl, DEFAULT_REGISTER_PATTERN
-from .autoarg import autoarg as autoarg_impl, format_autoarg, AutoargOptions
-from .autoinst import autoinst as autoinst_impl, format_autoinst, parse_existing_connections, AutoinstOptions
-from .autowire import AutowireOptions, autowire
-from .definition import provide_definition
-from .formatter import FormatOptions, format_source
-from .hover import provide_hover
-from .references import provide_references
-from .rename import prepare_rename as _prepare_rename, provide_rename as _provide_rename
-from .lint import LintConfig, run_lint, _same_file
+from lazyverilogpy.analyzer import Analyzer
+from lazyverilogpy.autofunc import AutoFuncOptions, find_func_or_task_ports, generate_func_call, find_nearest_identifier, find_call_extent, parse_existing_args
+from lazyverilogpy.autoff import autoff as autoff_impl, DEFAULT_REGISTER_PATTERN
+from lazyverilogpy.autoarg import autoarg as autoarg_impl, format_autoarg, AutoargOptions
+from lazyverilogpy.autoinst import autoinst as autoinst_impl, format_autoinst, parse_existing_connections, AutoinstOptions
+from lazyverilogpy.autowire import AutowireOptions, autowire
+from lazyverilogpy.definition import provide_definition
+from lazyverilogpy.formatter import FormatOptions, format_source
+from lazyverilogpy.hover import provide_hover
+from lazyverilogpy.references import provide_references
+from lazyverilogpy.rename import prepare_rename as _prepare_rename, provide_rename as _provide_rename
+from lazyverilogpy.lint import LintConfig, run_lint, _same_file
 
 try:
     import tomllib  # Python 3.11+
@@ -780,7 +780,7 @@ def _do_connect_apply(args, preview: bool) -> Optional[dict]:
                 except Exception:
                     file_texts[file_uri] = ""
 
-        from .connect import generate_edits, generate_preview
+        from lazyverilogpy.connect import generate_edits, generate_preview
 
         if preview:
             return generate_preview(plan, file_texts)
@@ -1410,7 +1410,7 @@ def execute_lint(ls: LanguageServer, *args) -> Optional[list[dict]]:
                 logger.debug("lint: skip %s: %s", path, exc)
 
         # Phase 2: collect compile + lint diagnostics per file
-        from .analyzer import DocumentState
+        from lazyverilogpy.analyzer import DocumentState
         results: list[dict] = []
         compile_diags = list(compilation.getAllDiagnostics())
 

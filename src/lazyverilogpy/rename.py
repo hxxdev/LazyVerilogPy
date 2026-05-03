@@ -7,8 +7,8 @@ from typing import Optional
 
 from lsprotocol import types
 
-from .analyzer import Analyzer
-from .formatter import _SV_KEYWORDS
+from lazyverilogpy.analyzer import Analyzer
+from lazyverilogpy.formatter import _SV_KEYWORDS
 
 
 @dataclass

@@ -33,6 +33,8 @@ dist:
 	$(PYTHON) -m pip install -q pyinstaller
 	$(PYTHON) -m PyInstaller \
 		--onefile \
+		--optimize 2 \
+		--strip \
 		--name lazyverilogpy-lsp \
 		--collect-all pyslang \
 		src/lazyverilogpy/server.py
