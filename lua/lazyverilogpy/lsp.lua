@@ -1,9 +1,9 @@
--- LSP client setup — starts the Python server and attaches it to buffers.
+-- LSP client setup — auto-download latest LazyVerilogPy LSP binary
 
-local M = {}
+local M                = {}
 
-local RELEASE_VERSION = "0.1.0"
 local RELEASE_BASE_URL = "https://github.com/hxxdev/LazyVerilogPy/releases/download"
+local API_LATEST       = "https://api.github.com/repos/hxxdev/LazyVerilogPy/releases/latest"
 
 -- ---------------------------------------------------------------------------
 -- Binary helpers
@@ -33,7 +33,7 @@ local function _platform()
 
     local arch_part
     if arch == "x86_64" or arch == "amd64" then
-        arch_part = "x86_64"
+        arch_part = "x64"
     elseif arch == "aarch64" or arch == "arm64" then
         arch_part = "arm64"
     else
@@ -41,6 +41,40 @@ local function _platform()
     end
 
     return os_part .. "-" .. arch_part
+end
+
+-- ---------------------------------------------------------------------------
+-- Latest version fetch (cached)
+-- ---------------------------------------------------------------------------
+
+local VERSION_CACHE = nil
+
+local function _get_latest_version(cb)
+    if VERSION_CACHE then
+        cb(VERSION_CACHE)
+        return
+    end
+
+    vim.system({ "curl", "-fsSL", API_LATEST }, {}, function(res)
+        if res.code ~= 0 or not res.stdout then
+            vim.schedule(function()
+                vim.notify("[LazyVerilogPy] failed to fetch latest version", vim.log.levels.ERROR)
+            end)
+            return
+        end
+
+        local tag = res.stdout:match('"tag_name"%s*:%s*"([^"]+)"')
+
+        if not tag then
+            vim.schedule(function()
+                vim.notify("[LazyVerilogPy] failed to parse release version", vim.log.levels.ERROR)
+            end)
+            return
+        end
+
+        VERSION_CACHE = tag
+        cb(tag)
+    end)
 end
 
 -- ---------------------------------------------------------------------------
@@ -56,42 +90,62 @@ local function _auto_install(on_done)
 
     local bin_dir  = _bin_dir()
     local bin_path = _managed_bin()
-    local asset    = "lazyverilogpy-lsp-" .. platform
-    local url      = RELEASE_BASE_URL .. "/v" .. RELEASE_VERSION .. "/" .. asset
+
+    -- already installed
+    if vim.fn.executable(bin_path) == 1 then
+        on_done(bin_path)
+        return
+    end
 
     vim.fn.mkdir(bin_dir, "p")
-    vim.notify("[LazyVerilogPy] downloading server binary…", vim.log.levels.INFO)
 
-    vim.system({ "curl", "-fsSL", "-o", bin_path, url }, {}, function(dl)
-        if dl.code ~= 0 then
-            vim.schedule(function()
-                vim.notify(
-                    "[LazyVerilogPy] download failed: " .. (dl.stderr or "unknown error"),
-                    vim.log.levels.ERROR
-                )
-            end)
-            return
-        end
+    vim.notify("[LazyVerilogPy] resolving latest version…", vim.log.levels.INFO)
 
-        vim.system({ "chmod", "+x", bin_path }, {}, function(ch)
-            vim.schedule(function()
-                if ch.code ~= 0 then
-                    vim.notify("[LazyVerilogPy] chmod +x failed", vim.log.levels.ERROR)
-                    return
-                end
-                vim.notify("[LazyVerilogPy] server installed", vim.log.levels.INFO)
-                on_done(bin_path)
+    _get_latest_version(function(version)
+        local asset = "lazyverilogpy-lsp-" .. version .. "-" .. platform
+        local url   = RELEASE_BASE_URL .. "/" .. version .. "/" .. asset
+        print("[LazyVerilogPy] URL:", url)
+
+        vim.schedule(function()
+            vim.notify("[LazyVerilogPy] downloading " .. version, vim.log.levels.INFO)
+        end)
+
+        vim.system({ "curl", "-fsSL", "-o", bin_path, url }, {}, function(dl)
+            if dl.code ~= 0 then
+                vim.schedule(function()
+                    vim.notify(
+                        "[LazyVerilogPy] download failed: " .. (dl.stderr or "unknown error"),
+                        vim.log.levels.ERROR
+                    )
+                end)
+                return
+            end
+
+            vim.system({ "chmod", "+x", bin_path }, {}, function(ch)
+                vim.schedule(function()
+                    if ch.code ~= 0 then
+                        vim.notify("[LazyVerilogPy] chmod +x failed", vim.log.levels.ERROR)
+                        return
+                    end
+
+                    vim.notify(
+                        "[LazyVerilogPy] server installed (" .. version .. ")",
+                        vim.log.levels.INFO
+                    )
+
+                    on_done(bin_path)
+                end)
             end)
         end)
     end)
 end
 
 -- ---------------------------------------------------------------------------
--- Command resolver (canonical format)
+-- Command resolver
 -- ---------------------------------------------------------------------------
 
 local function resolve_cmd(cfg)
-    -- Case 1: already a full command
+    -- Case 1: explicit cmd table
     if type(cfg.cmd) == "table" then
         if type(cfg.cmd[1]) == "string" and vim.fn.executable(cfg.cmd[1]) == 1 then
             return cfg.cmd
@@ -122,7 +176,7 @@ local function resolve_cmd(cfg)
 end
 
 -- ---------------------------------------------------------------------------
--- Validation (prevents nested-table bug)
+-- Validation
 -- ---------------------------------------------------------------------------
 
 local function validate_cmd(cmd)
@@ -136,7 +190,7 @@ local function validate_cmd(cmd)
 
     for _, v in ipairs(cmd) do
         if type(v) ~= "string" then
-            return false, "cmd must be flat string array (no nesting)"
+            return false, "cmd must be flat string array"
         end
     end
 
@@ -200,7 +254,7 @@ function M.start(cfg)
         start_lsp(cfg, cmd)
     else
         _auto_install(function(bin_path)
-            start_lsp(cfg, { bin_path }) -- guaranteed flat
+            start_lsp(cfg, { bin_path })
         end)
     end
 end

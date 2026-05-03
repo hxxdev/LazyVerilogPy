@@ -30,7 +30,7 @@ formatted:
 #   lazyverilogpy-lsp-darwin-arm64   (built on macOS Apple Silicon)
 # cp dist/lazyverilogpy-lsp dist/lazyverilogpy-lsp-linux-x86_64   # or darwin-arm64, etc.
 # gh release upload v0.1.0 dist/lazyverilogpy-lsp-linux-x86_64
-VERSION := $(shell git describe --tags --always --dirty)
+VERSION := $(shell git describe --tags --abbrev=0)
 OS := $(shell uname -s | tr '[:upper:]' '[:lower:]')
 ARCH := $(shell uname -m)
 
