@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-LINT_SOURCE = "lazyverilogpy-lint"
+LINT_SOURCE = "lvpy"
 
 # ---------------------------------------------------------------------------
 # Config dataclasses — all rules off by default
@@ -215,6 +215,7 @@ def _make_diagnostic(
     col: int,
     message: str,
     severity: str,
+    code: Optional[str] = None,
 ) -> types.Diagnostic:
     return types.Diagnostic(
         range=types.Range(
@@ -224,6 +225,7 @@ def _make_diagnostic(
         message=message,
         severity=_map_lint_severity(severity),
         source=LINT_SOURCE,
+        code=code,
     )
 
 
@@ -494,6 +496,7 @@ def _walk_syntax_tree(state: "DocumentState", config: LintConfig) -> tuple[list[
                             max(sm.getColumnNumber(sr.start) - 1, 0),
                             f"[module] instance uses wrong instantiation style (expected {config.module.module_instantiation_style})",
                             config.module.severity,
+                            code="module_instantiation_style",
                         ))
                 except Exception:
                     pass
@@ -540,6 +543,7 @@ def _walk_syntax_tree(state: "DocumentState", config: LintConfig) -> tuple[list[
                                 line, col,
                                 "[statement] always_comb block may infer a latch",
                                 config.statement.severity,
+                                code="latch_inference_detection",
                             ))
 
                 # case_missing_default
@@ -561,20 +565,59 @@ def _walk_syntax_tree(state: "DocumentState", config: LintConfig) -> tuple[list[
                                 line, col,
                                 "[statement] case statement missing default item",
                                 config.statement.severity,
+                                code="case_missing_default",
                             ))
 
-                # explicit_begin (stub — original did not emit diagnostics)
-                # functions_automatic, explicit_function_lifetime (stubs)
+                # functions_automatic, explicit_function_lifetime
                 if do_func_auto or do_func_lifetime:
                     if "FunctionDeclaration" in k:
                         if _same_file(str(sm.getFileName(node.sourceRange.start)), current_file):
-                            pass
+                            try:
+                                fn_line = max(sm.getLineNumber(node.sourceRange.start) - 1, 0)
+                                fn_col = max(sm.getColumnNumber(node.sourceRange.start) - 1, 0)
+                                src_lines = state.text.splitlines() if state.text else []
+                                if fn_line < len(src_lines):
+                                    line_text = src_lines[fn_line]
+                                    if do_func_auto and not re.search(r'\bfunction\s+automatic\b', line_text):
+                                        diags.append(_make_diagnostic(
+                                            fn_line, fn_col,
+                                            "[function] function declaration should use 'automatic' lifetime",
+                                            config.function.severity,
+                                            code="functions_automatic",
+                                        ))
+                                    elif do_func_lifetime and not re.search(r'\bfunction\s+(automatic|static)\b', line_text):
+                                        diags.append(_make_diagnostic(
+                                            fn_line, fn_col,
+                                            "[function] function declaration missing explicit lifetime (automatic/static)",
+                                            config.function.severity,
+                                            code="explicit_function_lifetime",
+                                        ))
+                            except Exception:
+                                pass
 
-                # explicit_task_lifetime (stub)
+                # explicit_task_lifetime
                 if do_task_lifetime:
                     if "TaskDeclaration" in k:
                         if _same_file(str(sm.getFileName(node.sourceRange.start)), current_file):
-                            pass
+                            try:
+                                task_line = max(sm.getLineNumber(node.sourceRange.start) - 1, 0)
+                                task_col = max(sm.getColumnNumber(node.sourceRange.start) - 1, 0)
+                                src_lines = state.text.splitlines() if state.text else []
+                                if task_line < len(src_lines):
+                                    line_text = src_lines[task_line]
+                                    if not re.search(r'\btask\s+(automatic|static)\b', line_text):
+                                        diags.append(_make_diagnostic(
+                                            task_line, task_col,
+                                            "[function] task declaration missing explicit lifetime (automatic/static)",
+                                            config.function.severity,
+                                            code="explicit_task_lifetime",
+                                        ))
+                            except Exception:
+                                pass
+
+                # explicit_begin (stub — AST-based implementation deferred)
+                # Detecting single-statement bodies without begin/end requires
+                # reliable pyslang body-kind access; kept as a future follow-up.
 
         except Exception:
             pass

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 import pyslang
 
 from lsprotocol import types
@@ -1005,6 +1005,97 @@ def execute_single_interface(ls: LanguageServer, *args) -> Optional[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Code actions — lint quick-fix helpers
+# ---------------------------------------------------------------------------
+
+
+def _fix_case_missing_default(
+    doc_text: str, diag_range: types.Range
+) -> Optional[types.TextEdit]:
+    """Insert 'default: ;' before the nearest endcase."""
+    lines = doc_text.splitlines()
+    start_line = diag_range.start.line
+    for i in range(start_line, min(start_line + 100, len(lines))):
+        if re.search(r'\bendcase\b', lines[i]):
+            indent = len(lines[i]) - len(lines[i].lstrip())
+            insert_text = lines[i][:indent] + "  default: ;\n"
+            return types.TextEdit(
+                range=types.Range(
+                    start=types.Position(line=i, character=0),
+                    end=types.Position(line=i, character=0),
+                ),
+                new_text=insert_text,
+            )
+    return None
+
+
+def _fix_functions_automatic(
+    doc_text: str, diag_range: types.Range
+) -> Optional[types.TextEdit]:
+    """Insert 'automatic' after 'function' keyword on the diagnostic line."""
+    lines = doc_text.splitlines()
+    ln = diag_range.start.line
+    if ln >= len(lines):
+        return None
+    line = lines[ln]
+    new_line = re.sub(r'\bfunction\b', 'function automatic', line, count=1)
+    if new_line == line:
+        return None
+    return types.TextEdit(
+        range=types.Range(
+            start=types.Position(line=ln, character=0),
+            end=types.Position(line=ln, character=len(line)),
+        ),
+        new_text=new_line,
+    )
+
+
+def _fix_explicit_task_lifetime(
+    doc_text: str, diag_range: types.Range
+) -> Optional[types.TextEdit]:
+    """Insert 'automatic' after 'task' keyword on the diagnostic line."""
+    lines = doc_text.splitlines()
+    ln = diag_range.start.line
+    if ln >= len(lines):
+        return None
+    line = lines[ln]
+    new_line = re.sub(r'\btask\b', 'task automatic', line, count=1)
+    if new_line == line:
+        return None
+    return types.TextEdit(
+        range=types.Range(
+            start=types.Position(line=ln, character=0),
+            end=types.Position(line=ln, character=len(line)),
+        ),
+        new_text=new_line,
+    )
+
+
+# Map rule code → fixer(doc_text, diag_range) → Optional[TextEdit]
+# Placeholder (always None): module_instantiation_style (needs AST port names),
+# latch_inference_detection (complex multi-line insertion), explicit_begin (stub).
+_LINT_QUICK_FIX: dict[str, Any] = {
+    "case_missing_default": _fix_case_missing_default,
+    "functions_automatic": _fix_functions_automatic,
+    "explicit_function_lifetime": _fix_functions_automatic,  # same fix: add 'automatic'
+    "explicit_task_lifetime": _fix_explicit_task_lifetime,
+    "module_instantiation_style": lambda *_: None,
+    "latch_inference_detection": lambda *_: None,
+    "explicit_begin": lambda *_: None,
+}
+
+_LINT_QUICK_FIX_TITLES: dict[str, str] = {
+    "case_missing_default": "Add default case",
+    "functions_automatic": "Add 'automatic' to function",
+    "explicit_function_lifetime": "Add 'automatic' lifetime to function",
+    "explicit_task_lifetime": "Add 'automatic' to task",
+    "module_instantiation_style": "Fix instantiation style",
+    "latch_inference_detection": "Fix latch inference",
+    "explicit_begin": "Add begin/end block",
+}
+
+
+# ---------------------------------------------------------------------------
 # Code actions
 # ---------------------------------------------------------------------------
 
@@ -1013,7 +1104,7 @@ def execute_single_interface(ls: LanguageServer, *args) -> Optional[dict]:
 def code_action(
     ls: LanguageServer, params: types.CodeActionParams
 ) -> Optional[list[types.CodeAction]]:
-    """Offer an 'Auto-instantiate module' action when cursor is on an Instance."""
+    """Context-sensitive code actions: autoinst, autoarg, autofunc, lint quick-fixes, templates."""
     try:
         uri = params.text_document.uri
         line = params.range.start.line
@@ -1021,23 +1112,108 @@ def code_action(
 
         analyzer.refresh_if_stale(uri)
         state = analyzer.get_state(uri)
-        if state is None or state.compilation is None:
-            return None
-        result = autoinst_impl(state, line, character)
-        if result is None:
+        if state is None:
             return None
 
-        return [
-            types.CodeAction(
-                title="Auto-instantiate module",
+        actions: list[types.CodeAction] = []
+
+        # Phase 1: autoinst (cursor on module instance)
+        # Embed edit directly — Neovim does not apply WorkspaceEdit returned by commands.
+        if state.compilation is not None:
+            if autoinst_impl(state, line, character) is not None:
+                we = execute_autoinst(ls, uri, line, character)
+                if we is not None:
+                    actions.append(types.CodeAction(
+                        title="Auto-instantiate module",
+                        kind=types.CodeActionKind.RefactorRewrite,
+                        edit=we,
+                    ))
+
+        # Phase 2: autoArg (cursor on module port-list header)
+        if autoarg_impl(state, line, character) is not None:
+            we = execute_autoarg(ls, uri, line, character)
+            if we is not None:
+                actions.append(types.CodeAction(
+                    title="Auto-generate port list",
+                    kind=types.CodeActionKind.RefactorRewrite,
+                    edit=we,
+                ))
+
+        # Phase 3: autoFunc (cursor on function/task call)
+        if state.text:
+            src_lines = state.text.splitlines()
+            if line < len(src_lines):
+                ident = find_nearest_identifier(src_lines[line], character)
+                if ident is not None:
+                    _func_name, ident_start, ident_end = ident
+                    call_start, call_end_col = find_call_extent(src_lines[line], ident_start, ident_end)
+                    if call_start <= character < call_end_col:
+                        we = execute_autofunc(ls, uri, line, character)
+                        if we is not None:
+                            actions.append(types.CodeAction(
+                                title="Auto-generate function",
+                                kind=types.CodeActionKind.RefactorRewrite,
+                                edit=we,
+                            ))
+
+        # Phase 4a: autowire (file-wide, always offered when state is available)
+        we = execute_autowire(ls, uri)
+        if we is not None:
+            actions.append(types.CodeAction(
+                title="Auto-wire module",
                 kind=types.CodeActionKind.RefactorRewrite,
-                command=types.Command(
-                    title="Auto-instantiate module",
-                    command=AUTOINST_COMMAND,
-                    arguments=[uri, line, character],
-                ),
-            )
+                edit=we,
+            ))
+
+        # Phase 4b: lint quick-fixes from context diagnostics
+        doc_text = state.text or ""
+        ctx = getattr(params, "context", None)
+        ctx_diags = getattr(ctx, "diagnostics", None) or []
+        for diag in ctx_diags:
+            rule_code = diag.code if isinstance(diag.code, str) else None
+            if rule_code and rule_code in _LINT_QUICK_FIX:
+                edit = _LINT_QUICK_FIX[rule_code](doc_text, diag.range)
+                if edit is not None:
+                    actions.append(types.CodeAction(
+                        title=_LINT_QUICK_FIX_TITLES.get(rule_code, f"Fix: {rule_code}"),
+                        kind=types.CodeActionKind.QuickFix,
+                        diagnostics=[diag],
+                        edit=types.WorkspaceEdit(changes={uri: [edit]}),
+                    ))
+
+        # Phase 5: snippet templates (always shown)
+        indent = " " * character
+        templates = [
+            (
+                "Insert always_ff block",
+                f"always_ff @(posedge i_clk or negedge i_rstn) begin\n{indent}  if (!i_rstn) begin\n{indent}  end else begin\n{indent}  end\n{indent}end\n",
+            ),
+            (
+                "Insert always_comb block",
+                f"always_comb begin\n{indent}end\n",
+            ),
+            (
+                "Insert module header",
+                f"module  (\n{indent}  input  logic i_clk,\n{indent}  input  logic i_rstn\n{indent});\nendmodule\n",
+            ),
         ]
+        for title, snippet in templates:
+            actions.append(types.CodeAction(
+                title=title,
+                kind=types.CodeActionKind.Refactor,
+                edit=types.WorkspaceEdit(changes={uri: [
+                    types.TextEdit(
+                        range=types.Range(
+                            start=types.Position(line=line, character=0),
+                            end=types.Position(line=line, character=0),
+                        ),
+                        new_text=snippet,
+                    )
+                ]}),
+            ))
+
+        return actions if actions else None
+
     except Exception as exc:
         logger.error("code_action error: %s", exc, exc_info=True)
         return None
