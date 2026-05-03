@@ -20,6 +20,7 @@ from .definition import provide_definition
 from .formatter import FormatOptions, format_source
 from .hover import provide_hover
 from .references import provide_references
+from .rename import prepare_rename as _prepare_rename, provide_rename as _provide_rename
 from .lint import LintConfig, run_lint, _same_file
 
 try:
@@ -422,6 +423,39 @@ def references(
     except Exception as exc:
         logger.error("references error: %s", exc, exc_info=True)
         return []
+
+
+# ---------------------------------------------------------------------------
+# Rename
+# ---------------------------------------------------------------------------
+
+
+@server.feature(types.TEXT_DOCUMENT_PREPARE_RENAME)
+def prepare_rename(
+    ls: LanguageServer, params: types.PrepareRenameParams
+) -> Optional[types.PrepareRenamePlaceholder]:
+    try:
+        return _prepare_rename(analyzer, params)
+    except Exception as exc:
+        logger.error("prepare_rename error: %s", exc, exc_info=True)
+        return None
+
+
+@server.feature(types.TEXT_DOCUMENT_RENAME)
+def rename(
+    ls: LanguageServer, params: types.RenameParams
+) -> Optional[types.WorkspaceEdit]:
+    try:
+        result = _provide_rename(analyzer, params)
+        if result.unresolved:
+            ls.protocol.notify(
+                "lazyverilogpy/renameUnresolved",
+                {"locations": result.unresolved},
+            )
+        return result.workspace_edit
+    except Exception as exc:
+        logger.error("rename error: %s", exc, exc_info=True)
+        return None
 
 
 # ---------------------------------------------------------------------------

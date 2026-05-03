@@ -36,6 +36,38 @@ local _rtltree = {
 -- Forward declaration so M.setup() can reference it before the definition below.
 local _rtltree_sync
 
+--- Show a floating window listing file:line locations that rename could not resolve.
+local function _show_rename_unresolved(locations)
+    local lines = { "Rename applied. Unresolved locations (manual update needed):", "" }
+    for _, loc in ipairs(locations) do
+        table.insert(lines, "  " .. loc)
+    end
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    vim.bo[buf].bufhidden = "wipe"
+    vim.bo[buf].modifiable = false
+    local max_w = 0
+    for _, l in ipairs(lines) do max_w = math.max(max_w, #l) end
+    local width  = math.min(math.max(max_w + 4, 50), vim.o.columns - 10)
+    local height = math.min(#lines, math.floor(vim.o.lines * 0.4))
+    local row    = math.floor((vim.o.lines   - height) / 2)
+    local col    = math.floor((vim.o.columns - width)  / 2)
+    local win = vim.api.nvim_open_win(buf, true, {
+        relative    = "editor",
+        row         = row,
+        col         = col,
+        width       = width,
+        height      = height,
+        style       = "minimal",
+        border      = "rounded",
+        title       = " Rename: Unresolved ",
+        title_pos   = "center",
+    })
+    vim.wo[win].wrap = false
+    vim.keymap.set("n", "q",      "<cmd>close<cr>", { buffer = buf, silent = true })
+    vim.keymap.set("n", "<Esc>",  "<cmd>close<cr>", { buffer = buf, silent = true })
+end
+
 ---@param user_config? table
 function M.setup(user_config)
     _cfg = config.resolve(user_config)
@@ -101,6 +133,12 @@ function M.setup(user_config)
         end
         M.connect(args[1], args[2])
     end, { nargs = "+" })
+
+    -- Register server→client notification for partial renames.
+    vim.lsp.handlers["lazyverilogpy/renameUnresolved"] = function(err, result, _ctx, _config)
+        if err or not result or not result.locations or #result.locations == 0 then return end
+        vim.schedule(function() _show_rename_unresolved(result.locations) end)
+    end
 
     -- Also register .sv / .svh / .v file-type detection if not already present.
     vim.filetype.add({
