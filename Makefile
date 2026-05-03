@@ -1,6 +1,7 @@
 PYTHON := .venv/bin/python
 PYTHONPATH := src
 
+
 .PHONY: test dist
 
 test:
@@ -29,14 +30,27 @@ formatted:
 #   lazyverilogpy-lsp-darwin-arm64   (built on macOS Apple Silicon)
 # cp dist/lazyverilogpy-lsp dist/lazyverilogpy-lsp-linux-x86_64   # or darwin-arm64, etc.
 # gh release upload v0.1.0 dist/lazyverilogpy-lsp-linux-x86_64
+VERSION := $(shell git describe --tags --always --dirty)
+OS := $(shell uname -s | tr '[:upper:]' '[:lower:]')
+ARCH := $(shell uname -m)
+
+# normalize arch
+ifeq ($(ARCH),x86_64)
+    ARCH := x64
+endif
+ifeq ($(ARCH),aarch64)
+    ARCH := arm64
+endif
+
+BINARY_NAME := lazyverilogpy-lsp-$(VERSION)-$(OS)-$(ARCH)
 dist:
 	$(PYTHON) -m pip install -q pyinstaller
 	$(PYTHON) -m PyInstaller \
 		--onefile \
 		--optimize 2 \
 		--strip \
-		--name lazyverilogpy-lsp \
+		--name $(BINARY_NAME) \
 		--collect-submodules lazyverilogpy \
 		--collect-all pyslang \
 		src/lazyverilogpy/server.py
-	@echo "Binary: dist/lazyverilogpy-lsp"
+	@echo "Binary: dist/$(BINARY_NAME)"
