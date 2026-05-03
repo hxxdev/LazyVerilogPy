@@ -20,7 +20,7 @@ from .definition import provide_definition
 from .formatter import FormatOptions, format_source
 from .hover import provide_hover
 from .references import provide_references
-from .lint import LintConfig, run_lint
+from .lint import LintConfig, run_lint, _same_file
 
 try:
     import tomllib  # Python 3.11+
@@ -1150,7 +1150,7 @@ def execute_lint(ls: LanguageServer, *args) -> Optional[list[dict]]:
                 for d in compile_diags:
                     try:
                         loc = d.location
-                        if str(shared_sm.getFileName(loc)) != path_str:
+                        if not _same_file(str(shared_sm.getFileName(loc)), path_str):
                             continue
                         line = max(shared_sm.getLineNumber(loc) - 1, 0)
                         col = max(shared_sm.getColumnNumber(loc) - 1, 0)
@@ -1180,6 +1180,60 @@ def execute_lint(ls: LanguageServer, *args) -> Optional[list[dict]]:
                     })
             except Exception as exc:
                 logger.debug("lint: error in %s: %s", path, exc)
+
+        # If current file was not in the shared compilation (e.g. header or not in .f),
+        # lint it in a separate single-file compilation so :Lint works on any open file.
+        if current_file_path:
+            current_path = Path(current_file_path)
+            already_loaded = any(p == current_path for p, _, _ in loaded)
+            if not already_loaded and current_path.is_file():
+                try:
+                    text = current_path.read_text(encoding="utf-8")
+                    sep_sm = pyslang.SourceManager()
+                    sep_comp = pyslang.Compilation()
+                    if bag is not None:
+                        sep_tree = pyslang.SyntaxTree.fromText(text, sep_sm, current_file_path, options=bag)
+                    else:
+                        sep_tree = pyslang.SyntaxTree.fromText(text, sep_sm, current_file_path)
+                    sep_comp.addSyntaxTree(sep_tree)
+                    state = DocumentState(uri=current_path.as_uri(), text=text)
+                    state.tree = sep_tree
+                    state.compilation = sep_comp
+                    state.tree_filename = current_file_path
+                    # Compile diagnostics for this file
+                    sep_engine = pyslang.DiagnosticEngine(sep_sm)
+                    for d in sep_comp.getAllDiagnostics():
+                        try:
+                            loc = d.location
+                            if not _same_file(str(sep_sm.getFileName(loc)), current_file_path):
+                                continue
+                            line = max(sep_sm.getLineNumber(loc) - 1, 0)
+                            col = max(sep_sm.getColumnNumber(loc) - 1, 0)
+                            results.append({
+                                "file": current_file_path,
+                                "line": line + 1,
+                                "col": col + 1,
+                                "message": sep_engine.formatMessage(d),
+                                "severity": "Error" if d.isError() else "Warning",
+                                "category": "compile",
+                                "source": "lazyverilogpy",
+                            })
+                        except Exception:
+                            pass
+                    # Lint diagnostics
+                    lint_diags = run_lint(state, _lint_config)
+                    for d in lint_diags:
+                        results.append({
+                            "file": current_file_path,
+                            "line": d.range.start.line + 1,
+                            "col": d.range.start.character + 1,
+                            "message": d.message,
+                            "severity": d.severity.name if d.severity else "Warning",
+                            "category": "lint",
+                            "source": d.source,
+                        })
+                except Exception as exc:
+                    logger.debug("lint: skip current file %s: %s", current_file_path, exc)
 
         # Sort: current file first, then file asc, then compile before lint, then line asc
         results.sort(key=lambda r: (

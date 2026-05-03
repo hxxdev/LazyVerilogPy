@@ -87,6 +87,11 @@ function M.setup(user_config)
         M.lint()
     end, { nargs = 0 })
 
+    -- Register :LintAll user command.
+    vim.api.nvim_create_user_command("LintAll", function()
+        M.lint_all()
+    end, { nargs = 0 })
+
     -- Register :Connect <module1> <module2> user command.
     vim.api.nvim_create_user_command("Connect", function(opts)
         local args = vim.split(vim.trim(opts.args), "%s+")
@@ -1570,8 +1575,10 @@ function M.autowire()
     end)
 end
 
---- Run lint on all project files (.f filelist) and populate the quickfix list.
-function M.lint()
+--- Internal: request lint results and populate quickfix.
+--- @param filter_file string|nil  absolute path to restrict results to, or nil for all files
+--- @param label string            prefix for notify messages (e.g. "Lint" or "LintAll")
+local function _run_lint(filter_file, label)
     local src_bufnr = vim.api.nvim_get_current_buf()
     local get_clients = vim.lsp.get_clients or vim.lsp.get_active_clients
     local clients = get_clients({ bufnr = src_bufnr, name = "lazyverilogpy" })
@@ -1595,33 +1602,51 @@ function M.lint()
         arguments = { current_uri },
     }, function(err, result)
         if err then
-            vim.notify("[LazyVerilogPy] Lint: " .. tostring(err.message), vim.log.levels.ERROR)
+            vim.notify("[LazyVerilogPy] " .. label .. ": " .. tostring(err.message), vim.log.levels.ERROR)
             return
         end
         if not result or #result == 0 then
-            vim.notify("[LazyVerilogPy] Lint: no violations found", vim.log.levels.INFO)
+            vim.notify("[LazyVerilogPy] " .. label .. ": no violations found", vim.log.levels.INFO)
             return
         end
         vim.schedule(function()
             local items = {}
             local severity_map = { Error = "E", Warning = "W", Hint = "I", Information = "I" }
             for _, d in ipairs(result) do
-                table.insert(items, {
-                    filename = d.file,
-                    lnum     = d.line,
-                    col      = d.col,
-                    text     = d.message,
-                    type     = severity_map[d.severity] or "W",
-                })
+                if filter_file == nil or d.file == filter_file then
+                    table.insert(items, {
+                        filename = d.file,
+                        lnum     = d.line,
+                        col      = d.col,
+                        text     = d.message,
+                        type     = severity_map[d.severity] or "W",
+                    })
+                end
+            end
+            if #items == 0 then
+                vim.notify("[LazyVerilogPy] " .. label .. ": no violations found", vim.log.levels.INFO)
+                return
             end
             vim.fn.setqflist(items, "r")
             vim.cmd("copen")
             vim.notify(
-                string.format("[LazyVerilogPy] Lint: %d violation(s)", #items),
+                string.format("[LazyVerilogPy] %s: %d violation(s)", label, #items),
                 vim.log.levels.INFO
             )
         end)
     end, src_bufnr)
+end
+
+--- Run lint on the current file only and populate the quickfix list.
+function M.lint()
+    local src_bufnr = vim.api.nvim_get_current_buf()
+    local current_file = vim.uri_to_fname(vim.uri_from_bufnr(src_bufnr))
+    _run_lint(current_file, "Lint")
+end
+
+--- Run lint on all project files (.f filelist) and populate the quickfix list.
+function M.lint_all()
+    _run_lint(nil, "LintAll")
 end
 
 return M
