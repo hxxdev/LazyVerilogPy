@@ -370,6 +370,7 @@ class Analyzer:
         character: int,
         include_declaration: bool = True,
     ) -> list[SourceRange]:
+        self.refresh_if_stale(uri)
         state = self._docs.get(uri)
         if state is None or state.compilation is None or state.tree is None:
             return []
@@ -411,6 +412,7 @@ class Analyzer:
         except Exception:
             pass
 
+        covered_uris: set[str] = {uri}
         for path in self._extra_files:
             try:
                 if buffer_path is not None and path == buffer_path:
@@ -422,9 +424,28 @@ class Analyzer:
                 tree, _ = self._get_tree_for_file(path_uri, file_text)
                 if tree is None:
                     continue
-                trees_to_walk.append((tree, path_uri, file_text, str(self._uri_to_path(path_uri))))
+                # If the extra file is open in the editor, its tree was built with
+                # "buffer.sv" as the filename — use that as expected_fname.
+                open_state = self._docs.get(path_uri)
+                if open_state is not None:
+                    fname = getattr(open_state, "tree_filename", None) or "buffer.sv"
+                else:
+                    fname = str(self._uri_to_path(path_uri))
+                trees_to_walk.append((tree, path_uri, file_text, fname))
+                covered_uris.add(path_uri)
             except Exception:
                 continue
+
+        # Also walk other open documents not covered by the extra-files list.
+        for other_uri, other_state in self._docs.items():
+            if other_uri in covered_uris:
+                continue
+            if other_state.tree is None:
+                continue
+            other_fname = getattr(other_state, "tree_filename", None) or "buffer.sv"
+            trees_to_walk.append(
+                (other_state.tree, other_uri, other_state.text, other_fname)
+            )
 
         # Per-invocation cache: (target_name, cursor_module) -> SymbolInfo
         _verify_cache: dict[tuple[str, str], Optional[SymbolInfo]] = {}
