@@ -56,7 +56,7 @@ show_instance_name = true   # show "cpu (u_cpu)" instead of just "cpu"
 show_file = true             # show "[rtl/cpu.sv]" after module name
 
 [formatter]
-safe_mode = false # verify no non-whitespace content changed after format
+safe_mode = true # verify no non-whitespace content changed after format
 indent_size = 4
 keyword_case = "lower"          # "lower" | "upper" | "preserve"
 compact_indexing_and_selections = true
