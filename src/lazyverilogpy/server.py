@@ -18,7 +18,7 @@ from lazyverilogpy.autoarg import autoarg as autoarg_impl, format_autoarg, Autoa
 from lazyverilogpy.autoinst import autoinst as autoinst_impl, format_autoinst, parse_existing_connections, AutoinstOptions
 from lazyverilogpy.autowire import AutowireOptions, autowire
 from lazyverilogpy.definition import provide_definition
-from lazyverilogpy.formatter import FormatOptions, format_source
+from lazyverilogpy.formatter import FormatOptions, SafeModeError, format_source
 from lazyverilogpy.hover import provide_hover
 from lazyverilogpy.references import provide_references
 from lazyverilogpy.rename import prepare_rename as _prepare_rename, provide_rename as _provide_rename
@@ -496,6 +496,9 @@ def formatting(
             return None
         formatted = format_source(state.text, _fmt_options)
         return _build_full_file_edits(state.text, formatted)
+    except SafeModeError as exc:
+        ls.show_message(str(exc), types.MessageType.Error)
+        return None
     except Exception as exc:
         logger.error("formatting error: %s", exc, exc_info=True)
         return None
@@ -535,6 +538,9 @@ def range_formatting(
                     )
                 )
         return edits
+    except SafeModeError as exc:
+        ls.show_message(str(exc), types.MessageType.Error)
+        return None
     except Exception as exc:
         logger.error("range_formatting error: %s", exc, exc_info=True)
         return None

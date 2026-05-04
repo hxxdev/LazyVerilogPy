@@ -64,6 +64,7 @@ default_indent_level_inside_module_block = 0
 tab_align = true
 align_punctuation = true
 enable_format_on_save = true
+safe_mode = false             # verify no non-whitespace content changed after format
 
 [formatter.statement]
 align = true              # align = and <= operators in consecutive assignments

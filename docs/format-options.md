@@ -429,6 +429,30 @@ module memory_top(
 
 ---
 
+## Safety
+
+### `safe_mode`
+| type | default |
+|------|---------|
+| bool | `false` |
+
+When `true`, the formatter verifies after every format pass that no
+non-whitespace content was added or removed.  If a mismatch is detected:
+
+- **LSP**: an error notification is shown to the user and no edits are applied.
+- **CLI (`lazyverilogpy-fmt --safe-mode`)**: exits with code 2 and prints the
+  error to stderr.
+
+```toml
+[formatter]
+safe_mode = true
+```
+
+> Use this during development of new formatter rules or as a CI guard to catch
+> regressions where the formatter accidentally drops or duplicates tokens.
+
+---
+
 ## Format-on-save control
 
 ### `enable_format_on_save`

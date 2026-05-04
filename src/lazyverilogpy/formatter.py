@@ -269,6 +269,10 @@ class InstanceOptions:
     """Spaces between the signal and the closing ``)``."""
 
 
+class SafeModeError(ValueError):
+    """Raised by format_source() when safe_mode=True and non-whitespace content changed."""
+
+
 @dataclass
 class StatementOptions:
     """Options for statement-level formatting."""
@@ -345,6 +349,9 @@ class FormatOptions:
 
     align_punctuation: bool = False
     """When ``True``, align terminal ``;`` across consecutive same-indent lines."""
+
+    safe_mode: bool = False
+    """When ``True``, raise :exc:`SafeModeError` if non-whitespace content changes after formatting."""
 
     # Nested option groups
     statement: StatementOptions = None      # type: ignore[assignment]
@@ -2248,4 +2255,10 @@ def format_source(source: str, options: Optional[FormatOptions] = None) -> str:
     if opts.instance.align:
         result = _align_instance_ports_pass(result, opts)
     result = _format_module_portlist_pass(result, opts)
+    if opts.safe_mode:
+        _strip = lambda s: re.sub(r"\s+", "", s)
+        if _strip(source) != _strip(result):
+            raise SafeModeError(
+                "Formatter safe-mode: non-whitespace content changed — formatting aborted"
+            )
     return result
