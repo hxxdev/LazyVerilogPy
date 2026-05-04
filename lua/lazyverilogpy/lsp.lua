@@ -2,7 +2,7 @@
 
 local M = {}
 
-local RELEASE_VERSION = "v0.2.0"
+local RELEASE_VERSION = require("lazyverilogpy.version")
 local RELEASE_BASE_URL = "https://github.com/hxxdev/LazyVerilogPy/releases/download"
 
 -- ---------------------------------------------------------------------------
