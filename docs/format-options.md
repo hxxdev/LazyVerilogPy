@@ -451,6 +451,11 @@ safe_mode = true
 > Use this during development of new formatter rules or as a CI guard to catch
 > regressions where the formatter accidentally drops or duplicates tokens.
 
+If change of non-whitespace character is detected, error is asserted and formatting is aborted:
+
+```
+[lazyverilogpy] Formatter safe-mode: non-whitespace content changed — formatting aborted 
+```
 ---
 
 ## Format-on-save control

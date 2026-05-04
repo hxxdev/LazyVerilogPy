@@ -15,6 +15,7 @@ place to add or customise those features later.
 
 from __future__ import annotations
 
+import copy
 import math
 import re
 import logging
@@ -373,7 +374,7 @@ class FormatOptions:
             self.port = PortOptions()
 
     @classmethod
-    def from_dict(cls, d: dict) -> "FormatOptions":
+    def from_dict(cls, d: dict, base: Optional["FormatOptions"] = None) -> "FormatOptions":
         _nested = {
             "statement": StatementOptions,
             "port_declaration": PortDeclarationOptions,
@@ -381,7 +382,7 @@ class FormatOptions:
             "instance": InstanceOptions,
             "port": PortOptions,
         }
-        obj = cls()
+        obj = copy.deepcopy(base) if base is not None else cls()
         for k, v in d.items():
             if k in _nested and isinstance(v, dict):
                 sub = _nested[k]()

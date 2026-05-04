@@ -9,6 +9,7 @@ from typing import Any, Optional
 import pyslang
 
 from lsprotocol import types
+from pygls.exceptions import JsonRpcInternalError
 from pygls.lsp.server import LanguageServer
 
 from lazyverilogpy.analyzer import Analyzer
@@ -39,11 +40,22 @@ SERVER_VERSION = "0.1.0"
 
 CONFIG_FILENAME = "lazyverilog.toml"
 
+
+def _show_message(ls: LanguageServer, message: str, msg_type: types.MessageType) -> None:
+    """Send window/showMessage — compatible with pygls < 1.0 and >= 1.0."""
+    if hasattr(ls, "window_show_message"):
+        ls.window_show_message(types.ShowMessageParams(type=msg_type, message=message))
+    else:
+        ls.show_message(message, msg_type)  # type: ignore[attr-defined]  # pygls < 1.0
+
+
 server = LanguageServer(SERVER_NAME, SERVER_VERSION)
 analyzer = Analyzer()
 
 # Default formatting options — overridden by config file or workspace configuration
 _fmt_options = FormatOptions()
+# TOML-loaded options kept as base; LSP workspace settings are applied on top
+_toml_fmt_options = FormatOptions()
 
 # Default autowire options — overridden by config file
 _autowire_options = AutowireOptions()
@@ -257,11 +269,12 @@ def _load_filelist_from_toml(path: Path) -> tuple[list[Path], list[str], str | N
 
 def _reload_config(start: Path, ls: LanguageServer | None = None) -> None:
     """Search for a config file starting at *start* and update ``_fmt_options``."""
-    global _fmt_options, _autowire_options, _autofunc_options, _autoarg_options, _autoinst_options, _lint_config
+    global _fmt_options, _toml_fmt_options, _autowire_options, _autofunc_options, _autoarg_options, _autoinst_options, _lint_config
     path = _find_config_toml(start)
     if path is not None:
         try:
             _fmt_options = _load_fmt_options_from_toml(path)
+            _toml_fmt_options = _fmt_options
         except Exception as exc:
             logger.warning("Failed to load %s: %s", path, exc)
         try:
@@ -285,7 +298,7 @@ def _reload_config(start: Path, ls: LanguageServer | None = None) -> None:
             analyzer.set_extra_files(extra_files)
             analyzer.set_defines(defines)
             if warn_msg is not None and ls is not None:
-                ls.show_message(warn_msg, types.MessageType.Warning)
+                _show_message(ls, warn_msg, types.MessageType.Warning)
         except Exception as exc:
             logger.warning("Failed to load filelist from %s: %s", path, exc)
         try:
@@ -370,7 +383,7 @@ def did_change_configuration(
         cfg = lv.get("formatter", {})
         if not isinstance(cfg, dict):
             cfg = {}
-        _fmt_options = FormatOptions.from_dict(cfg)
+        _fmt_options = FormatOptions.from_dict(cfg, base=_toml_fmt_options)
         lint_cfg = lv.get("lint", {})
         if isinstance(lint_cfg, dict):
             _lint_config = LintConfig.from_dict(lint_cfg)
@@ -497,8 +510,8 @@ def formatting(
         formatted = format_source(state.text, _fmt_options)
         return _build_full_file_edits(state.text, formatted)
     except SafeModeError as exc:
-        ls.show_message(str(exc), types.MessageType.Error)
-        return None
+        _show_message(ls, str(exc), types.MessageType.Warning)
+        return []
     except Exception as exc:
         logger.error("formatting error: %s", exc, exc_info=True)
         return None
@@ -539,8 +552,8 @@ def range_formatting(
                 )
         return edits
     except SafeModeError as exc:
-        ls.show_message(str(exc), types.MessageType.Error)
-        return None
+        _show_message(ls, str(exc), types.MessageType.Warning)
+        return []
     except Exception as exc:
         logger.error("range_formatting error: %s", exc, exc_info=True)
         return None
@@ -1565,7 +1578,7 @@ def execute_autoff(ls: LanguageServer, uri: str, line: int) -> Optional[types.Wo
 
         if "error" in result:
             msg_type = types.MessageType.Warning if result.get("warn") else types.MessageType.Error
-            ls.show_message(result["error"], msg_type)
+            _show_message(ls, result["error"], msg_type)
             return None
 
         edits = [
