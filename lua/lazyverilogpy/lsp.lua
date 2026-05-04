@@ -58,11 +58,9 @@ local function _auto_install(on_done)
     local bin_path = _managed_bin()
     local asset    = "lazyverilogpy-lsp-" .. RELEASE_VERSION .. "-" .. platform
     local url      = RELEASE_BASE_URL .. "/" .. RELEASE_VERSION .. "/" .. asset
-    print(url)
 
     vim.fn.mkdir(bin_dir, "p")
     vim.notify("[LazyVerilogPy] downloading server binary…", vim.log.levels.INFO)
-
     vim.system({ "curl", "-fsSL", "-o", bin_path, url }, {}, function(dl)
         if dl.code ~= 0 then
             vim.schedule(function()
