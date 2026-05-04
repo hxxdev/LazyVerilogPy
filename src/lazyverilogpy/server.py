@@ -1313,7 +1313,11 @@ def _publish_diagnostics(ls: LanguageServer, uri: str) -> None:
                     # Only report diagnostics that originate from the current
                     # document's in-memory buffer ("buffer.sv").  Diagnostics
                     # from extra filelist files would otherwise bleed through.
-                    if sm.getFileName(loc) != "buffer.sv":
+                    try:
+                        fname = sm.getFileName(loc)
+                    except UnicodeDecodeError:
+                        fname = "buffer.sv"  # non-UTF-8 path; assume current buffer
+                    if fname != "buffer.sv":
                         continue
 
                     message = engine.formatMessage(d)
