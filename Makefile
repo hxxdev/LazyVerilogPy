@@ -2,7 +2,7 @@ PYTHON := .venv/bin/python
 PYTHONPATH := src
 
 
-.PHONY: test build setup
+.PHONY: test build build-fmt setup
 
 setup: .venv
 
@@ -60,3 +60,17 @@ build: .venv
 		--collect-all tomli \
 		src/lazyverilogpy/server.py
 	@echo "Binary: dist/$(BINARY_NAME)"
+
+FMT_BINARY_NAME := lazyverilogpy-fmt-$(VERSION)-$(OS)-$(ARCH)
+build-fmt: .venv
+	$(PYTHON) -m pip install -q pyinstaller
+	$(PYTHON) -m PyInstaller \
+		--onefile \
+		--optimize 2 \
+		--strip \
+		--paths src \
+		--name $(FMT_BINARY_NAME) \
+		--collect-all lazyverilogpy \
+		--collect-all pyslang \
+		src/lazyverilogpy/formatter_main.py
+	@echo "Binary: dist/$(FMT_BINARY_NAME)"
