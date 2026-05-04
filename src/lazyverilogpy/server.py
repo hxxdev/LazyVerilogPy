@@ -9,7 +9,6 @@ from typing import Any, Optional
 import pyslang
 
 from lsprotocol import types
-from pygls.exceptions import JsonRpcInternalError
 from pygls.lsp.server import LanguageServer
 
 from lazyverilogpy.analyzer import Analyzer
