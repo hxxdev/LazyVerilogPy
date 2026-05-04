@@ -2,7 +2,11 @@ PYTHON := .venv/bin/python
 PYTHONPATH := src
 
 
-.PHONY: test dist
+.PHONY: test dist setup
+
+setup:
+	python3 -m venv .venv
+	.venv/bin/pip install -q -r requirements.txt
 
 test:
 	PYTHONPATH=$(PYTHONPATH) $(PYTHON) -m pytest tests -v -q
@@ -22,19 +26,14 @@ classifier_test:
 formatted:
 	PYTHONPATH=$(PYTHONPATH) $(PYTHON) tests/gen_answers.py
 
-# Build a standalone binary.  Output: dist/lazyverilogpy-lsp
-# Upload dist/lazyverilogpy-lsp to GitHub Releases as:
-#   lazyverilogpy-lsp-linux-x86_64   (built on Linux x86_64)
-#   lazyverilogpy-lsp-linux-arm64    (built on Linux arm64)
-#   lazyverilogpy-lsp-darwin-x86_64  (built on macOS Intel)
-#   lazyverilogpy-lsp-darwin-arm64   (built on macOS Apple Silicon)
-# cp dist/lazyverilogpy-lsp dist/lazyverilogpy-lsp-linux-x86_64   # or darwin-arm64, etc.
-# gh release upload v0.1.0 dist/lazyverilogpy-lsp-linux-x86_64
-VERSION := $(shell git describe --tags --abbrev=0)
-OS := $(shell uname -s | tr '[:upper:]' '[:lower:]')
-ARCH := $(shell uname -m)
+# Build a standalone binary.
+# Output: dist/lazyverilogpy-lsp-<version>-<os>-<arch>
+# Upload to GitHub Releases, then run: gh release upload <tag> dist/<binary>
+VERSION := $(shell git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0-dev")
+OS      := $(shell uname -s | tr '[:upper:]' '[:lower:]')
+ARCH    := $(shell uname -m)
 
-# normalize arch
+# normalize arch to match lsp.lua _platform()
 ifeq ($(ARCH),x86_64)
     ARCH := x64
 endif
@@ -44,11 +43,13 @@ endif
 
 BINARY_NAME := lazyverilogpy-lsp-$(VERSION)-$(OS)-$(ARCH)
 dist:
+	@echo 'return "$(VERSION)"' > lua/lazyverilogpy/version.lua
 	$(PYTHON) -m pip install -q pyinstaller
 	$(PYTHON) -m PyInstaller \
 		--onefile \
 		--optimize 2 \
 		--strip \
+		--paths src \
 		--name $(BINARY_NAME) \
 		--collect-submodules lazyverilogpy \
 		--collect-all pyslang \
