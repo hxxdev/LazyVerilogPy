@@ -2,9 +2,11 @@ PYTHON := .venv/bin/python
 PYTHONPATH := src
 
 
-.PHONY: test dist setup
+.PHONY: test build setup
 
-setup:
+setup: .venv
+
+.venv:
 	python3 -m venv .venv
 	.venv/bin/pip install -q -r requirements.txt
 
@@ -42,7 +44,7 @@ ifeq ($(ARCH),aarch64)
 endif
 
 BINARY_NAME := lazyverilogpy-lsp-$(VERSION)-$(OS)-$(ARCH)
-dist:
+build: .venv
 	@echo 'return "$(VERSION)"' > lua/lazyverilogpy/version.lua
 	$(PYTHON) -m pip install -q pyinstaller
 	$(PYTHON) -m PyInstaller \
@@ -51,7 +53,10 @@ dist:
 		--strip \
 		--paths src \
 		--name $(BINARY_NAME) \
-		--collect-submodules lazyverilogpy \
+		--collect-all lazyverilogpy \
 		--collect-all pyslang \
+		--collect-all pygls \
+		--collect-all lsprotocol \
+		--collect-all tomli \
 		src/lazyverilogpy/server.py
 	@echo "Binary: dist/$(BINARY_NAME)"

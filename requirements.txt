@@ -1,3 +1,4 @@
 pyslang
 pygls
 lsprotocol
+tomli
