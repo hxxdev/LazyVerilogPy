@@ -59,7 +59,9 @@ endpackage
 //- MyModule.node/kind record
 //- MyModule.subkind module
 //- MyModule.complete definition
-module my_module(input x);
+module my_module(
+    input x
+);
 //- @#0my_pkg1 ref/imports MyPkg1
 //- @#1my_pkg1 ref/imports MyPkg1
 //- @my_class1 ref MyClass1

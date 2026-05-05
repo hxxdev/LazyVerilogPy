@@ -2062,7 +2062,7 @@ _SIMPLE_ID_RE = re.compile(r'^[A-Za-z_$][\w$]*$')
 
 
 def _format_module_portlist_pass(text: str, opts: "FormatOptions") -> str:
-    """Expand module header port lists that consist only of simple identifiers.
+    """Expand module header port lists to multi-line.
 
     Non-ANSI port lists (names only, no type keywords) are split across
     multiple lines according to *opts*:
@@ -2070,21 +2070,19 @@ def _format_module_portlist_pass(text: str, opts: "FormatOptions") -> str:
     - ``port.non_ansi_port_max_line_length_enabled``: fill up to column limit
     - both False (default): one name per line
 
-    ANSI-style ports that contain type keywords or brackets are left unchanged.
+    ANSI-style ports (containing type keywords or brackets) are always split
+    one port per line and then the port_declaration alignment pass is applied
+    to them according to ``[format.port_declaration]`` options.
     """
     indent_unit = " " * opts.indent_size
 
     def _reformat(m: re.Match) -> str:
-        prefix = m.group(1)    # "  module foo("
-        ports_str = m.group(2) # "a, b, c, d"
+        prefix = m.group(1)    # "  module foo(" or "  module foo #(...)(""
+        ports_str = m.group(2) # "a, b, c, d" or "input logic clk, output logic data"
         suffix = m.group(3)    # ");"
 
-        ports = [p.strip() for p in ports_str.split(",") if p.strip()]
+        ports = [p.strip() for p in _split_top_level(ports_str) if p.strip()]
         if not ports:
-            return m.group(0)
-
-        # Only handle simple identifier lists (non-ANSI style)
-        if any(not _SIMPLE_ID_RE.match(p) for p in ports):
             return m.group(0)
 
         # Leading whitespace of the module line (for closing ");")
@@ -2092,10 +2090,35 @@ def _format_module_portlist_pass(text: str, opts: "FormatOptions") -> str:
         leading_ws = lead_m.group(1) if lead_m else ""
         port_indent = leading_ws + indent_unit
 
+        # ANSI-style: at least one port must start with a direction keyword.
+        _ANSI_DIR = frozenset(["input", "output", "inout", "ref"])
+        is_ansi = any(
+            p.split()[0].lower() in _ANSI_DIR
+            for p in ports if p.split()
+        )
+
+        if is_ansi:
+            # ANSI-style: one port per line, then apply port_declaration alignment.
+            port_lines = []
+            for pi, port in enumerate(ports):
+                comma = "," if pi < len(ports) - 1 else ""
+                port_lines.append(port_indent + port + comma)
+            raw = "\n".join(port_lines)
+            if opts.port_declaration.align:
+                raw = _align_port_declarations_pass(raw, opts)
+            return prefix + "\n" + raw + "\n" + leading_ws + suffix
+
+        # Non-ANSI: only handle simple identifier lists.
+        # Ports with dots (interface modport: I.m im) or other complex
+        # syntax are left unchanged.
+        if any(not _SIMPLE_ID_RE.match(p) for p in ports):
+            return m.group(0)
+
+        # Non-ANSI simple ids: apply per-line or max-length rules.
         if opts.port.non_ansi_port_per_line_enabled and opts.port.non_ansi_port_per_line > 0:
             n = opts.port.non_ansi_port_per_line
             groups = [ports[i:i + n] for i in range(0, len(ports), n)]
-            port_lines: list[str] = []
+            port_lines = []
             for gi, grp in enumerate(groups):
                 comma = "," if gi < len(groups) - 1 else ""
                 port_lines.append(port_indent + ", ".join(grp) + comma)
