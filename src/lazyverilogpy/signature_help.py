@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Optional
+from typing import Optional, Union
 
 from lsprotocol import types
 
@@ -29,33 +29,59 @@ def provide_signature_help(
         return None
 
     prefix_lines = lines[:line] + [lines[line][:character]]
-    call_name, active_param = _find_call_context("\n".join(prefix_lines))
-    if call_name is None:
+    ctx = _find_call_context("\n".join(prefix_lines))
+    if ctx is None:
         return None
+
+    call_name, param_ref, is_module_param = ctx
+
+    if is_module_param:
+        mod_info = _get_module_param_info(state, call_name)
+        if mod_info is None:
+            return None
+        params_list = mod_info["params"]
+        param_labels = [_format_module_param(p) for p in params_list]
+        sig_label = f"module {call_name} #({', '.join(param_labels)})"
+        param_infos = _build_param_infos(sig_label, f"module {call_name} #(", param_labels)
+        active = _resolve_active(param_ref, params_list, "name")
+        active = min(active, max(len(params_list) - 1, 0)) if params_list else 0
+        sig = types.SignatureInformation(label=sig_label, parameters=param_infos)
+        return types.SignatureHelp(signatures=[sig], active_signature=0, active_parameter=active)
 
     sub_info = _get_subroutine_info(state, call_name)
     if sub_info is None:
+        mod_info = _get_module_param_info(state, call_name)
+        if mod_info is not None:
+            params_list = mod_info["params"]
+            param_labels = [_format_module_param(p) for p in params_list]
+            sig_label = f"module {call_name} #({', '.join(param_labels)})"
+            param_infos = _build_param_infos(sig_label, f"module {call_name} #(", param_labels)
+            active = _resolve_active(param_ref, params_list, "name")
+            active = min(active, max(len(params_list) - 1, 0)) if params_list else 0
+            sig = types.SignatureInformation(label=sig_label, parameters=param_infos)
+            return types.SignatureHelp(signatures=[sig], active_signature=0, active_parameter=active)
         return None
 
     args = sub_info["args"]
     param_labels = [_format_arg(a) for a in args]
 
-    kind_str = sub_info["kind"]  # "function" or "task"
+    kind_str = sub_info["kind"]
     ret = sub_info["return_type"]
     if kind_str == "function" and ret and ret not in ("void", ""):
-        prefix = f"function {ret} "
+        prefix_str = f"function {ret} "
     elif kind_str == "task":
-        prefix = "task "
+        prefix_str = "task "
     else:
-        prefix = ""
+        prefix_str = ""
 
-    sig_label = f"{prefix}{call_name}({', '.join(param_labels)})"
+    sig_label = f"{prefix_str}{call_name}({', '.join(param_labels)})"
+    open_paren_prefix = f"{prefix_str}{call_name}("
+    param_infos = _build_param_infos(sig_label, open_paren_prefix, param_labels)
 
-    sig = types.SignatureInformation(
-        label=sig_label,
-        parameters=[types.ParameterInformation(label=pl) for pl in param_labels],
-    )
-    active = min(active_param, max(len(args) - 1, 0)) if args else 0
+    active = _resolve_active(param_ref, args, "name")
+    active = min(active, max(len(args) - 1, 0)) if args else 0
+
+    sig = types.SignatureInformation(label=sig_label, parameters=param_infos)
 
     return types.SignatureHelp(
         signatures=[sig],
@@ -64,8 +90,33 @@ def provide_signature_help(
     )
 
 
-def _find_call_context(prefix: str) -> tuple[Optional[str], int]:
-    """Return (function_name, active_param_index) for the innermost open call."""
+def _build_param_infos(
+    sig_label: str, open_prefix: str, param_labels: list[str]
+) -> list[types.ParameterInformation]:
+    pos = len(open_prefix)
+    infos = []
+    for pl in param_labels:
+        infos.append(types.ParameterInformation(label=[pos, pos + len(pl)]))
+        pos += len(pl) + 2  # ", "
+    return infos
+
+
+def _resolve_active(
+    param_ref: Union[int, str], items: list[dict], name_key: str
+) -> int:
+    if isinstance(param_ref, int):
+        return param_ref
+    for i, item in enumerate(items):
+        if item.get(name_key) == param_ref:
+            return i
+    return 0
+
+
+_NAMED_PORT_RE = re.compile(r'\.\s*(\w+)\s*\($')
+
+
+def _find_call_context(prefix: str) -> Optional[tuple[str, Union[int, str], bool]]:
+    """Return (name, active_param, is_module_param) for the innermost open call."""
     depth = 0
     active_param = 0
     for i in range(len(prefix) - 1, -1, -1):
@@ -74,19 +125,33 @@ def _find_call_context(prefix: str) -> tuple[Optional[str], int]:
             depth += 1
         elif c == '(':
             if depth == 0:
+                # Check named-port context: .port_name( at end
+                inner = prefix[i + 1:]
+                np_m = _NAMED_PORT_RE.search(inner)
+                if np_m:
+                    # cursor is inside .port_name( — find outer call
+                    outer_prefix = prefix[:i]
+                    outer_ctx = _find_call_context(outer_prefix)
+                    if outer_ctx:
+                        return (outer_ctx[0], np_m.group(1), outer_ctx[2])
+
                 before = prefix[:i].rstrip()
+                # Try normal function call: name(
                 m = re.search(r'(\w+)$', before)
                 if m:
-                    return m.group(1), active_param
-                return None, 0
+                    return m.group(1), active_param, False
+                # Try module param: name #(
+                m2 = re.search(r'(\w+)\s*#\s*$', before)
+                if m2:
+                    return m2.group(1), active_param, True
+                return None
             depth -= 1
         elif c == ',' and depth == 0:
             active_param += 1
-    return None, 0
+    return None
 
 
 def _get_subroutine_info(state, name: str) -> Optional[dict]:
-    """Collect argument metadata + kind + return type for the first matching subroutine."""
     compilation = state.compilation
     candidates: list = []
 
@@ -108,13 +173,11 @@ def _get_subroutine_info(state, name: str) -> Optional[dict]:
 
     sym = candidates[0]
 
-    # subroutine kind: "function" or "task"
     try:
         kind_str = str(sym.subroutineKind).split(".")[-1].lower()
     except Exception:
         kind_str = ""
 
-    # return type (only meaningful for functions)
     try:
         ret = str(sym.returnType).strip()
         if ret.startswith("<"):
@@ -137,13 +200,81 @@ def _get_subroutine_info(state, name: str) -> Optional[dict]:
                         type_str = ""
                 except Exception:
                     type_str = ""
-                args.append({"name": arg_name, "direction": dir_str, "type_str": type_str})
+                # Try to get default value
+                dv_str = ""
+                try:
+                    dv_str = str(arg.defaultValue)
+                    if dv_str.startswith("Expression(") or dv_str in ("None", ""):
+                        dv_str = ""
+                    if not dv_str:
+                        try:
+                            dv_str = str(arg.syntax.declarator.initializer).strip().lstrip("=").strip()
+                            if dv_str in ("None", ""):
+                                dv_str = ""
+                        except Exception:
+                            dv_str = ""
+                except Exception:
+                    dv_str = ""
+                args.append({"name": arg_name, "direction": dir_str, "type_str": type_str, "default": dv_str})
             except Exception:
                 continue
     except Exception:
         return None
 
     return {"args": args, "kind": kind_str, "return_type": ret}
+
+
+def _get_module_param_info(state, name: str) -> Optional[dict]:
+    compilation = state.compilation
+    candidates: list = []
+
+    def _collect(sym) -> bool:
+        try:
+            if "Instance" in str(sym.kind) and "InstanceBody" not in str(sym.kind):
+                try:
+                    if str(sym.body.name) == name:
+                        candidates.append(sym)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        return True
+
+    try:
+        compilation.getRoot().visit(_collect)
+    except Exception:
+        return None
+
+    if not candidates:
+        return None
+
+    sym = candidates[0]
+    params: list[dict] = []
+    seen: set[str] = set()
+    try:
+        for m in sym.body:
+            try:
+                if "Parameter" not in str(m.kind):
+                    continue
+                pname = str(m.name)
+                if pname in seen:
+                    continue
+                seen.add(pname)
+                try:
+                    ptype = str(m.type).strip()
+                    if ptype.startswith("<"):
+                        ptype = ""
+                except Exception:
+                    ptype = ""
+                params.append({"name": pname, "type": ptype})
+            except Exception:
+                continue
+    except Exception:
+        return None
+
+    if not params:
+        return None
+    return {"params": params}
 
 
 def _format_arg(a: dict) -> str:
@@ -153,4 +284,14 @@ def _format_arg(a: dict) -> str:
     if a["type_str"] and a["type_str"] not in ("void", ""):
         parts.append(a["type_str"])
     parts.append(a["name"])
+    if a.get("default"):
+        parts.append(f"= {a['default']}")
+    return " ".join(parts)
+
+
+def _format_module_param(p: dict) -> str:
+    parts = []
+    if p.get("type"):
+        parts.append(p["type"])
+    parts.append(p["name"])
     return " ".join(parts)

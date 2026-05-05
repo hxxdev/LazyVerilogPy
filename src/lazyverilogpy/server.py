@@ -482,7 +482,7 @@ def rename(
 
 @server.feature(
     types.TEXT_DOCUMENT_COMPLETION,
-    types.CompletionOptions(trigger_characters=["."]),
+    types.CompletionOptions(trigger_characters=[".", "#", ":", "`", '"']),
 )
 def completion(
     ls: LanguageServer, params: types.CompletionParams

@@ -90,15 +90,43 @@ def provide_inlay_hints(
 
         # Collect all candidate hint positions within visible range
         candidates: list[tuple[int, int, str, str]] = []  # (ln, col, dir_str, type_str)
+        connected_set: set[str] = set()
         for ln in range(lo, hi):
             if ln >= len(lines):
                 break
             for m in _PORT_CONN_RE.finditer(lines[ln]):
                 port_name = m.group(1)
+                connected_set.add(port_name)
                 info = port_info.get(port_name)
                 if info is None:
                     continue
                 candidates.append((ln, m.end(), info[0], info[1]))
+
+        # Also scan lines outside visible range for connected count
+        for ln in range(inst_start, min(inst_end + 1, len(lines))):
+            if lo <= ln < hi:
+                continue
+            if ln >= len(lines):
+                break
+            for m in _PORT_CONN_RE.finditer(lines[ln]):
+                connected_set.add(m.group(1))
+
+        if not candidates and not connected_set:
+            return True
+
+        # Port coverage hint on instance header line
+        if inst_start >= range_start and inst_start <= range_end and inst_start < len(lines):
+            total_ports = len(port_info)
+            connected_count = len(connected_set & set(port_info.keys()))
+            coverage_label = f"{connected_count}/{total_ports} ports"
+            header_col = len(lines[inst_start])
+            hints.append(types.InlayHint(
+                position=types.Position(line=inst_start, character=header_col),
+                label=coverage_label,
+                kind=types.InlayHintKind.Parameter,
+                padding_left=True,
+                padding_right=False,
+            ))
 
         if not candidates:
             return True
