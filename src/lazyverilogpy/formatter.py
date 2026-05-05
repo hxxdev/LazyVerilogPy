@@ -460,7 +460,7 @@ def _classify(raw: str, text: str, prev_ftt: Optional[FTT]) -> FTT:
     if raw == "include_directive":
         return FTT.include_directive
     if raw == "word":
-        return FTT.keyword if text.lower() in _SV_KEYWORDS else FTT.identifier
+        return FTT.keyword if text in _SV_KEYWORDS else FTT.identifier
     if raw == "open_group":
         return FTT.open_group
     if raw == "close_group":

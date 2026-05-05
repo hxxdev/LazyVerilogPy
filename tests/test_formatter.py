@@ -176,10 +176,11 @@ class TestFormatSource:
         assert "\n\n\n" not in result
 
     def test_keyword_case_lower(self):
-        result = fmt("MODULE FOO; ENDMODULE\n", keyword_case="lower")
+        # SV is case-sensitive: MODULE is an identifier, not the keyword module.
+        # keyword_case="lower" only affects canonical lowercase SV keywords.
+        result = fmt("module foo; endmodule\n", keyword_case="lower")
         assert "module" in result
         assert "endmodule" in result
-        assert "MODULE" not in result
 
     def test_keyword_case_upper(self):
         result = fmt("module foo; endmodule\n", keyword_case="upper")
