@@ -92,7 +92,7 @@ class AutoargOptions:
     def from_dict(cls, d: dict) -> "AutoargOptions":
         return cls(
             indent_size=int(d.get("indent_size", 2)),
-            autoarg_on_save=bool(d.get("on_save", False)),
+            autoarg_on_save=bool(d.get("autoarg_on_save", False)),
         )
 
 
@@ -190,14 +190,33 @@ def autoarg(state, line: int, col: int) -> Optional[dict]:
     if not port_names:
         return None
 
-    # Find the '(' that opens the port list in the module header.
+    # Find the '(' that opens the port list in the module header,
+    # skipping any #(...) parameter block that may precede it.
     open_line = -1
     open_col = -1
+    skip_depth = 0   # >0 while inside a #(...) param block
+    found_hash = False
     for i in range(mod_line, end_mod_line + 1):
-        idx = doc_lines[i].find("(")
-        if idx != -1:
-            open_line = i
-            open_col = idx
+        for j, ch in enumerate(doc_lines[i]):
+            if skip_depth > 0:
+                if ch == '(':
+                    skip_depth += 1
+                elif ch == ')':
+                    skip_depth -= 1
+            elif found_hash:
+                if ch == '(':
+                    skip_depth = 1
+                    found_hash = False
+                elif ch not in ' \t':
+                    found_hash = False  # stray char — not a param block
+            else:
+                if ch == '#':
+                    found_hash = True
+                elif ch == '(':
+                    open_line = i
+                    open_col = j
+                    break
+        if open_line != -1:
             break
 
     if open_line == -1:

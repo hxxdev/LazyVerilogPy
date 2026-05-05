@@ -327,9 +327,7 @@ extern interface I(input a, output b);
                                     endconfig
 
                                     module ALU(
-                                        o1,
-                                        i1,
-                                        i2,
+                                        o1, i1, i2,
                                         opcode
                                     );
                                     input   [7:0]               i1                                      , i2                                      ;

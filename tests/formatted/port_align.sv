@@ -1,9 +1,6 @@
 module port_align(
-    i_clk, i_rst_n,
-    i_data,
-    i_valid,
-    o_data,
-    o_valid
+    i_clk, i_rst_n, i_data,
+    i_valid, o_data, o_valid
 );
 
 input                                           i_clk                                   ;

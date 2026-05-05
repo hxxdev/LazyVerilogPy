@@ -112,41 +112,44 @@ def _resolve_active(
     return 0
 
 
-_NAMED_PORT_RE = re.compile(r'\.\s*(\w+)\s*\($')
-
-
 def _find_call_context(prefix: str) -> Optional[tuple[str, Union[int, str], bool]]:
-    """Return (name, active_param, is_module_param) for the innermost open call."""
+    """Return (name, active_param, is_module_param) for the innermost open call.
+
+    active_param is an int (positional) or str (named-port / named-param).
+    When inside a named-port connection like sum(.i_a(...)), the port name is
+    returned so the caller can highlight the correct parameter.
+    """
     depth = 0
     active_param = 0
+    named_port: Optional[str] = None
     for i in range(len(prefix) - 1, -1, -1):
         c = prefix[i]
         if c == ')':
             depth += 1
         elif c == '(':
             if depth == 0:
-                # Check named-port context: .port_name( at end
-                inner = prefix[i + 1:]
-                np_m = _NAMED_PORT_RE.search(inner)
-                if np_m:
-                    # cursor is inside .port_name( — find outer call
-                    outer_prefix = prefix[:i]
-                    outer_ctx = _find_call_context(outer_prefix)
-                    if outer_ctx:
-                        return (outer_ctx[0], np_m.group(1), outer_ctx[2])
-
                 before = prefix[:i].rstrip()
-                # Try normal function call: name(
-                m = re.search(r'(\w+)$', before)
-                if m:
-                    return m.group(1), active_param, False
-                # Try module param: name #(
+                # Check if this ( is a named-port/param connection: .portname(
+                np_m = re.search(r'\.(\w+)$', before)
+                if np_m:
+                    # Cursor is inside .portname(...) — capture name and keep
+                    # scanning backward to find the enclosing call's '('.
+                    if named_port is None:
+                        named_port = np_m.group(1)
+                    continue  # depth stays 0; keep walking
+                # Try module param block: name #(
                 m2 = re.search(r'(\w+)\s*#\s*$', before)
                 if m2:
-                    return m2.group(1), active_param, True
+                    param_ref: Union[int, str] = named_port if named_port is not None else active_param
+                    return m2.group(1), param_ref, True
+                # Normal function/task call: name(
+                m = re.search(r'(\w+)$', before)
+                if m:
+                    param_ref = named_port if named_port is not None else active_param
+                    return m.group(1), param_ref, False
                 return None
             depth -= 1
-        elif c == ',' and depth == 0:
+        elif c == ',' and depth == 0 and named_port is None:
             active_param += 1
     return None
 

@@ -570,6 +570,7 @@ def _build_full_file_edits(
     ]
 
 
+
 @server.feature(types.TEXT_DOCUMENT_FORMATTING)
 def formatting(
     ls: LanguageServer, params: types.DocumentFormattingParams,
@@ -1102,12 +1103,12 @@ def _autoarg_edits(uri: str) -> Optional[list[types.TextEdit]]:
     state = analyzer.get_state(uri)
     if state is None or not state.text:
         return None
+    mod_lines = _module_lines_from_ast(state)
+    if not mod_lines:
+        return None
     lines = state.text.splitlines()
-    module_re = re.compile(r'^\s*module\b', re.IGNORECASE)
     edits: list[types.TextEdit] = []
-    for i, line_text in enumerate(lines):
-        if not module_re.match(line_text):
-            continue
+    for i in mod_lines:
         result = autoarg_impl(state, i, 0)
         if result is None:
             continue
@@ -1130,14 +1131,87 @@ def _autoarg_edits(uri: str) -> Optional[list[types.TextEdit]]:
     return edits if edits else None
 
 
+def _module_lines_from_ast(state) -> list[int]:
+    """Return 0-based line numbers of module declarations via pyslang AST."""
+    if state.tree is None:
+        return []
+    sm = state.tree.sourceManager
+    mod_lines: list[int] = []
+
+    def _visit(node) -> bool:
+        try:
+            if str(node.kind) == "SyntaxKind.ModuleDeclaration":
+                ln = max(sm.getLineNumber(node.sourceRange.start) - 1, 0)
+                mod_lines.append(ln)
+        except Exception:
+            pass
+        return True
+
+    try:
+        state.tree.root.visit(_visit)
+    except Exception:
+        pass
+    return mod_lines
+
+
+def _apply_autoarg_to_text(uri: str, text: str) -> str:
+    """Apply autoarg to *text* in-memory and return the result."""
+    state = analyzer.get_state(uri)
+    if state is None:
+        return text
+    mod_lines = _module_lines_from_ast(state)
+    if not mod_lines:
+        return text
+    lines = text.splitlines()
+    raw_edits: list[tuple[int, int, int, int, str]] = []
+    for i in mod_lines:
+        result = autoarg_impl(state, i, 0)
+        if result is None:
+            continue
+        new_text = format_autoarg(result, _autoarg_options)
+        ol, oc = result["open_line"], result["open_col"]
+        el, ec = result["end_line"], result["end_col"]
+        range_lines = lines[ol:el + 1]
+        if range_lines:
+            range_lines[0] = range_lines[0][oc:]
+            range_lines[-1] = range_lines[-1][:ec] if ol != el else range_lines[-1][:ec - oc]
+        if new_text == "\n".join(range_lines):
+            continue
+        raw_edits.append((ol, oc, el, ec, new_text))
+    for ol, oc, el, ec, new_text in sorted(raw_edits, key=lambda e: e[0], reverse=True):
+        prefix = lines[ol][:oc]
+        suffix = lines[el][ec:]
+        replacement = (prefix + new_text + suffix).splitlines()
+        lines[ol:el + 1] = replacement
+    return "\n".join(lines)
+
+
 @server.feature(types.TEXT_DOCUMENT_WILL_SAVE_WAIT_UNTIL)
 def will_save_wait_until(
     ls: LanguageServer, params: types.WillSaveTextDocumentParams
 ) -> Optional[list[types.TextEdit]]:
-    """Return autoarg edits before save so they're applied before the formatter runs."""
+    """Return autoarg (+format) edits so the final buffer state is correct.
+
+    When format-on-save is also active the formatter may fire before this
+    handler (BufWritePre ordering).  Returning a combined autoarg+format
+    full-file edit here ensures the last write wins with the right content.
+    """
     if not _autoarg_options.autoarg_on_save:
         return None
-    return _autoarg_edits(params.text_document.uri)
+    uri = params.text_document.uri
+    state = analyzer.get_state(uri)
+    if state is None:
+        return None
+    source = state.text
+    after_autoarg = _apply_autoarg_to_text(uri, source)
+    if _fmt_options.enable_format_on_save:
+        try:
+            after_autoarg = format_source(after_autoarg, _fmt_options)
+        except Exception:
+            pass
+    if after_autoarg == source:
+        return None
+    return _build_full_file_edits(source, after_autoarg)
 
 
 # ---------------------------------------------------------------------------

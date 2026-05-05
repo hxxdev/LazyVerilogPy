@@ -321,6 +321,9 @@ class PortOptions:
     non_ansi_port_max_line_length: int = 80
     """Maximum line length for port-list lines when length-based mode is active."""
 
+    module_param_per_line_enabled: bool = False
+    """When ``True``, reformat module #(...) parameter blocks to one parameter per line."""
+
 
 @dataclass
 class FormatOptions:
@@ -1710,6 +1713,40 @@ _SV_KW = _SV_KEYWORDS
 
 # Detects "  module_type instance_name (" at the start of a line.
 _INST_RE = re.compile(r'^(\s*)(\w+)\s+(\w+)\s*\(')
+# Instance with parameter override: `type #(...) inst_name (`
+_INST_PARAM_RE = re.compile(r'^(\s*)(\w+)\s*#\s*\(')
+
+
+def _split_inst_parts(flat: str) -> "tuple[str, str, str] | None":
+    """Return ``(module_type, param_block, inst_name)`` from a flat instance string.
+
+    *param_block* is the literal ``#(...)`` text (empty string if absent).
+    Returns ``None`` if parsing fails.
+    """
+    m = re.match(r'^(\w+)\s*', flat)
+    if not m:
+        return None
+    module_type = m.group(1)
+    rest = flat[m.end():]
+    param_block = ""
+    if rest.startswith('#'):
+        try:
+            k = rest.index('(') + 1
+        except ValueError:
+            return None
+        depth = 1
+        while k < len(rest) and depth > 0:
+            if rest[k] == '(':
+                depth += 1
+            elif rest[k] == ')':
+                depth -= 1
+            k += 1
+        param_block = rest[:k].strip()
+        rest = rest[k:].lstrip()
+    m2 = re.match(r'^(\w+)', rest)
+    if not m2:
+        return None
+    return module_type, param_block, m2.group(1)
 
 
 def _collect_instance(lines: "list[str]", start: int) -> "tuple[int, str] | None":
@@ -1821,17 +1858,43 @@ def _align_instance_ports_pass(text: str, opts: "FormatOptions") -> str:
     while i < len(lines):
         line = lines[i]
         m = _INST_RE.match(line)
+        mp = _INST_PARAM_RE.match(line) if m is None else None
 
-        if m is None or m.group(2).lower() in _SV_KW or m.group(3).lower() in _SV_KW:
+        if m is not None:
+            if m.group(2).lower() in _SV_KW or m.group(3).lower() in _SV_KW:
+                out.append(line)
+                i += 1
+                continue
+            indent = m.group(1)
+            module_type = m.group(2)
+            inst_name = m.group(3)
+            param_block = ""
+        elif mp is not None:
+            if mp.group(2).lower() in _SV_KW:
+                out.append(line)
+                i += 1
+                continue
+            indent = mp.group(1)
+            # Collect first to get flat, then extract parts from flat.
+            collected_early = _collect_instance(lines, i)
+            if collected_early is None:
+                out.append(line)
+                i += 1
+                continue
+            end_i_early, flat_early = collected_early
+            parts = _split_inst_parts(flat_early)
+            if parts is None:
+                for k in range(i, end_i_early):
+                    out.append(lines[k])
+                i = end_i_early
+                continue
+            module_type, param_block, inst_name = parts
+        else:
             out.append(line)
             i += 1
             continue
 
-        indent = m.group(1)
-        module_type = m.group(2)
-        inst_name = m.group(3)
-
-        collected = _collect_instance(lines, i)
+        collected = _collect_instance(lines, i) if mp is None else (end_i_early, flat_early)
         if collected is None:
             out.append(line)
             i += 1
@@ -1865,7 +1928,12 @@ def _align_instance_ports_pass(text: str, opts: "FormatOptions") -> str:
             close_paren = _snap(open_paren + 1 + max_sig + m_inside)
             m_inside = close_paren - open_paren - 1 - max_sig
 
-        out.append(f"{indent}{module_type} {inst_name} (")
+        inst_header = (
+            f"{indent}{module_type} {param_block} {inst_name} ("
+            if param_block else
+            f"{indent}{module_type} {inst_name} ("
+        )
+        out.append(inst_header)
         for k, (port, sig) in enumerate(ports):
             comma = "" if k == len(ports) - 1 else ","
             pline = (
@@ -1899,8 +1967,75 @@ def _apply_kw_case(text: str, case: str) -> str:
 #   [indent] module <name> [imports...] [#(...)] (ports);
 # Captures: (prefix_up_to_and_including_"(", ports_string, ");")
 # Only single-line headers are matched; multi-line are not touched.
+_MODULE_PARAM_HDR_RE = re.compile(
+    r'^([ \t]*(?:module|macromodule)\b\s+\w+\s*)(#\()',
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def _format_module_paramlist_pass(text: str, opts: "FormatOptions") -> str:
+    """Reformat single-line module #(...) parameter blocks to one parameter per line."""
+    if not opts.port.module_param_per_line_enabled:
+        return text
+
+    indent_unit = " " * opts.indent_size
+    lines = text.split("\n")
+    result_lines: list[str] = []
+
+    for line in lines:
+        m = _MODULE_PARAM_HDR_RE.match(line)
+        if not m:
+            result_lines.append(line)
+            continue
+
+        hash_open = m.end()  # index just after '#('
+        rest = line[hash_open:]
+
+        # Find matching ')' for '#(' by tracking bracket depth.
+        depth = 1
+        close_idx = -1
+        for i, ch in enumerate(rest):
+            if ch in "([{":
+                depth += 1
+            elif ch in ")]}":
+                depth -= 1
+                if depth == 0:
+                    close_idx = i
+                    break
+
+        if close_idx == -1:
+            # '#(...)' already spans multiple lines — leave unchanged.
+            result_lines.append(line)
+            continue
+
+        param_content = rest[:close_idx]
+        after_close = rest[close_idx + 1:]   # text after '#(...)' on same line
+
+        params = [p.strip() for p in _split_top_level(param_content) if p.strip()]
+        if len(params) <= 1:
+            result_lines.append(line)
+            continue
+
+        leading_ws = re.match(r'^(\s*)', line).group(1)
+        prefix = line[:hash_open - 2]  # up to but not including '#('
+
+        param_lines = []
+        for pi, param in enumerate(params):
+            comma = "," if pi < len(params) - 1 else ""
+            param_lines.append(leading_ws + indent_unit + param + comma)
+
+        new_line = (
+            prefix + "#(\n"
+            + "\n".join(param_lines) + "\n"
+            + leading_ws + ")" + after_close.lstrip(" \t")
+        )
+        result_lines.append(new_line)
+
+    return "\n".join(result_lines)
+
+
 _MODULE_HDR_RE = re.compile(
-    r'^([ \t]*(?:module|macromodule)\b[^(\n]*\()([^)\n]+)(\);)',
+    r'^([ \t]*(?:module|macromodule)\b(?:[^(\n]|#\([^)]*\))*\()([^)\n]+)(\);)',
     re.MULTILINE,
 )
 
@@ -2256,6 +2391,7 @@ def format_source(source: str, options: Optional[FormatOptions] = None) -> str:
     if opts.instance.align:
         result = _align_instance_ports_pass(result, opts)
     result = _format_module_portlist_pass(result, opts)
+    result = _format_module_paramlist_pass(result, opts)
     if opts.safe_mode:
         _strip = lambda s: re.sub(r"\s+", "", s)
         if _strip(source) != _strip(result):

@@ -63,7 +63,7 @@ keyword_case = "lower"          # "lower" | "upper" | "preserve"
 compact_indexing_and_selections = true
 blank_lines_between_items = 1
 default_indent_level_inside_module_block = 0
-tab_align = true
+tab_align = false
 align_punctuation = true
 enable_format_on_save = true
 
@@ -89,10 +89,11 @@ section3_min_width = 20
 section4_min_width = 16
 
 [formatter.port]
-non_ansi_port_per_line_enabled = false
+non_ansi_port_per_line_enabled = true
 non_ansi_port_per_line = 3
-non_ansi_port_max_line_length_enabled = true
+non_ansi_port_max_line_length_enabled = false
 non_ansi_port_max_line_length = 18
+module_param_per_line_enabled = false
 
 [formatter.instance]
 align = true
@@ -105,7 +106,7 @@ use_named_arguments = true
 
 [autoarg]
 indent_size = 4
-on_save = true
+autoarg_on_save = true
 
 [autoinst]
 indent_size = 4

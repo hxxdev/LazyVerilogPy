@@ -1,9 +1,6 @@
 module memory(
-    i_clk, address,
-    data_in,
-    data_out,
-    read_write,
-    chip_en
+    i_clk, address, data_in,
+    data_out, read_write, chip_en
 );
 
 input   wire                [7:0]               address                                 , data_in                                 ;
