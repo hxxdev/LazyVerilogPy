@@ -2,7 +2,7 @@ PYTHON := .venv/bin/python
 PYTHONPATH := src
 
 
-.PHONY: test build build-fmt setup
+.PHONY: test build build-fmt build-lint setup
 
 setup: .venv
 
@@ -72,5 +72,22 @@ build-fmt: .venv
 		--name $(FMT_BINARY_NAME) \
 		--collect-all lazyverilogpy \
 		--collect-all pyslang \
+		--collect-all tomli \
 		src/lazyverilogpy/formatter_main.py
 	@echo "Binary: dist/$(FMT_BINARY_NAME)"
+
+LINT_BINARY_NAME := lazyverilogpy-lint-$(VERSION)-$(OS)-$(ARCH)
+build-lint: .venv
+	$(PYTHON) -m pip install -q pyinstaller
+	$(PYTHON) -m PyInstaller \
+		--onefile \
+		--optimize 2 \
+		--strip \
+		--paths src \
+		--name $(LINT_BINARY_NAME) \
+		--collect-all lazyverilogpy \
+		--collect-all pyslang \
+		--collect-all lsprotocol \
+		--collect-all tomli \
+		src/lazyverilogpy/lint_main.py
+	@echo "Binary: dist/$(LINT_BINARY_NAME)"
