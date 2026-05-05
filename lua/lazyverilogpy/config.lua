@@ -19,7 +19,7 @@ M.defaults = {
 
     -- Formatting options forwarded to the Python server.
     -- All fields are optional; unset fields use server defaults.
-    formatter = {
+    format = {
         -- indent_size          = 4,
         -- use_tabs             = false,
         -- spaces_around_operators = true,

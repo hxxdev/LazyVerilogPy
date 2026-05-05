@@ -197,7 +197,7 @@ local function start_lsp(cfg, cmd)
         on_attach    = combined_on_attach,
         settings     = {
             lazyverilogpy = {
-                formatter = cfg.formatter,
+                format = cfg.format,
             },
         },
         handlers     = {

@@ -7,7 +7,7 @@ Reference documentation for LazyVerilogPy users and contributors.
 
 | File | Purpose |
 |------|---------|
-| `format-options.md` | All `[formatter]` TOML options with type, default, and examples |
+| `format-options.md` | All `[format]` TOML options with type, default, and examples |
 | `lint.md` | `[codebase]` TOML section — multi-file `.f` filelist loading |
 | `hover.md` | Hover feature — what `K` shows for ports, variables, instances |
 | `autoarg.md` | AutoArg — fills module port-list header from body `input`/`output`/`inout` declarations |

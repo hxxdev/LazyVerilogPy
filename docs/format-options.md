@@ -1,6 +1,6 @@
 # LazyVerilogPy Formatter Options
 
-All options live under the `[formatter]` section (or its sub-sections) of
+All options live under the `[format]` section (or its sub-sections) of
 `lazyverilog.toml` placed in your project root (or any ancestor directory).
 
 ---
@@ -142,12 +142,12 @@ assign long_signal = c;
 
 ---
 
-## `[formatter.statement]`
+## `[format.statement]`
 
 Options for statement-level formatting.
 
 ```toml
-[formatter.statement]
+[format.statement]
 align = false             # align = and <= operators in consecutive assignments
 lhs_min_width = 1         # min spaces between longest LHS and its operator
 wrap_end_else_clauses = false
@@ -239,7 +239,7 @@ enforced by the formatter; reserved for future wrap-penalty passes.
 
 ---
 
-## `[formatter.port_declaration]`
+## `[format.port_declaration]`
 
 Options for port declaration section alignment.
 
@@ -248,7 +248,7 @@ contiguous blocks are aligned into up to five sections.  A "block" resets at
 blank lines, comment-only lines, non-port lines, and preprocessor directives.
 
 ```toml
-[formatter.port_declaration]
+[format.port_declaration]
 align = true
 section1_min_width = 10   # direction keyword (input/output/inout)
 section2_min_width = 20   # net/var type + datatype + signing
@@ -283,7 +283,7 @@ are expanded per declarator: each name gets its own section-4 slot, and each
 trailing (unpacked dim / default) gets its own section-5 slot.
 
 ```systemverilog
-// [formatter.port_declaration] section2_min_width = 20, section3_min_width = 20
+// [format.port_declaration] section2_min_width = 20, section3_min_width = 20
     input             logic               [7:0]               i_data;
     input             i_clk;
     output            logic signed        [15:0]              o_result;
@@ -291,7 +291,7 @@ trailing (unpacked dim / default) gets its own section-5 slot.
 
 ---
 
-## `[formatter.var_declaration]`
+## `[format.var_declaration]`
 
 Options for variable declaration section alignment.
 
@@ -300,7 +300,7 @@ Variable declarations (lines starting with a type keyword such as `logic`,
 are aligned into sections.
 
 ```toml
-[formatter.var_declaration]
+[format.var_declaration]
 align = false
 section1_min_width = 0    # type keyword + optional signing
 section2_min_width = 30   # packed dimension
@@ -326,7 +326,7 @@ Master switch.  When `true`, the variable-declaration alignment pass runs.
 
 ---
 
-## `[formatter.instance]`
+## `[format.instance]`
 
 Options for module instance port alignment.
 
@@ -335,7 +335,7 @@ Named port connections (`(.port(signal), …)`) are reformatted so that the
 empty port lists are left unchanged.
 
 ```toml
-[formatter.instance]
+[format.instance]
 align = false
 port_indent_level = 1
 port_spacing_before_paren = 1
@@ -379,7 +379,7 @@ Spaces between the signal and the closing `)`.
 
 ---
 
-## `[formatter.port]`
+## `[format.port]`
 
 Options for non-ANSI module header port-list formatting.
 
@@ -387,7 +387,7 @@ The formatter always expands **non-ANSI** module header port lists (lists of
 plain port names, no type keywords) to multi-line.
 
 ```toml
-[formatter.port]
+[format.port]
 non_ansi_port_per_line_enabled = false
 non_ansi_port_per_line = 1
 non_ansi_port_max_line_length_enabled = false
@@ -444,7 +444,7 @@ non-whitespace content was added or removed.  If a mismatch is detected:
   error to stderr.
 
 ```toml
-[formatter]
+[format]
 safe_mode = true
 ```
 
@@ -471,6 +471,6 @@ When `false` (default), format-on-save is suppressed; explicit `:Format`
 commands are **not** affected.
 
 ```toml
-[formatter]
+[format]
 enable_format_on_save = true
 ```

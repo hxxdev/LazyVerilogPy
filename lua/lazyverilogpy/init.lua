@@ -5,7 +5,7 @@
 ---
 --- Full example:
 ---   require('lazyverilogpy').setup({
----     formatter = {
+---     format = {
 ---       indent_size  = 2,
 ---       keyword_case = "lower",
 ---     },

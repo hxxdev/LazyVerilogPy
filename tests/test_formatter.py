@@ -50,7 +50,7 @@ def _load_rtl_opts() -> FormatOptions:
         if candidate.is_file():
             with candidate.open("rb") as fh:
                 data = tomllib.load(fh)
-            return FormatOptions.from_dict(data.get("formatter", {}))
+            return FormatOptions.from_dict(data.get("format", {}))
         parent = current.parent
         if parent == current:
             break

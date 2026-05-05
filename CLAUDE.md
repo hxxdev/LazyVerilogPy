@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 ## Commands
 ```bash
 make test          # full pytest suite (PYTHONPATH=src auto-set)
@@ -20,8 +22,22 @@ Two layers communicating over stdio via LSP:
 | `server.py` | Entry point; registers LSP handlers. Commands use `@server.command(NAME)` (not `@server.feature`) so `executeCommandProvider.commands` is populated. |
 | `analyzer.py` | `DocumentState` (text + pyslang SyntaxTree + Compilation). URI-keyed cache via `open()`/`change()`/`close()`. All pyslang interaction here. |
 | `formatter.py` | Token-based SV formatter. `format_source(source, options)` must be idempotent and semantics-neutral (whitespace only). |
+| `formatter_main.py` | CLI entry point for standalone formatter binary. |
 | `hover.py` | Hover — calls `analyzer.symbol_at()`. |
 | `definition.py` | Go-to-definition — calls `analyzer.definition_of()`. |
+| `completion.py` | Completion — signal/port/keyword candidates. |
+| `inlay_hints.py` | Inlay hints — port direction/type next to instantiation connections. |
+| `signature_help.py` | Signature help — parameter list popup for function/task calls. |
+| `workspace_symbols.py` | Workspace symbols — indexes top-level SV symbols across the `.f` filelist. |
+| `lint.py` | Style-lint rules; opt-in via `[lint.*]` in `lazyverilog.toml`. All rules default disabled. |
+| `rename.py` | `textDocument/prepareRename` + `textDocument/rename` handlers. |
+| `references.py` | `textDocument/references` handler. |
+| `autoinst.py` | AutoInst — generate module instantiations from pyslang AST. |
+| `autoarg.py` | AutoArg — generate module port-list header from pyslang AST. |
+| `autowire.py` | AutoWire — declare signals for undeclared instantiation/assignment references. |
+| `autoff.py` | AutoFF — insert flip-flop assignments into an existing `always_ff` block. |
+| `autofunc.py` | AutoFunc — generate function/task call-sites with positional multiline args. |
+| `connect.py` | Connect — generate TextEdits for cross-hierarchy port wiring from a `ConnectPlan`. |
 
 ### Analyzer internals
 - `DocumentState` compiles the open file + extra files from `.f` filelist in `lazyverilog.toml`.
@@ -45,7 +61,7 @@ Two layers communicating over stdio via LSP:
 
 `plugin/lazyverilogpy.lua` — double-load guard only.
 
-**Formatter settings flow:** `cfg.formatter` → `settings.lazyverilogpy.formatter` in `vim.lsp.start()` → received on `WORKSPACE_DID_CHANGE_CONFIGURATION`.
+**Formatter settings flow:** `cfg.format` → `settings.lazyverilogpy.format` in `vim.lsp.start()` → received on `WORKSPACE_DID_CHANGE_CONFIGURATION`.
 
 ## Project config (`lazyverilog.toml`)
 ```toml

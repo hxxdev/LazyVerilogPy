@@ -104,7 +104,7 @@ def _load_fmt_options_from_toml(path: Path) -> FormatOptions:
 
     Expected TOML layout::
 
-        [formatter]
+        [format]
         indent_size = 4
         keyword_case = "lower"
         max_line_length = 120
@@ -113,19 +113,19 @@ def _load_fmt_options_from_toml(path: Path) -> FormatOptions:
         default_indent_level_inside_module_block = 1
         tab_align = false
 
-        [formatter.statement]
+        [format.statement]
         align = false
         lhs_min_width = 1
         wrap_end_else_clauses = false
         wrap_spaces = 4
 
-        [formatter.port_declaration]
+        [format.port_declaration]
         align = true
 
-        [formatter.var_declaration]
+        [format.var_declaration]
         align = false
 
-        [formatter.instance]
+        [format.instance]
         align = false
 
         [design]
@@ -143,7 +143,7 @@ def _load_fmt_options_from_toml(path: Path) -> FormatOptions:
     with path.open("rb") as fh:
         data = tomllib.load(fh)
 
-    cfg = data.get("formatter", {})
+    cfg = data.get("format", {})
     opts = FormatOptions.from_dict(cfg)
     logger.info("Loaded format options from %s", path)
     return opts
@@ -383,7 +383,7 @@ def did_change_configuration(
         lv = settings.get("lazyverilogpy", {})
         if not isinstance(lv, dict):
             return
-        cfg = lv.get("formatter", {})
+        cfg = lv.get("format", {})
         if not isinstance(cfg, dict):
             cfg = {}
         _fmt_options = FormatOptions.from_dict(cfg, base=_toml_fmt_options)
