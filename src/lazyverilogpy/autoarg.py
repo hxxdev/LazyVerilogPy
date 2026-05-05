@@ -244,6 +244,15 @@ def autoarg(state, line: int, col: int) -> Optional[dict]:
     if close_line == -1:
         return None
 
+    # Skip ANSI-style modules: if the port list already contains direction
+    # keywords (input/output/inout/ref), the header is ANSI and autoarg must
+    # not overwrite it with a plain name list.
+    _ANSI_DIR_RE = re.compile(r'\b(?:input|output|inout|ref)\b', re.IGNORECASE)
+    port_list_lines = doc_lines[open_line:close_line + 1]
+    port_list_text = "\n".join(port_list_lines)
+    if _ANSI_DIR_RE.search(port_list_text):
+        return None
+
     # Include the ';' that follows ')' in the replaced range so format_autoarg
     # can append ");" and the result is a complete, valid header.
     end_line = close_line
