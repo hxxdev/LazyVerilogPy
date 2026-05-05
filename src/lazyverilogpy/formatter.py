@@ -263,11 +263,16 @@ class InstanceOptions:
     port_indent_level: int = 1
     """Indent levels added for each port line inside an instance block."""
 
-    port_spacing_before_paren: int = 1
-    """Spaces between the port name column and the opening ``(`` of the signal."""
+    instance_port_name_width: int = 1
+    """Minimum width for port name (between '.' and '(' in named connections)."""
 
-    port_spacing_inside_paren: int = 0
-    """Spaces between the signal and the closing ``)``."""
+    instance_port_between_paren_width: int = 0
+    """Minimum spacing between '(' and ')' (signal name column width)."""
+
+    align_instance_port_adaptive: bool = False
+    """If True, lines where port name exceeds instance_port_name_width get '(' placed
+    immediately after port name (not at fixed column). Same adaptive logic applies to
+    instance_port_between_paren_width for signal names."""
 
 
 class SafeModeError(ValueError):
@@ -1848,8 +1853,9 @@ def _align_instance_ports_pass(text: str, opts: "FormatOptions") -> str:
     and ``)`` characters align vertically.
     """
     port_indent = " " * (opts.instance.port_indent_level * opts.indent_size)
-    m_before = opts.instance.port_spacing_before_paren
-    m_inside = opts.instance.port_spacing_inside_paren
+    m_before = opts.instance.instance_port_name_width
+    m_inside = opts.instance.instance_port_between_paren_width
+    adaptive = opts.instance.align_instance_port_adaptive
 
     lines = text.split("\n")
     out: list[str] = []
@@ -1918,15 +1924,21 @@ def _align_instance_ports_pass(text: str, opts: "FormatOptions") -> str:
         max_port = max(len(p) for p, _ in ports)
         max_sig  = max(len(s) for _, s in ports)
 
-        if opts.tab_align and opts.indent_size > 1:
-            def _snap(pos: int) -> int:
-                return math.ceil(pos / opts.indent_size) * opts.indent_size
-            # Position just after the port-name column content.
-            base = len(indent) + len(port_indent) + 1 + max_port
-            open_paren = _snap(base + m_before)
-            m_before = open_paren - base
-            close_paren = _snap(open_paren + 1 + max_sig + m_inside)
-            m_inside = close_paren - open_paren - 1 - max_sig
+        # Compute fixed alignment widths (non-adaptive defaults).
+        # In fixed mode: all ports align to max(m_before, ...) column.
+        # In adaptive mode: per-line decision based on individual port/sig length.
+        if not adaptive:
+            # Fixed mode: snap if tab_align requested.
+            eff_before = m_before
+            eff_inside = m_inside
+            if opts.tab_align and opts.indent_size > 1:
+                def _snap(pos: int) -> int:
+                    return math.ceil(pos / opts.indent_size) * opts.indent_size
+                base = len(indent) + len(port_indent) + 1 + max_port
+                open_paren = _snap(base + eff_before)
+                eff_before = open_paren - base
+                close_paren = _snap(open_paren + 1 + max_sig + eff_inside)
+                eff_inside = close_paren - open_paren - 1 - max_sig
 
         inst_header = (
             f"{indent}{module_type} {param_block} {inst_name} ("
@@ -1936,11 +1948,22 @@ def _align_instance_ports_pass(text: str, opts: "FormatOptions") -> str:
         out.append(inst_header)
         for k, (port, sig) in enumerate(ports):
             comma = "" if k == len(ports) - 1 else ","
-            pline = (
-                f"{indent}{port_indent}"
-                f".{port.ljust(max_port)}"
-                f"{' ' * m_before}({sig.ljust(max_sig)}{' ' * m_inside}){comma}"
-            )
+            if adaptive:
+                # Adaptive: if port name exceeds m_before, use 1 space; else pad to m_before.
+                spaces_before = 1 if len(port) >= m_before else (m_before - len(port))
+                # Adaptive: if signal exceeds m_inside, use 0 spaces inside; else pad.
+                spaces_inside = 0 if len(sig) >= m_inside and m_inside > 0 else m_inside
+                pline = (
+                    f"{indent}{port_indent}"
+                    f".{port}"
+                    f"{' ' * spaces_before}({sig}{' ' * spaces_inside}){comma}"
+                )
+            else:
+                pline = (
+                    f"{indent}{port_indent}"
+                    f".{port.ljust(max_port)}"
+                    f"{' ' * eff_before}({sig.ljust(max_sig)}{' ' * eff_inside}){comma}"
+                )
             out.append(pline.rstrip())
         out.append(f"{indent});")
 

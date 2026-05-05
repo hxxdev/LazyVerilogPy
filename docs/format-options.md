@@ -338,8 +338,9 @@ empty port lists are left unchanged.
 [format.instance]
 align = false
 port_indent_level = 1
-port_spacing_before_paren = 1
-port_spacing_inside_paren = 0
+instance_port_name_width = 1
+instance_port_between_paren_width = 0
+align_instance_port_adaptive = false
 ```
 
 ### `align`
@@ -363,19 +364,37 @@ memory u_mem (
 
 Indent levels added for each port line inside the instance block.
 
-### `port_spacing_before_paren`
+### `instance_port_name_width`
 | type | default |
 |------|---------|
 | int  | `1`     |
 
-Spaces between the port name column and the opening `(` of the signal.
+Minimum width for port name (between `.` and `(` in named connections). All port
+names are padded to `max(instance_port_name_width, longest_port_name)` so the
+opening `(` aligns vertically.
 
-### `port_spacing_inside_paren`
+### `instance_port_between_paren_width`
 | type | default |
 |------|---------|
 | int  | `0`     |
 
-Spaces between the signal and the closing `)`.
+Minimum width for signal name (between `(` and `)` in named connections). All
+signal names are padded to `max(instance_port_between_paren_width, longest_signal_name)`
+so the closing `)` aligns vertically.
+
+### `align_instance_port_adaptive`
+| type | default |
+|------|---------|
+| bool | `false` |
+
+When `false` (default), strict column alignment: all `(` land at the same column
+regardless of port name length.
+
+When `true`, adaptive mode: if a port name is longer than
+`instance_port_name_width`, that line's `(` gets exactly 1 space after the port
+name instead of padding to the fixed column. Same logic applies to
+`instance_port_between_paren_width` for signal names — if the signal is longer,
+0 extra spaces are added before `)`.
 
 ---
 

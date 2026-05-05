@@ -715,8 +715,8 @@ class TestAlignInstancePorts:
     def _fmt(self, src: str = None, **kw) -> str:
         inst_opts = InstanceOptions(
             align=True,
-            port_spacing_before_paren=kw.pop("instance_port_spacing_before_paren", 1),
-            port_spacing_inside_paren=kw.pop("instance_port_spacing_inside_paren", 0),
+            instance_port_name_width=kw.pop("instance_port_spacing_before_paren", 1),
+            instance_port_between_paren_width=kw.pop("instance_port_spacing_inside_paren", 0),
         )
         return fmt(src or self._SRC, indent_size=2, instance=inst_opts, **kw)
 

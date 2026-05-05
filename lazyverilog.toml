@@ -96,9 +96,10 @@ non_ansi_port_max_line_length = 18
 
 [format.instance]
 align = true
-port_indent_level = 1           # indent levels for port lines relative to instantiation
-port_spacing_before_paren = 10  # spaces between port name and (
-port_spacing_inside_paren = 10  # spaces between signal and )
+port_indent_level = 1                   # indent levels for port lines relative to instantiation
+instance_port_name_width = 10           # minimum width for port name (between '.' and '(')
+instance_port_between_paren_width = 10  # minimum width for signal name (between '(' and ')')
+align_instance_port_adaptive = false    # if true, long port/signal names use 1 space instead of fixed column
 
 [autofunc]
 use_named_arguments = true
