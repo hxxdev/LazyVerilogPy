@@ -27,6 +27,7 @@ enable = true
 severity = "warning"          # "warning" | "error" | "hint"
 one_module_per_file = false   # check that at most one module is declared per file
 module_instantiation_style = ""  # "positional", "named", or "both"
+stale_autoinst_diagnostic = true
 
 [lint.statement]
 enable = true

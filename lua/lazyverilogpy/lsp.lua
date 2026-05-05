@@ -159,6 +159,15 @@ end
 -- LSP start
 -- ---------------------------------------------------------------------------
 
+local function _default_on_attach(client, bufnr)
+    local opts = { buffer = bufnr, silent = true }
+
+    -- Inlay hints (Neovim >= 0.10)
+    if vim.lsp.inlay_hint then
+        vim.lsp.inlay_hint.enable(true, { bufnr = bufnr })
+    end
+end
+
 local function start_lsp(cfg, cmd)
     local ok, err = validate_cmd(cmd)
     if not ok then
@@ -169,6 +178,15 @@ local function start_lsp(cfg, cmd)
     local bufnr = vim.api.nvim_get_current_buf()
     local root  = find_root(bufnr, cfg.root_markers)
 
+    -- Wrap user on_attach with our defaults
+    local user_on_attach = cfg.on_attach
+    local function combined_on_attach(client, buf)
+        _default_on_attach(client, buf)
+        if user_on_attach then
+            user_on_attach(client, buf)
+        end
+    end
+
     vim.lsp.start({
         name         = "lazyverilogpy",
         cmd          = cmd,
@@ -176,7 +194,7 @@ local function start_lsp(cfg, cmd)
         root_dir     = root,
         filetypes    = cfg.filetypes,
         capabilities = cfg.capabilities,
-        on_attach    = cfg.on_attach,
+        on_attach    = combined_on_attach,
         settings     = {
             lazyverilogpy = {
                 formatter = cfg.formatter,

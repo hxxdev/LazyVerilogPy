@@ -17,12 +17,16 @@ from lazyverilogpy.autoff import autoff as autoff_impl, DEFAULT_REGISTER_PATTERN
 from lazyverilogpy.autoarg import autoarg as autoarg_impl, format_autoarg, AutoargOptions
 from lazyverilogpy.autoinst import autoinst as autoinst_impl, format_autoinst, parse_existing_connections, AutoinstOptions
 from lazyverilogpy.autowire import AutowireOptions, autowire
+from lazyverilogpy.completion import provide_completion
 from lazyverilogpy.definition import provide_definition
 from lazyverilogpy.formatter import FormatOptions, SafeModeError, format_source
 from lazyverilogpy.hover import provide_hover
+from lazyverilogpy.inlay_hints import provide_inlay_hints
 from lazyverilogpy.references import provide_references
 from lazyverilogpy.rename import prepare_rename as _prepare_rename, provide_rename as _provide_rename
 from lazyverilogpy.lint import LintConfig, run_lint, _same_file
+from lazyverilogpy.signature_help import provide_signature_help
+from lazyverilogpy.workspace_symbols import provide_workspace_symbols
 
 try:
     import tomllib  # Python 3.11+
@@ -468,6 +472,76 @@ def rename(
         return result.workspace_edit
     except Exception as exc:
         logger.error("rename error: %s", exc, exc_info=True)
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Completion
+# ---------------------------------------------------------------------------
+
+
+@server.feature(
+    types.TEXT_DOCUMENT_COMPLETION,
+    types.CompletionOptions(trigger_characters=["."]),
+)
+def completion(
+    ls: LanguageServer, params: types.CompletionParams
+) -> Optional[types.CompletionList]:
+    try:
+        return provide_completion(analyzer, params)
+    except Exception as exc:
+        logger.error("completion error: %s", exc, exc_info=True)
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Inlay hints
+# ---------------------------------------------------------------------------
+
+
+@server.feature(types.TEXT_DOCUMENT_INLAY_HINT)
+def inlay_hint(
+    ls: LanguageServer, params: types.InlayHintParams
+) -> Optional[list[types.InlayHint]]:
+    try:
+        return provide_inlay_hints(analyzer, params)
+    except Exception as exc:
+        logger.error("inlay_hint error: %s", exc, exc_info=True)
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Signature help
+# ---------------------------------------------------------------------------
+
+
+@server.feature(
+    types.TEXT_DOCUMENT_SIGNATURE_HELP,
+    types.SignatureHelpOptions(trigger_characters=["(", ","]),
+)
+def signature_help(
+    ls: LanguageServer, params: types.SignatureHelpParams
+) -> Optional[types.SignatureHelp]:
+    try:
+        return provide_signature_help(analyzer, params)
+    except Exception as exc:
+        logger.error("signature_help error: %s", exc, exc_info=True)
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Workspace symbols
+# ---------------------------------------------------------------------------
+
+
+@server.feature(types.WORKSPACE_SYMBOL)
+def workspace_symbol(
+    ls: LanguageServer, params: types.WorkspaceSymbolParams
+) -> Optional[list[types.SymbolInformation]]:
+    try:
+        return provide_workspace_symbols(analyzer, params)
+    except Exception as exc:
+        logger.error("workspace_symbol error: %s", exc, exc_info=True)
         return None
 
 

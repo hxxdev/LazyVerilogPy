@@ -71,6 +71,7 @@ class PortStyleConfig(LintRuleConfig):
 class ModuleConfig(LintRuleConfig):
     one_module_per_file: bool = False
     module_instantiation_style: str = ""  # "positional", "named", "both"
+    stale_autoinst_diagnostic: bool = False
 
 
 @dataclass
@@ -977,6 +978,103 @@ def _check_register_naming(state: "DocumentState", config: LintConfig) -> list[t
     return diags
 
 
+def _check_stale_autoinst(state: "DocumentState", config: LintConfig) -> list[types.Diagnostic]:
+    """Warn when instantiation port connections are out of sync with the module definition.
+
+    Walks the syntax tree for ``SyntaxKind.HierarchicalInstance`` nodes (buffer-only,
+    uses ``tree.sourceManager`` directly) to get instance line numbers, then resolves
+    each to a semantic symbol via ``find_instance_at_line``.  Avoids the SourceManager
+    mismatch that breaks ``compilation.getRoot().visit()`` with ``tree.sourceManager``.
+    """
+    tree = state.tree
+    compilation = state.compilation
+    if tree is None or compilation is None:
+        return []
+
+    from lazyverilogpy.autoinst import find_instance_at_line, inst_line_range, parse_existing_connections
+
+    sm = tree.sourceManager
+    diags: list[types.Diagnostic] = []
+    seen: set[str] = set()  # deduplicate by hierarchicalPath
+
+    def _visit(node) -> bool:
+        try:
+            if str(node.kind) != "SyntaxKind.HierarchicalInstance":
+                return True
+            line = max(sm.getLineNumber(node.sourceRange.start) - 1, 0)
+        except Exception:
+            return True
+
+        try:
+            sym = find_instance_at_line(state, line)
+        except Exception:
+            return True
+        if sym is None:
+            return True
+
+        try:
+            sym_key = str(sym.hierarchicalPath)
+        except Exception:
+            return True
+        if sym_key in seen:
+            return True
+        seen.add(sym_key)
+
+        actual_ports: list[str] = []
+        mod_name = ""
+        try:
+            body = sym.body
+            mod_name = str(body.name)
+            for port in body.portList:
+                try:
+                    actual_ports.append(str(port.name))
+                except Exception:
+                    continue
+        except Exception:
+            return True
+
+        if not actual_ports:
+            return True
+
+        try:
+            line_start, line_end = inst_line_range(state.text, sym, tree)
+        except Exception:
+            return True
+        connected = parse_existing_connections(state.text, line_start, line_end)
+
+        actual_set = set(actual_ports)
+        connected_set = set(connected.keys())
+        missing = actual_set - connected_set
+        extra = connected_set - actual_set
+
+        if not missing and not extra:
+            return True
+
+        inst_name = str(sym.name)
+        if missing:
+            diags.append(_make_diagnostic(
+                line_start, 0,
+                f"[module] instance '{inst_name}' ({mod_name}) missing ports: {', '.join(sorted(missing))}",
+                config.module.severity,
+                code="stale_autoinst",
+            ))
+        if extra:
+            diags.append(_make_diagnostic(
+                line_start, 0,
+                f"[module] instance '{inst_name}' ({mod_name}) has unknown ports: {', '.join(sorted(extra))}",
+                config.module.severity,
+                code="stale_autoinst",
+            ))
+        return True
+
+    try:
+        tree.root.visit(_visit)
+    except Exception as exc:
+        logger.debug("stale_autoinst walk error: %s", exc)
+
+    return diags
+
+
 def run_lint(state: "DocumentState", config: LintConfig) -> list[types.Diagnostic]:
     """Run all enabled lint rules against *state*.
 
@@ -1019,6 +1117,12 @@ def run_lint(state: "DocumentState", config: LintConfig) -> list[types.Diagnosti
             diags.extend(_check_design(state, config.design))
         except Exception as exc:
             logger.debug("design rule failed: %s", exc)
+
+    if config.module.enable and config.module.stale_autoinst_diagnostic:
+        try:
+            diags.extend(_check_stale_autoinst(state, config))
+        except Exception as exc:
+            logger.debug("stale_autoinst check failed: %s", exc)
 
     # Register naming check — opt-in when naming.register_pattern configured
     if config.naming.enable and config.naming._register_re is not None:
