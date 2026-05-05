@@ -45,7 +45,7 @@ def provide_signature_help(
         param_infos = _build_param_infos(sig_label, f"module {call_name} #(", param_labels)
         active = _resolve_active(param_ref, params_list, "name")
         active = min(active, max(len(params_list) - 1, 0)) if params_list else 0
-        sig = types.SignatureInformation(label=sig_label, parameters=param_infos)
+        sig = types.SignatureInformation(label=sig_label, parameters=param_infos, active_parameter=active)
         return types.SignatureHelp(signatures=[sig], active_signature=0, active_parameter=active)
 
     sub_info = _get_subroutine_info(state, call_name)
@@ -58,7 +58,7 @@ def provide_signature_help(
             param_infos = _build_param_infos(sig_label, f"module {call_name} #(", param_labels)
             active = _resolve_active(param_ref, params_list, "name")
             active = min(active, max(len(params_list) - 1, 0)) if params_list else 0
-            sig = types.SignatureInformation(label=sig_label, parameters=param_infos)
+            sig = types.SignatureInformation(label=sig_label, parameters=param_infos, active_parameter=active)
             return types.SignatureHelp(signatures=[sig], active_signature=0, active_parameter=active)
         return None
 
@@ -81,7 +81,7 @@ def provide_signature_help(
     active = _resolve_active(param_ref, args, "name")
     active = min(active, max(len(args) - 1, 0)) if args else 0
 
-    sig = types.SignatureInformation(label=sig_label, parameters=param_infos)
+    sig = types.SignatureInformation(label=sig_label, parameters=param_infos, active_parameter=active)
 
     return types.SignatureHelp(
         signatures=[sig],

@@ -517,7 +517,10 @@ def inlay_hint(
 
 @server.feature(
     types.TEXT_DOCUMENT_SIGNATURE_HELP,
-    types.SignatureHelpOptions(trigger_characters=["(", ","]),
+    types.SignatureHelpOptions(
+        trigger_characters=["(", ","],
+        retrigger_characters=[",", ")"],
+    ),
 )
 def signature_help(
     ls: LanguageServer, params: types.SignatureHelpParams
