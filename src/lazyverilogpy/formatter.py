@@ -326,8 +326,6 @@ class PortOptions:
     non_ansi_port_max_line_length: int = 80
     """Maximum line length for port-list lines when length-based mode is active."""
 
-    module_param_per_line_enabled: bool = False
-    """When ``True``, reformat module #(...) parameter blocks to one parameter per line."""
 
 
 @dataclass
@@ -1998,9 +1996,6 @@ _MODULE_PARAM_HDR_RE = re.compile(
 
 def _format_module_paramlist_pass(text: str, opts: "FormatOptions") -> str:
     """Reformat single-line module #(...) parameter blocks to one parameter per line."""
-    if not opts.port.module_param_per_line_enabled:
-        return text
-
     indent_unit = " " * opts.indent_size
     lines = text.split("\n")
     result_lines: list[str] = []
