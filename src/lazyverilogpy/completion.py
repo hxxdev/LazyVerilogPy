@@ -57,7 +57,7 @@ def provide_completion(
     line = params.position.line
     character = params.position.character
 
-    state = analyzer.get_state(uri)
+    state = analyzer.get_compiled_state(uri)
     if state is None:
         return None
 

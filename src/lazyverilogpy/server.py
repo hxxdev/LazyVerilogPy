@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 from pathlib import Path
 from typing import Any, Optional
 import pyslang
@@ -54,6 +55,21 @@ def _show_message(ls: LanguageServer, message: str, msg_type: types.MessageType)
 
 server = LanguageServer(SERVER_NAME, SERVER_VERSION)
 analyzer = Analyzer()
+
+# Per-URI pending diagnostic timers for debouncing
+_diag_timers: dict[str, threading.Timer] = {}
+_DIAG_DEBOUNCE_S = 0.3
+
+
+def _schedule_diagnostics(ls: LanguageServer, uri: str) -> None:
+    """Debounce diagnostics: fire 300 ms after the last change for *uri*."""
+    existing = _diag_timers.get(uri)
+    if existing is not None:
+        existing.cancel()
+    t = threading.Timer(_DIAG_DEBOUNCE_S, _publish_diagnostics, args=(ls, uri))
+    t.daemon = True
+    _diag_timers[uri] = t
+    t.start()
 
 # Default formatting options — overridden by config file or workspace configuration
 _fmt_options = FormatOptions()
@@ -353,17 +369,21 @@ def did_open(ls: LanguageServer, params: types.DidOpenTextDocumentParams) -> Non
 
 @server.feature(types.TEXT_DOCUMENT_DID_CHANGE)
 def did_change(ls: LanguageServer, params: types.DidChangeTextDocumentParams) -> None:
-    # Full sync — the client sends the complete new text each time
+    # Incremental sync (pygls default) — client sends only the changed range
     for change in params.content_changes:
         analyzer.change(params.text_document.uri, change)
-    _publish_diagnostics(ls, params.text_document.uri)
+    _schedule_diagnostics(ls, params.text_document.uri)
 
 
 
 
 @server.feature(types.TEXT_DOCUMENT_DID_CLOSE)
 def did_close(ls: LanguageServer, params: types.DidCloseTextDocumentParams) -> None:
-    analyzer.close(params.text_document.uri)
+    uri = params.text_document.uri
+    t = _diag_timers.pop(uri, None)
+    if t is not None:
+        t.cancel()
+    analyzer.close(uri)
 
 
 # ---------------------------------------------------------------------------
@@ -1464,6 +1484,7 @@ def code_action(
 
 
 def _publish_diagnostics(ls: LanguageServer, uri: str) -> None:
+    analyzer.ensure_compilation(uri)
     state = analyzer.get_state(uri)
     if state is None or state.compilation is None:
         ls.text_document_publish_diagnostics(

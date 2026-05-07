@@ -18,12 +18,20 @@ def provide_inlay_hints(
     params: types.InlayHintParams,
 ) -> Optional[list[types.InlayHint]]:
     uri = params.text_document.uri
-    state = analyzer.get_state(uri)
+    state = analyzer.get_compiled_state(uri)
     if state is None or state.compilation is None or state.tree is None:
         return None
 
     range_start = params.range.start.line
     range_end = params.range.end.line
+
+    # Cache by (compilation identity, visible range) — cursor moves that don't
+    # change the visible range or trigger a recompile return instantly.
+    cache_key = (id(state.compilation), range_start, range_end)
+    cached = state._inlay_cache.get(cache_key)
+    if cached is not None:
+        return cached if cached else None
+
     lines = state.text.splitlines()
     tree = state.tree
     sm = tree.sourceManager
@@ -156,4 +164,9 @@ def provide_inlay_hints(
     except Exception:
         pass
 
-    return hints if hints else None
+    result = hints if hints else None
+    # Store in cache; keep at most 8 entries to bound memory use
+    state._inlay_cache[cache_key] = result
+    if len(state._inlay_cache) > 8:
+        state._inlay_cache.pop(next(iter(state._inlay_cache)))
+    return result

@@ -47,6 +47,10 @@ class DocumentState:
     # Filename pyslang associates with state.tree ("buffer.sv" in real-time mode,
     # real path string in batch/execute_lint mode).
     tree_filename: str = "buffer.sv"
+    # Inlay hint cache: (compilation_id, range_start, range_end) → hints list
+    _inlay_cache: dict = field(default_factory=dict, repr=False)
+    # True when text has changed since the last full _parse() run
+    _compilation_dirty: bool = field(default=True, repr=False)
 
 
 @dataclass
@@ -150,7 +154,7 @@ class Analyzer:
         self._defines: list[str] = []      # preprocessor defines passed to pyslang
         self._path_to_uri: dict[Path, str] = {}  # resolved path → open document URI
         self._extra_mtimes: dict = {}      # Path → float mtime at last disk read
-        self._extra_trees: dict[str, "pyslang.SyntaxTree"] = {}  # URI → cached SyntaxTree for extra files
+        self._extra_trees: dict[str, "pyslang.SyntaxTree"] = {}  # URI → cached SyntaxTree for extra files (bag=None only)
 
     @staticmethod
     def _uri_to_path(uri: str) -> Path:
@@ -177,9 +181,14 @@ class Analyzer:
             return
         state.text = _apply_change(state.text, change)
         state._offset_map.clear()
-        self._parse(state)
-        # Re-parse other open documents only if the changed file is part of the
-        # extra-files compilation — avoids unnecessary re-parsing on every keystroke.
+        state._inlay_cache.clear()
+        # Fast path: only re-parse the buffer's own syntax tree.
+        # Full compilation (with extra files) is rebuilt lazily via
+        # ensure_compilation() when a semantic feature actually needs it.
+        self._parse_syntax(state)
+        state._compilation_dirty = True
+        # Mark other open documents dirty if the changed file is part of the
+        # extra-files compilation so their next semantic request reflects the edit.
         try:
             changed_path = self._uri_to_path(uri)
             affects_others = changed_path in self._extra_files
@@ -187,9 +196,9 @@ class Analyzer:
             affects_others = True  # safe fallback
 
         if affects_others:
-            for other_uri, other_state in self._docs.items():
-                if other_uri != uri:
-                    self._parse(other_state)
+            for other_state in self._docs.values():
+                if other_state is not state:
+                    other_state._compilation_dirty = True
 
     def close(self, uri: str) -> None:
         try:
@@ -209,11 +218,23 @@ class Analyzer:
         """Set additional SV/V files (from a .f filelist) to include in every compilation.
 
         Re-parses all currently open documents so the new set takes effect immediately.
+        Skips the full reset when the file list is identical to the current one so that
+        repeated did_open calls (each of which re-runs _reload_config) do not evict the
+        SyntaxTree cache unnecessarily.
         """
-        self._extra_files = list(paths)
+        new_paths = list(paths)
+        if new_paths == self._extra_files:
+            # File list unchanged — run _parse only for docs that have no compilation yet
+            for state in self._docs.values():
+                if state.compilation is None:
+                    self._parse(state)
+            return
+        self._extra_files = new_paths
         self._extra_mtimes.clear()
         self._extra_trees.clear()
+        # Invalidate inlay caches in all open documents
         for state in self._docs.values():
+            state._inlay_cache.clear()
             self._parse(state)
 
     def get_extra_file_paths(self) -> list:
@@ -234,7 +255,7 @@ class Analyzer:
             self._parse(state)
 
     def refresh_if_stale(self, uri: str) -> None:
-        """Re-parse *uri*'s state if any disk-based extra file changed since last parse.
+        """Re-parse *uri*'s state if compilation is dirty or extra files changed.
 
         Called before commands (autoinst, autoarg) so results reflect the latest
         on-disk content of files that are not currently open in the editor.
@@ -242,6 +263,11 @@ class Analyzer:
         state = self._docs.get(uri)
         if state is None:
             return
+        # Rebuild if text changes have invalidated the compilation.
+        if state._compilation_dirty or state.compilation is None:
+            self._parse(state)
+            return
+        # Also rebuild if any disk-based extra file was modified externally.
         for path in self._extra_files:
             if self._path_to_uri.get(path) is not None:
                 continue  # open in editor — changes arrive via did_change
@@ -259,6 +285,53 @@ class Analyzer:
             self._extra_mtimes[path] = path.stat().st_mtime
         except Exception:
             pass
+
+    def _parse_syntax(self, state: DocumentState) -> None:
+        """Parse only the buffer text into state.tree.
+
+        Fast — does not touch state.compilation or extra files.
+        Sets state._compilation_dirty so the next ensure_compilation()
+        call triggers a full rebuild.
+        """
+        try:
+            bag: object = None
+            if self._defines:
+                po = pyslang.PreprocessorOptions()
+                po.predefines = list(self._defines)
+                bag = pyslang.Bag()
+                bag.preprocessorOptions = po
+            if bag is not None:
+                sm = pyslang.SourceManager()
+                state.tree = pyslang.SyntaxTree.fromText(
+                    state.text, sm, "buffer.sv", options=bag
+                )
+            else:
+                state.tree = pyslang.SyntaxTree.fromText(state.text, "buffer.sv")
+            state.tree_filename = "buffer.sv"
+        except Exception:
+            state.tree = None
+
+    def ensure_compilation(self, uri: str) -> None:
+        """Rebuild full compilation for *uri* if it is marked dirty.
+
+        Call this before any semantic operation (diagnostics, hover,
+        go-to-definition, etc.) to guarantee state.compilation is current.
+        """
+        state = self._docs.get(uri)
+        if state is None:
+            return
+        if state._compilation_dirty or state.compilation is None:
+            self._parse(state)
+
+    def get_compiled_state(self, uri: str) -> Optional["DocumentState"]:
+        """Ensure compilation is current and return the document state.
+
+        Convenience wrapper used by semantic feature handlers (hover,
+        definition, completion, etc.) so each handler does not need its
+        own ensure_compilation() call.
+        """
+        self.ensure_compilation(uri)
+        return self._docs.get(uri)
 
     def _parse(self, state: DocumentState) -> None:
         # Resolve current document's path so we can skip it in the extra-files list.
@@ -290,11 +363,13 @@ class Analyzer:
                     # Skip if this extra file IS the current document — avoids redefinition.
                     if current_path is not None and path == current_path:
                         continue
+                    path_uri = str(path.as_uri())
                     # Use the in-memory text if the file is currently open in the editor,
                     # so the compilation reflects unsaved edits in other buffers.
                     open_uri = self._path_to_uri.get(path)
                     open_state = self._docs.get(open_uri) if open_uri else None
                     if open_state is not None:
+                        # File open in editor — always re-parse from live text
                         if bag is not None:
                             extra_tree = pyslang.SyntaxTree.fromText(
                                 open_state.text, sm, str(path), options=bag
@@ -303,29 +378,49 @@ class Analyzer:
                             extra_tree = pyslang.SyntaxTree.fromText(
                                 open_state.text, str(path)
                             )
-                    else:
-                        if bag is not None:
-                            extra_tree = pyslang.SyntaxTree.fromFile(
-                                str(path), sm, options=bag
-                            )
+                    elif bag is None:
+                        # No preprocessor defines — reuse cached SyntaxTree if file
+                        # hasn't changed on disk.  This avoids re-parsing the entire
+                        # filelist on every keystroke when only the buffer changes.
+                        try:
+                            mtime = path.stat().st_mtime
+                        except Exception:
+                            mtime = None
+                        cached_tree = self._extra_trees.get(path_uri)
+                        if (
+                            cached_tree is not None
+                            and mtime is not None
+                            and mtime == self._extra_mtimes.get(path)
+                        ):
+                            extra_tree = cached_tree  # cache hit — skip disk I/O and re-parse
                         else:
                             extra_tree = pyslang.SyntaxTree.fromFile(str(path))
+                            self._extra_trees[path_uri] = extra_tree
+                            if mtime is not None:
+                                self._extra_mtimes[path] = mtime
+                    else:
+                        # Preprocessor defines — SM must match; can't reuse old trees
+                        extra_tree = pyslang.SyntaxTree.fromFile(
+                            str(path), sm, options=bag
+                        )
                         self._record_mtime(path)
+                        self._extra_trees[path_uri] = extra_tree
                     compilation.addSyntaxTree(extra_tree)
-                    path_uri = str(path.as_uri())
-                    self._extra_trees[path_uri] = extra_tree
                 except Exception as exc:
                     logger.warning("Failed to add extra file %s: %s", path, exc)
             state.compilation = compilation
+            state._compilation_dirty = False
         except Exception:
             state.tree = None
             state.compilation = None
+            state._compilation_dirty = False  # don't retry broken state
 
     # ------------------------------------------------------------------
     # Symbol lookup
     # ------------------------------------------------------------------
 
     def symbol_at(self, uri: str, line: int, character: int) -> Optional[SymbolInfo]:
+        self.ensure_compilation(uri)
         state = self._docs.get(uri)
         if state is None or state.compilation is None:
             return None
