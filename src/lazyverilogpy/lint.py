@@ -347,6 +347,7 @@ def _walk_syntax_tree(state: "DocumentState", config: LintConfig) -> tuple[list[
     do_func_auto = config.function.enable and config.function.functions_automatic
     do_func_lifetime = config.function.enable and config.function.explicit_function_lifetime
     do_task_lifetime = config.function.enable and config.function.explicit_task_lifetime
+    do_func_call_style = config.function.enable and bool(config.function.function_call_style)
 
     # Filename-match data
     expected_module_name = ""
@@ -500,6 +501,44 @@ def _walk_syntax_tree(state: "DocumentState", config: LintConfig) -> tuple[list[
                             f"[module] instance uses wrong instantiation style (expected {config.module.module_instantiation_style})",
                             config.module.severity,
                             code="module_instantiation_style",
+                        ))
+                except Exception:
+                    pass
+
+            # --- InvocationExpression (function_call_style) ---
+            elif k == "SyntaxKind.InvocationExpression" and do_func_call_style:
+                sr = node.sourceRange
+                if not _same_file(str(sm.getFileName(sr.start)), current_file):
+                    return True
+                try:
+                    has_named = False
+                    has_positional = False
+                    try:
+                        for arg in node.arguments.parameters:
+                            ak = str(arg.kind)
+                            if "NamedArgument" in ak:
+                                has_named = True
+                            elif "OrderedArgument" in ak:
+                                has_positional = True
+                    except Exception:
+                        pass
+
+                    if not has_named and not has_positional:
+                        return True
+
+                    style_violation = False
+                    if config.function.function_call_style == "positional" and has_named:
+                        style_violation = True
+                    elif config.function.function_call_style == "named" and has_positional:
+                        style_violation = True
+
+                    if style_violation:
+                        diags.append(_make_diagnostic(
+                            max(sm.getLineNumber(sr.start) - 1, 0),
+                            max(sm.getColumnNumber(sr.start) - 1, 0),
+                            f"[function] call uses wrong argument style (expected {config.function.function_call_style})",
+                            config.function.severity,
+                            code="function_call_style",
                         ))
                 except Exception:
                     pass
