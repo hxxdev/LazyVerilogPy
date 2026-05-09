@@ -2014,6 +2014,11 @@ class Analyzer:
             file_uri=inst_data.get(dst_parent, {}).get("file", uri),
         )
 
+        for _s in steps:
+            logger.debug("connect step: action=%s inst=%s port=%s line=%s-%s old=%s",
+                         _s.action, getattr(_s, 'inst_name', ''), getattr(_s, 'inst_port', ''),
+                         getattr(_s, 'inst_line_start', ''), getattr(_s, 'inst_line_end', ''),
+                         getattr(_s, 'old_connection', ''))
         return ConnectPlan(
             source_inst=source_inst,
             source_port=source_port,

@@ -108,6 +108,12 @@ def _add_new_inst_connection(
     close_col = close_paren - (last_nl + 1) if last_nl >= 0 else close_paren
     abs_line = line_start + nl_count
 
+    # When the closing ) is at column 0 (standalone ); line), insert at the
+    # end of the previous line so ); stays on its own line.
+    if close_col == 0 and abs_line > line_start:
+        abs_line -= 1
+        close_col = len(lines[abs_line]) if abs_line < len(lines) else 0
+
     # Detect indentation from existing .port() lines
     indent = "    "
     for i in range(min(line_end, len(lines) - 1), line_start - 1, -1):
