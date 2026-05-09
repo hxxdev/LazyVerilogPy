@@ -21,20 +21,28 @@ def provide_hover(
     if info is None:
         return None
 
-    # Build a Markdown string: bold name, kind badge, type/module preview
-    parts = [f"**{info.name}**"]
-    if info.kind:
-        kind_label = info.kind.split(".")[-1]
-        parts.append(f"*({kind_label})*")
-    if info.type_str:
-        parts.append(f"\n\n```\n{info.type_str}\n```")
-    # doc contains pre-formatted markdown (e.g. module port-list preview)
+    kind_label = info.kind.split(".")[-1] if info.kind else ""
+
+    # Header: bold name + kind badge
+    header = f"**{info.name}**"
+    if kind_label:
+        header += f" — *{kind_label}*"
+
+    # Body: prefer doc (pre-formatted code block) over bare type_str
+    _bare_kinds = {"module", "function", "task", "typedef"}
+    body = ""
     if info.doc:
-        parts.append(f"\n\n{info.doc}")
+        body = info.doc
+    elif info.type_str and info.type_str not in _bare_kinds:
+        body = f"```\n{info.type_str}\n```"
+
+    value = header
+    if body:
+        value += f"\n\n---\n\n{body}"
 
     return types.Hover(
         contents=types.MarkupContent(
             kind=types.MarkupKind.Markdown,
-            value=" ".join(parts),
+            value=value,
         )
     )

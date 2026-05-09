@@ -161,6 +161,23 @@ def _apply_change(old_text: str, change: types.TextDocumentContentChangeEvent) -
     return old_text[:start_offset] + change.text + old_text[end_offset:]
 
 
+def _fmt_ports(ports_str: str) -> str:
+    """Format a port list string for hover display.
+
+    Single-port lists are kept inline; multi-port lists get one port per line.
+    """
+    s = ports_str.strip()
+    if not s.startswith("(") or not s.endswith(")"):
+        return s
+    inner = s[1:-1].strip()
+    if not inner:
+        return "()"
+    ports = [p.strip() for p in inner.split(",")]
+    if len(ports) <= 1:
+        return f"({inner})"
+    return "(\n    " + ",\n    ".join(ports) + "\n)"
+
+
 class Analyzer:
     """Manages per-document compilation state and symbol lookups."""
 
@@ -1034,8 +1051,8 @@ class Analyzer:
                         return True
                     try:
                         ret = str(node.prototype.returnType).strip()
-                        ports = str(node.prototype.portList).strip()
-                        sig = f"function {ret} {name}{ports}"
+                        ports_str = str(node.prototype.portList).strip()
+                        sig = f"function {ret} {name}{_fmt_ports(ports_str)}"
                         doc = f"```\n{sig}\n```"
                     except Exception:
                         doc = ""
@@ -1047,8 +1064,8 @@ class Analyzer:
                     except Exception:
                         return True
                     try:
-                        ports = str(node.prototype.portList).strip()
-                        sig = f"task {name}{ports}"
+                        ports_str = str(node.prototype.portList).strip()
+                        sig = f"task {name}{_fmt_ports(ports_str)}"
                         doc = f"```\n{sig}\n```"
                     except Exception:
                         doc = ""
