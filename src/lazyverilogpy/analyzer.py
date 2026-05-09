@@ -990,6 +990,7 @@ class Analyzer:
             "SyntaxKind.FunctionDeclaration",
             "SyntaxKind.TaskDeclaration",
             "SyntaxKind.SubroutineDeclaration",
+            "SyntaxKind.TypedefDeclaration",
         }
 
         def _visit(node) -> bool:
@@ -1026,6 +1027,13 @@ class Analyzer:
                         ident_tok = node.prototype.name
                     except Exception:
                         return True
+                elif nk == "SyntaxKind.TypedefDeclaration":
+                    kind_label = "typedef"
+                    type_str = "typedef"
+                    try:
+                        ident_tok = node.name
+                    except Exception:
+                        return True
 
                 if ident_tok is None:
                     return True
@@ -1038,6 +1046,18 @@ class Analyzer:
                     loc = ident_tok.sourceRange.start
                 ln = max(sm.getLineNumber(loc) - 1, 0)
                 col = max(sm.getColumnNumber(loc) - 1, 0)
+
+                # Resolve actual URI: for `include'd files, getFileName returns
+                # the included file's path, not "buffer.sv".
+                actual_fname = str(sm.getFileName(loc))
+                if actual_fname == "buffer.sv":
+                    actual_uri = file_uri
+                else:
+                    try:
+                        actual_uri = Path(actual_fname).resolve().as_uri()
+                    except Exception:
+                        actual_uri = file_uri
+
                 found.append(SymbolInfo(
                     name=name,
                     kind=kind_label,
@@ -1045,7 +1065,7 @@ class Analyzer:
                     definition_range=SourceRange(
                         start=SourcePos(line=ln, character=col),
                         end=SourcePos(line=ln, character=col + len(name)),
-                        uri=file_uri,
+                        uri=actual_uri,
                     ),
                 ))
             except Exception:
