@@ -87,7 +87,6 @@ class StatementConfig(LintRuleConfig):
 class FunctionConfig(LintRuleConfig):
     functions_automatic: bool = False
     function_call_style: str = ""  # "positional", "named", "both"
-    function_return_type: str = ""  # comma-separated list or empty for all
     explicit_function_lifetime: bool = False
     explicit_task_lifetime: bool = False
 

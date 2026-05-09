@@ -46,9 +46,8 @@ explicit_begin = false              # check that Verilog begin directive follows
 [lint.function]
 enable = true
 severity = "warning"          # "warning" | "error" | "hint"
-functions_automatic = false   # functions should be automatic type
-function_call_style = ""      # "positional", "named", or "both"
-function_return_type = ""     # comma-separated list of allowed return types or empty for all
+functions_automatic = true   # functions should be automatic type
+function_call_style = "positional"      # "positional", "named", or "both"
 explicit_function_lifetime = false  # check that functions have explicit lifetime (static/automatic)
 explicit_task_lifetime = false    # check that tasks have explicit lifetime (static/automatic)
 
