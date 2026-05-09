@@ -422,6 +422,15 @@ class Analyzer:
         """Return the current SyntaxIndex (populated from SyntaxTrees only)."""
         return self._syntax_index
 
+    def get_all_syntax_trees(self) -> list:
+        """Return all known SyntaxTrees: open buffer trees + extra-file trees."""
+        trees = []
+        for state in self._docs.values():
+            if state.tree is not None:
+                trees.append(state.tree)
+        trees.extend(self._extra_trees.values())
+        return trees
+
     def _parse(self, state: DocumentState) -> None:
         # Resolve current document's path so we can skip it in the extra-files list.
         current_path: Optional[Path] = None
@@ -1023,7 +1032,10 @@ class Analyzer:
                 if str(ident_tok).strip() != name:
                     return True
 
-                loc = ident_tok.location
+                if hasattr(ident_tok, "location"):
+                    loc = ident_tok.location
+                else:
+                    loc = ident_tok.sourceRange.start
                 ln = max(sm.getLineNumber(loc) - 1, 0)
                 col = max(sm.getColumnNumber(loc) - 1, 0)
                 found.append(SymbolInfo(
