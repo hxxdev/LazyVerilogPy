@@ -26,6 +26,7 @@ class InstanceEntry:
     module_type: str
     file_uri: str
     line: int        # 0-based
+    parent_module: str = ""  # name of the module that contains this instantiation
 
 
 class SyntaxIndex:
@@ -36,6 +37,7 @@ class SyntaxIndex:
     def add_tree(self, tree, file_uri: str) -> None:
         """Extract module declarations and instances from tree."""
         sm = tree.sourceManager
+        current_module: list = [None]  # stack-of-one; updated on ModuleDeclaration
 
         def _visit(node) -> bool:
             k = str(node.kind)
@@ -49,6 +51,7 @@ class SyntaxIndex:
                         name=mname, file_uri=file_uri,
                         decl_line=max(line, 0), ports=ports
                     )
+                    current_module[0] = mname
                 except Exception:
                     pass
 
@@ -63,7 +66,8 @@ class SyntaxIndex:
                             ln = max(sm.getLineNumber(inst.getFirstToken().location) - 1, 0)
                             self.instances_by_file[file_uri].append(
                                 InstanceEntry(inst_name=iname, module_type=mtype,
-                                              file_uri=file_uri, line=ln)
+                                              file_uri=file_uri, line=ln,
+                                              parent_module=current_module[0] or "")
                             )
                     except Exception:
                         pass

@@ -398,14 +398,15 @@ class Analyzer:
         Fast — only walks currently open buffer trees (typically 1-5 files),
         never re-walks the potentially large extra-file set."""
         t0 = time.perf_counter()
-        # Shallow-copy the extra index so buffer entries override without mutation
+        # Deep-copy list values so buffer re-indexing never mutates _extra_syntax_index
         idx = SyntaxIndex()
         idx.modules = dict(self._extra_syntax_index.modules)
-        idx.instances_by_file = dict(self._extra_syntax_index.instances_by_file)
-        # Override/add open buffer tree entries
+        idx.instances_by_file = {k: list(v) for k, v in self._extra_syntax_index.instances_by_file.items()}
+        # Override/add open buffer tree entries (drop stale extra-file entry first)
         for uri, state in self._docs.items():
             if state.tree is not None:
                 try:
+                    idx.instances_by_file.pop(uri, None)
                     idx.add_tree(state.tree, uri)
                 except Exception:
                     pass
@@ -1438,9 +1439,11 @@ class Analyzer:
             for file_insts in idx.instances_by_file.values():
                 for i in file_insts:
                     if i.module_type == mname:
+                        hpath = (f"{i.parent_module}.{i.inst_name}"
+                                 if i.parent_module else i.inst_name)
                         insts.append({
                             "inst_name": i.inst_name,
-                            "hierarchical_path": i.inst_name,
+                            "hierarchical_path": hpath,
                             "file_uri": i.file_uri,
                         })
             modules[mname] = {"ports": ports, "instances": insts}
