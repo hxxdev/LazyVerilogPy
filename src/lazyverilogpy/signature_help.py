@@ -9,7 +9,12 @@ from lsprotocol import types
 
 from lazyverilogpy.analyzer import Analyzer
 
-_DIR_MAP = {"in": "input", "out": "output", "inout": "inout", "ref": "ref"}
+_DIRECTION_KINDS = {
+    "TokenKind.InputKeyword": "input",
+    "TokenKind.OutputKeyword": "output",
+    "TokenKind.InOutKeyword": "inout",
+    "TokenKind.RefKeyword": "ref",
+}
 
 
 def provide_signature_help(
@@ -22,8 +27,6 @@ def provide_signature_help(
 
     state = analyzer.get_compiled_state(uri)
     if state is None or state.tree is None:
-        return None
-    if state.compilation is None:
         return None
 
     lines = state.text.splitlines()
@@ -38,7 +41,7 @@ def provide_signature_help(
     call_name, param_ref, is_module_param = ctx
 
     if is_module_param:
-        mod_info = _get_module_param_info(state, call_name)
+        mod_info = _get_module_param_info(state, call_name, analyzer)
         if mod_info is None:
             return None
         params_list = mod_info["params"]
@@ -50,9 +53,9 @@ def provide_signature_help(
         sig = types.SignatureInformation(label=sig_label, parameters=param_infos, active_parameter=active)
         return types.SignatureHelp(signatures=[sig], active_signature=0, active_parameter=active)
 
-    sub_info = _get_subroutine_info(state, call_name)
+    sub_info = _get_subroutine_info(state, call_name, analyzer)
     if sub_info is None:
-        mod_info = _get_module_param_info(state, call_name)
+        mod_info = _get_module_param_info(state, call_name, analyzer)
         if mod_info is not None:
             params_list = mod_info["params"]
             param_labels = [_format_module_param(p) for p in params_list]
@@ -156,130 +159,195 @@ def _find_call_context(prefix: str) -> Optional[tuple[str, Union[int, str], bool
     return None
 
 
-def _get_subroutine_info(state, name: str) -> Optional[dict]:
-    compilation = state.compilation
-    candidates: list = []
+# ---------------------------------------------------------------------------
+# SyntaxTree-based extraction (no Compilation needed)
+# ---------------------------------------------------------------------------
 
-    def _collect(sym) -> bool:
+def _subroutine_from_tree(tree, name: str) -> Optional[dict]:
+    """Walk a SyntaxTree and return subroutine info for *name*. No Compilation."""
+    _SUB_KINDS = {
+        "SyntaxKind.FunctionDeclaration",
+        "SyntaxKind.SubroutineDeclaration",
+        "SyntaxKind.TaskDeclaration",
+    }
+    found: list[dict] = []
+
+    def _visit(node) -> bool:
+        if str(node.kind) not in _SUB_KINDS:
+            return True
         try:
-            if "Subroutine" in str(sym.kind) and sym.name == name:
-                candidates.append(sym)
-        except Exception:
-            pass
-        return True
-
-    try:
-        compilation.getRoot().visit(_collect)
-    except Exception:
-        return None
-
-    if not candidates:
-        return None
-
-    sym = candidates[0]
-
-    try:
-        kind_str = str(sym.subroutineKind).split(".")[-1].lower()
-    except Exception:
-        kind_str = ""
-
-    try:
-        ret = str(sym.returnType).strip()
-        if ret.startswith("<"):
+            proto = node.prototype
+            if str(proto.name).strip() != name:
+                return True
+            is_task = "Task" in str(node.kind)
+            kind_str = "task" if is_task else "function"
             ret = ""
-    except Exception:
-        ret = ""
-
-    args: list[dict] = []
-    try:
-        for arg in sym.arguments:
-            try:
-                arg_name = str(getattr(arg, "name", "") or "")
-                if not arg_name:
-                    continue
-                direction = str(getattr(arg, "direction", "")).split(".")[-1].lower()
-                dir_str = _DIR_MAP.get(direction, "")
+            if not is_task:
                 try:
-                    type_str = str(arg.type).strip()
-                    if type_str.startswith("<"):
-                        type_str = ""
+                    ret = str(proto.returnType).strip()
+                    if ret.startswith("<"):
+                        ret = ""
                 except Exception:
-                    type_str = ""
-                # Try to get default value
-                dv_str = ""
-                try:
-                    dv_str = str(arg.defaultValue)
-                    if dv_str.startswith("Expression(") or dv_str in ("None", ""):
-                        dv_str = ""
-                    if not dv_str:
+                    pass
+            args: list[dict] = []
+            try:
+                def _collect_port(pnode) -> bool:
+                    if str(pnode.kind) != "SyntaxKind.FunctionPort":
+                        return True
+                    try:
+                        # direction from keyword token
+                        dir_str = ""
+                        type_str = ""
+                        pname = ""
+
+                        def _port_tokens(t) -> bool:
+                            nonlocal dir_str, type_str, pname
+                            tk = str(t.kind)
+                            if tk in _DIRECTION_KINDS and not dir_str:
+                                dir_str = _DIRECTION_KINDS[tk]
+                            elif tk == "SyntaxKind.Declarator":
+                                try:
+                                    pname = str(t.name).strip()
+                                except Exception:
+                                    pass
+                            return True
+
+                        pnode.visit(_port_tokens)
+
+                        # type: everything between direction and declarator
                         try:
-                            dv_str = str(arg.syntax.declarator.initializer).strip().lstrip("=").strip()
+                            raw = str(pnode).strip()
+                            # strip direction keyword
+                            if dir_str:
+                                raw = raw[len(dir_str):].strip()
+                            # strip name at end
+                            if pname and raw.endswith(pname):
+                                raw = raw[: -len(pname)].strip()
+                            type_str = raw if raw else ""
+                        except Exception:
+                            pass
+
+                        # default value
+                        dv_str = ""
+                        try:
+                            dv_str = str(pnode.declarator.initializer).strip().lstrip("=").strip()
                             if dv_str in ("None", ""):
                                 dv_str = ""
                         except Exception:
-                            dv_str = ""
-                except Exception:
-                    dv_str = ""
-                args.append({"name": arg_name, "direction": dir_str, "type_str": type_str, "default": dv_str})
+                            pass
+
+                        if pname:
+                            args.append({
+                                "name": pname,
+                                "direction": dir_str,
+                                "type_str": type_str,
+                                "default": dv_str,
+                            })
+                    except Exception:
+                        pass
+                    return True
+
+                proto.portList.visit(_collect_port)
             except Exception:
-                continue
-    except Exception:
-        return None
-
-    return {"args": args, "kind": kind_str, "return_type": ret}
-
-
-def _get_module_param_info(state, name: str) -> Optional[dict]:
-    compilation = state.compilation
-    candidates: list = []
-
-    def _collect(sym) -> bool:
-        try:
-            if "Instance" in str(sym.kind) and "InstanceBody" not in str(sym.kind):
-                try:
-                    if str(sym.body.name) == name:
-                        candidates.append(sym)
-                except Exception:
-                    pass
+                pass
+            found.append({"args": args, "kind": kind_str, "return_type": ret})
         except Exception:
             pass
         return True
 
     try:
-        compilation.getRoot().visit(_collect)
+        tree.root.visit(_visit)
     except Exception:
-        return None
+        pass
+    return found[0] if found else None
 
-    if not candidates:
-        return None
 
-    sym = candidates[0]
-    params: list[dict] = []
-    seen: set[str] = set()
-    try:
-        for m in sym.body:
+def _module_params_from_tree(tree, name: str) -> Optional[dict]:
+    """Walk a SyntaxTree and return module parameter info for *name*. No Compilation."""
+    found: list[dict] = []
+
+    def _visit(node) -> bool:
+        if str(node.kind) != "SyntaxKind.ModuleDeclaration":
+            return True
+        try:
+            if str(node.header.name).strip() != name:
+                return True
+            params: list[dict] = []
             try:
-                if "Parameter" not in str(m.kind):
-                    continue
-                pname = str(m.name)
-                if pname in seen:
-                    continue
-                seen.add(pname)
-                try:
-                    ptype = str(m.type).strip()
-                    if ptype.startswith("<"):
+                def _collect_param(pnode) -> bool:
+                    if str(pnode.kind) != "SyntaxKind.ParameterDeclaration":
+                        return True
+                    try:
+                        # type: walk for type node before declarator
                         ptype = ""
-                except Exception:
-                    ptype = ""
-                params.append({"name": pname, "type": ptype})
-            except Exception:
-                continue
-    except Exception:
-        return None
+                        try:
+                            ptype = str(pnode.type).strip()
+                            if ptype.startswith("<"):
+                                ptype = ""
+                        except Exception:
+                            pass
+                        # names from declarators
+                        def _collect_decl(dn) -> bool:
+                            if str(dn.kind) == "SyntaxKind.Declarator":
+                                try:
+                                    pname = str(dn.name).strip()
+                                    if pname:
+                                        params.append({"name": pname, "type": ptype})
+                                except Exception:
+                                    pass
+                            return True
+                        pnode.visit(_collect_decl)
+                    except Exception:
+                        pass
+                    return True
 
-    if not params:
-        return None
-    return {"params": params}
+                node.header.parameters.visit(_collect_param)
+            except Exception:
+                pass
+            if params:
+                found.append({"params": params})
+        except Exception:
+            pass
+        return True
+
+    try:
+        tree.root.visit(_visit)
+    except Exception:
+        pass
+    return found[0] if found else None
+
+
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Public helpers — SyntaxTree only (no Compilation needed)
+# ---------------------------------------------------------------------------
+
+def _trees_to_search(state, analyzer: Optional[Analyzer]) -> list:
+    trees = [state.tree] if state.tree is not None else []
+    if analyzer is not None:
+        for extra_tree in analyzer._extra_trees.values():
+            if extra_tree is not None:
+                trees.append(extra_tree)
+        for doc_state in analyzer._docs.values():
+            if doc_state.tree is not None and doc_state.tree not in trees:
+                trees.append(doc_state.tree)
+    return trees
+
+
+def _get_subroutine_info(state, name: str, analyzer: Optional[Analyzer] = None) -> Optional[dict]:
+    for tree in _trees_to_search(state, analyzer):
+        result = _subroutine_from_tree(tree, name)
+        if result is not None:
+            return result
+    return None
+
+
+def _get_module_param_info(state, name: str, analyzer: Optional[Analyzer] = None) -> Optional[dict]:
+    for tree in _trees_to_search(state, analyzer):
+        result = _module_params_from_tree(tree, name)
+        if result is not None:
+            return result
+    return None
 
 
 def _format_arg(a: dict) -> str:

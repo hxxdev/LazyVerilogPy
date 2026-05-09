@@ -78,7 +78,7 @@ def provide_completion(
     port_ctx = _PORT_CTX_RE.search(prefix_line)
     if port_ctx:
         port_prefix = port_ctx.group(1)
-        items = _port_name_completions(state, line, port_prefix)
+        items = _port_name_completions(state, line, port_prefix, analyzer)
         return types.CompletionList(is_incomplete=False, items=items)
 
     # Scope context: pkg::member
@@ -155,36 +155,6 @@ def provide_completion(
             state.tree.root.visit(_collect_syntax)
         except Exception:
             pass
-    # Fall back to compilation if available (for richer semantic results)
-    elif state.compilation is not None:
-        try:
-            sm = state.tree.sourceManager if state.tree else None
-
-            def _collect(sym) -> bool:
-                try:
-                    k = str(sym.kind)
-                    name = str(sym.name) if sym.name else ""
-                    if not name or not name.startswith(prefix):
-                        return True
-                    # Only buffer.sv symbols for the current-file pass
-                    if sm is not None:
-                        try:
-                            if str(sm.getFileName(sym.location)) != "buffer.sv":
-                                return True
-                        except Exception:
-                            pass
-                    if k in ("SymbolKind.Variable", "SymbolKind.Net", "SymbolKind.Port"):
-                        _add(name, types.CompletionItemKind.Variable)
-                    elif "Instance" in k and "InstanceBody" not in k:
-                        if "." in str(sym.hierarchicalPath):
-                            _add(name, types.CompletionItemKind.Module)
-                except Exception:
-                    pass
-                return True
-
-            state.compilation.getRoot().visit(_collect)
-        except Exception:
-            pass
 
     # Module / interface / package names from extra-file trees
     for path in analyzer._extra_files:
@@ -238,7 +208,7 @@ def provide_completion(
     return types.CompletionList(is_incomplete=False, items=items)
 
 
-def _port_name_completions(state, line: int, prefix: str) -> list[types.CompletionItem]:
+def _port_name_completions(state, line: int, prefix: str, analyzer=None) -> list[types.CompletionItem]:
     from lazyverilogpy.autoinst import find_instance_at_line
 
     try:
@@ -246,40 +216,29 @@ def _port_name_completions(state, line: int, prefix: str) -> list[types.Completi
         if node is None:
             return []
 
-        # Try SyntaxIndex first (no compilation needed)
         try:
             module_type = str(node.type).strip()
         except Exception:
             return []
 
-        # Attempt to get port info from analyzer's syntax_index via node
-        # We don't have a direct reference to analyzer here, so try via node kind
         items: list[types.CompletionItem] = []
         seen: set[str] = set()
 
-        # If compilation available, use it for richer info
-        if state.compilation is not None:
+        if analyzer is not None:
             try:
-                body = node.body
-                for port in body.portList:
-                    try:
-                        name = str(port.name)
-                        if not name.startswith(prefix) or name in seen:
+                mod_entry = analyzer._syntax_index.modules.get(module_type)
+                if mod_entry:
+                    for p in mod_entry.ports:
+                        if not p.name.startswith(prefix) or p.name in seen:
                             continue
-                        seen.add(name)
-                        try:
-                            direction = str(port.direction).split(".")[-1].lower()
-                            detail: Optional[str] = _DIR_MAP.get(direction)
-                        except Exception:
-                            detail = None
+                        seen.add(p.name)
+                        parts = [p.direction, p.type_text]
+                        detail = " ".join(x for x in parts if x and x != "unknown") or None
                         items.append(types.CompletionItem(
-                            label=name,
+                            label=p.name,
                             kind=types.CompletionItemKind.Field,
                             detail=detail,
                         ))
-                    except Exception:
-                        continue
-                return items
             except Exception:
                 pass
 

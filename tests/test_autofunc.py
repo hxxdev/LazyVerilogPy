@@ -29,11 +29,15 @@ class _FakeState:
     def __init__(self, src: str, extra_src: str = ""):
         self.text = src
         self.tree = pyslang.SyntaxTree.fromText(src, "buffer.sv")
-        self.compilation = pyslang.Compilation()
-        self.compilation.addSyntaxTree(self.tree)
+        self._extra_tree = None
         if extra_src:
-            extra_tree = pyslang.SyntaxTree.fromText(extra_src, "extra.sv")
-            self.compilation.addSyntaxTree(extra_tree)
+            self._extra_tree = pyslang.SyntaxTree.fromText(extra_src, "extra.sv")
+
+    def all_trees(self):
+        trees = [self.tree]
+        if self._extra_tree is not None:
+            trees.append(self._extra_tree)
+        return trees
 
 
 # ---------------------------------------------------------------------------
@@ -223,7 +227,7 @@ class TestFindFuncOrTaskPorts:
             "endmodule\n"
         )
         state = _FakeState(src)
-        ports = find_func_or_task_ports(state, "sum")
+        ports = find_func_or_task_ports(state.all_trees(),"sum")
         assert ports == ["i_a", "i_b"]
 
     def test_task_ports(self):
@@ -234,13 +238,13 @@ class TestFindFuncOrTaskPorts:
             "endmodule\n"
         )
         state = _FakeState(src)
-        ports = find_func_or_task_ports(state, "send")
+        ports = find_func_or_task_ports(state.all_trees(),"send")
         assert ports == ["addr", "data"]
 
     def test_not_found(self):
         src = "module top;\nendmodule\n"
         state = _FakeState(src)
-        ports = find_func_or_task_ports(state, "nonexistent")
+        ports = find_func_or_task_ports(state.all_trees(),"nonexistent")
         assert ports is None
 
     def test_no_args(self):
@@ -251,7 +255,7 @@ class TestFindFuncOrTaskPorts:
             "endmodule\n"
         )
         state = _FakeState(src)
-        ports = find_func_or_task_ports(state, "noop")
+        ports = find_func_or_task_ports(state.all_trees(),"noop")
         assert ports == []
 
     def test_single_arg(self):
@@ -263,7 +267,7 @@ class TestFindFuncOrTaskPorts:
             "endmodule\n"
         )
         state = _FakeState(src)
-        ports = find_func_or_task_ports(state, "inc")
+        ports = find_func_or_task_ports(state.all_trees(),"inc")
         assert ports == ["val"]
 
     def test_task_same_as_func(self):
@@ -274,7 +278,7 @@ class TestFindFuncOrTaskPorts:
             "endmodule\n"
         )
         state = _FakeState(src)
-        ports = find_func_or_task_ports(state, "do_stuff")
+        ports = find_func_or_task_ports(state.all_trees(),"do_stuff")
         assert ports == ["a", "b", "c"]
 
     def test_function_in_extra_file(self):
@@ -285,7 +289,7 @@ class TestFindFuncOrTaskPorts:
         )
         src = "module top;\nendmodule\n"
         state = _FakeState(src, extra)
-        ports = find_func_or_task_ports(state, "add")
+        ports = find_func_or_task_ports(state.all_trees(),"add")
         assert ports == ["x", "y"]
 
 

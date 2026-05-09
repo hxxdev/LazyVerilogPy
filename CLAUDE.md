@@ -47,6 +47,9 @@ Two layers communicating over stdio via LSP:
 - `autoinst`: uses only `body.portList`; empty `()` header → no ports returned.
 - `autoarg`: text-based; scans for `module`/`endmodule`, extracts ports via `_scan_port_names`, returns `(...)` header range.
 
+### Compilation guard
+**Rule:** Never use `state.compilation` or `_get_shared_compilation()` anywhere (diagnostics, lint, hover, completion, any feature) when `background_compilation` is `False`. Compilation is opt-in and expensive; all features must degrade gracefully to SyntaxTree-only when it is disabled.
+
 ### Formatter internals
 - `_classify(raw, text, prev_ftt)` → `FTT` enum; `+`/`-` are context-sensitive on `prev_ftt`.
 - Disable regions: `// verilog_format: off` … `// verilog_format: on`.
@@ -68,6 +71,9 @@ Two layers communicating over stdio via LSP:
 [design]
 vcode = "vcode.f"           # .f filelist of extra SV files for compilation
 # define = ["RTL_SIM"]      # preprocessor defines passed to pyslang
+
+[inlay_hint]
+enable = true               # set false to disable all inlay hints
 ```
 Missing filelist → `[LazyVerilogPy]` warning via `ls.show_message`.
 

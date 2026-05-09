@@ -13,8 +13,9 @@ from lsprotocol import types
 from pygls.lsp.server import LanguageServer
 
 from lazyverilogpy.analyzer import Analyzer
-from lazyverilogpy.autofunc import AutoFuncOptions, find_func_or_task_ports, generate_func_call, find_nearest_identifier, find_call_extent, parse_existing_args
-from lazyverilogpy.autoff import autoff as autoff_impl, DEFAULT_REGISTER_PATTERN
+from lazyverilogpy.autofunc import AutoFuncOptions, find_func_or_task_ports, generate_func_call, find_nearest_identifier, find_call_extent, parse_existing_args, parse_existing_connections as parse_func_connections
+from lazyverilogpy.autoff import (autoff as autoff_impl, autoff_all as autoff_all_impl,
+    preview_autoff, preview_autoff_all, DEFAULT_REGISTER_PATTERN)
 from lazyverilogpy.autoarg import autoarg as autoarg_impl, format_autoarg, AutoargOptions
 from lazyverilogpy.autoinst import autoinst as autoinst_impl, format_autoinst, parse_existing_connections, AutoinstOptions
 from lazyverilogpy.autowire import AutowireOptions, autowire
@@ -90,6 +91,9 @@ _autoinst_options = AutoinstOptions()
 
 # Default lint config — all rules off by default; overridden by [lint.*] in config file
 _lint_config = LintConfig()
+
+# Inlay hint enable flag — overridden by [inlay_hint] enable in config file
+_inlay_hint_enabled: bool = True
 
 
 # ---------------------------------------------------------------------------
@@ -213,6 +217,18 @@ def _load_autoinst_options_from_toml(path: Path) -> AutoinstOptions:
     return AutoinstOptions.from_dict(cfg)
 
 
+def _load_inlay_hint_enabled_from_toml(path: Path) -> bool:
+    """Return inlay_hint.enable from *path*, defaulting to True."""
+    if tomllib is None:
+        return True
+    try:
+        with path.open("rb") as fh:
+            data = tomllib.load(fh)
+        return bool(data.get("inlay_hint", {}).get("enable", True))
+    except Exception:
+        return True
+
+
 def _load_lint_config_from_toml(path: Path) -> LintConfig:
     """Parse *path* and return :class:`LintConfig` from ``[lint]``."""
     if tomllib is None:
@@ -316,7 +332,7 @@ _perf_options = PerfOptions()
 
 def _reload_config(start: Path, ls: LanguageServer | None = None) -> None:
     """Search for a config file starting at *start* and update ``_fmt_options``."""
-    global _fmt_options, _toml_fmt_options, _autowire_options, _autofunc_options, _autoarg_options, _autoinst_options, _lint_config, _perf_options
+    global _fmt_options, _toml_fmt_options, _autowire_options, _autofunc_options, _autoarg_options, _autoinst_options, _lint_config, _perf_options, _inlay_hint_enabled
     path = _find_config_toml(start)
     if path is not None:
         try:
@@ -358,6 +374,10 @@ def _reload_config(start: Path, ls: LanguageServer | None = None) -> None:
             _analyzer_mod._log_timing = _perf_options.log_timing
         except Exception as exc:
             logger.warning("Failed to load perf options from %s: %s", path, exc)
+        try:
+            _inlay_hint_enabled = _load_inlay_hint_enabled_from_toml(path)
+        except Exception as exc:
+            logger.warning("Failed to load inlay_hint options from %s: %s", path, exc)
     else:
         logger.debug("No %s found above %s; using current options.", CONFIG_FILENAME, start)
 
@@ -429,7 +449,7 @@ def did_close(ls: LanguageServer, params: types.DidCloseTextDocumentParams) -> N
 def did_change_configuration(
     ls: LanguageServer, params: types.DidChangeConfigurationParams
 ) -> None:
-    global _fmt_options, _lint_config
+    global _fmt_options, _lint_config, _inlay_hint_enabled
     try:
         settings = params.settings
         if not isinstance(settings, dict):
@@ -444,6 +464,9 @@ def did_change_configuration(
         lint_cfg = lv.get("lint", {})
         if isinstance(lint_cfg, dict):
             _lint_config = LintConfig.from_dict(lint_cfg)
+        ih_cfg = lv.get("inlay_hint", {})
+        if isinstance(ih_cfg, dict) and "enable" in ih_cfg:
+            _inlay_hint_enabled = bool(ih_cfg["enable"])
     except Exception as exc:
         logger.warning("Failed to update configuration: %s", exc)
 
@@ -557,6 +580,8 @@ def completion(
 def inlay_hint(
     ls: LanguageServer, params: types.InlayHintParams
 ) -> Optional[list[types.InlayHint]]:
+    if not _inlay_hint_enabled:
+        return []
     try:
         return provide_inlay_hints(analyzer, params)
     except Exception as exc:
@@ -992,13 +1017,8 @@ def execute_autofunc(
         # Determine the extent of any existing call text on the current line.
         call_start, call_end_col = find_call_extent(src_line, ident_start, ident_end)
 
-        # --- Issue 2: only trigger when cursor is within the call extent ---
-        # On the trigger line, the call extent spans [call_start, call_end_col).
-        # We also need to allow cursor inside multiline parens (handled below).
+        # Only trigger when cursor is within the call extent.
         if not (call_start <= character < call_end_col):
-            # Cursor might still be inside a multiline call's argument
-            # region on a *later* line, but we require the cursor to be on
-            # the identifier/paren line itself.
             return None
 
         # --- Issue 1: handle multiline call extents ---
@@ -1035,18 +1055,28 @@ def execute_autofunc(
                 if found_close:
                     break
 
-        # Always regenerate from scratch (positional style) — do not
-        # pass existing_args so the call is fully replaced for idempotency.
-        ports = find_func_or_task_ports(state, func_name)
+        ports = find_func_or_task_ports(analyzer.get_all_syntax_trees(), func_name)
         if ports is None:
             logger.warning("autofunc: no definition found for '%s'", func_name)
             return None
+
+        # Extract existing wire connections to preserve them on re-generation.
+        if end_line == line:
+            existing_call_text = src_lines[line][call_start:end_character]
+        else:
+            parts = [src_lines[line][call_start:]]
+            for ln in range(line + 1, end_line):
+                parts.append(src_lines[ln])
+            parts.append(src_lines[end_line][:end_character])
+            existing_call_text = "\n".join(parts)
+        wire_map = parse_func_connections(existing_call_text)
 
         indent = src_line[: len(src_line) - len(src_line.lstrip())]
         call_text = generate_func_call(
             func_name, ports, indent,
             indent_size=_autofunc_options.indent_size,
             use_named_arguments=_autofunc_options.use_named_arguments,
+            wire_map=wire_map if wire_map else None,
         )
 
         edit = types.TextEdit(
@@ -1059,6 +1089,100 @@ def execute_autofunc(
         return types.WorkspaceEdit(changes={uri: [edit]})
     except Exception as exc:
         logger.error("autofunc error: %s", exc, exc_info=True)
+        return None
+
+
+# ---------------------------------------------------------------------------
+# AutoFF commands — preview + apply for single and bulk
+# (Confirmation handled client-side via Lua floating window.)
+# ---------------------------------------------------------------------------
+
+AUTOFF_ALL_COMMAND = "lazyverilogpy.autoffAll"
+
+
+def _autoff_edits_to_workspace_edit(uri: str, result: dict) -> Optional[types.WorkspaceEdit]:
+    if "edits" not in result:
+        return None
+    text_edits = [
+        types.TextEdit(
+            range=types.Range(
+                start=types.Position(line=e["line"], character=e["character"]),
+                end=types.Position(line=e["line"], character=e["character"]),
+            ),
+            new_text=e["text"],
+        )
+        for e in result["edits"]
+    ]
+    return types.WorkspaceEdit(changes={uri: text_edits})
+
+
+@server.command("lazyverilogpy.autoffPreview")
+def execute_autoff_preview_cmd(ls: LanguageServer, *args) -> dict:
+    try:
+        if len(args) < 2:
+            return {"error": "autoffPreview: missing args"}
+        uri, line = str(args[0]), int(args[1])
+        analyzer.refresh_if_stale(uri)
+        state = analyzer.get_state(uri)
+        if state is None:
+            return {"error": "autoffPreview: no state"}
+        _ff_pat = _lint_config.naming.register_pattern or DEFAULT_REGISTER_PATTERN
+        return preview_autoff(state, line, _ff_pat)
+    except Exception as exc:
+        logger.error("autoffPreview: %s", exc, exc_info=True)
+        return {"error": str(exc)}
+
+
+@server.command("lazyverilogpy.autoffApply")
+def execute_autoff_apply_cmd(ls: LanguageServer, *args) -> Optional[types.WorkspaceEdit]:
+    try:
+        if len(args) < 2:
+            return None
+        uri, line = str(args[0]), int(args[1])
+        analyzer.refresh_if_stale(uri)
+        state = analyzer.get_state(uri)
+        if state is None:
+            return None
+        _ff_pat = _lint_config.naming.register_pattern or DEFAULT_REGISTER_PATTERN
+        result = autoff_impl(state, line, _ff_pat)
+        return _autoff_edits_to_workspace_edit(uri, result)
+    except Exception as exc:
+        logger.error("autoffApply: %s", exc, exc_info=True)
+        return None
+
+
+@server.command("lazyverilogpy.autoffAllPreview")
+def execute_autoff_all_preview_cmd(ls: LanguageServer, *args) -> dict:
+    try:
+        if len(args) < 1:
+            return {"error": "autoffAllPreview: missing args"}
+        uri = str(args[0])
+        analyzer.refresh_if_stale(uri)
+        state = analyzer.get_state(uri)
+        if state is None:
+            return {"error": "autoffAllPreview: no state"}
+        _ff_pat = _lint_config.naming.register_pattern or DEFAULT_REGISTER_PATTERN
+        return preview_autoff_all(state, _ff_pat)
+    except Exception as exc:
+        logger.error("autoffAllPreview: %s", exc, exc_info=True)
+        return {"error": str(exc)}
+
+
+@server.command("lazyverilogpy.autoffAllApply")
+def execute_autoff_all_apply_cmd(ls: LanguageServer, *args) -> Optional[types.WorkspaceEdit]:
+    try:
+        if len(args) < 1:
+            return None
+        uri = str(args[0])
+        analyzer.refresh_if_stale(uri)
+        state = analyzer.get_state(uri)
+        if state is None:
+            return None
+        _ff_pat = _lint_config.naming.register_pattern or DEFAULT_REGISTER_PATTERN
+        result = autoff_all_impl(state, _ff_pat)
+        return _autoff_edits_to_workspace_edit(uri, result)
+    except Exception as exc:
+        logger.error("autoffAllApply: %s", exc, exc_info=True)
         return None
 
 
@@ -1426,25 +1550,20 @@ def code_action(
                             ))
 
         # Phase 3b: autoFF (cursor on two-signal logic/wire/reg declaration)
+        # Confirmation and apply handled client-side via vim.lsp.commands["lazyverilogpy.autoff"].
         if state.text:
             try:
                 _ff_pat = _lint_config.naming.register_pattern or DEFAULT_REGISTER_PATTERN
                 _ff_result = autoff_impl(state, line, _ff_pat)
                 if "edits" in _ff_result:
-                    _ff_edits = [
-                        types.TextEdit(
-                            range=types.Range(
-                                start=types.Position(line=e["line"], character=e["character"]),
-                                end=types.Position(line=e["line"], character=e["character"]),
-                            ),
-                            new_text=e["text"],
-                        )
-                        for e in _ff_result["edits"]
-                    ]
                     actions.append(types.CodeAction(
                         title="AutoFF: insert flip-flop assignments",
                         kind=types.CodeActionKind.RefactorRewrite,
-                        edit=types.WorkspaceEdit(changes={uri: _ff_edits}),
+                        command=types.Command(
+                            title="AutoFF: insert flip-flop assignments",
+                            command="lazyverilogpy.autoff",
+                            arguments=[uri, line],
+                        ),
                     ))
             except Exception:
                 pass
@@ -1458,7 +1577,18 @@ def code_action(
                 edit=we,
             ))
 
-        # Phase 4b: lint quick-fixes from context diagnostics
+        # Phase 4b: autoff_all (file-wide, always shown; confirmation via floating window)
+        actions.append(types.CodeAction(
+            title="AutoFF: insert all flip-flop assignments",
+            kind=types.CodeActionKind.RefactorRewrite,
+            command=types.Command(
+                title="AutoFF: insert all flip-flop assignments",
+                command=AUTOFF_ALL_COMMAND,
+                arguments=[uri],
+            ),
+        ))
+
+        # Phase 4c: lint quick-fixes from context diagnostics
         doc_text = state.text or ""
         ctx = getattr(params, "context", None)
         ctx_diags = getattr(ctx, "diagnostics", None) or []

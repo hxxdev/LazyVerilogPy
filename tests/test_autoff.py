@@ -5,8 +5,13 @@ from lazyverilogpy.autoff import (
     parse_declaration_signals,
     pair_signals,
     check_already_assigned,
+    check_assigned_in_range,
     find_always_ff_if_else,
+    find_all_ff_pairs,
+    preview_autoff,
+    preview_autoff_all,
     autoff,
+    autoff_all,
     DEFAULT_REGISTER_PATTERN,
 )
 from lazyverilogpy.analyzer import DocumentState
@@ -150,7 +155,9 @@ class TestFindAlwaysFFIfElse:
     def test_basic(self):
         result = find_always_ff_if_else(FF_BASIC)
         assert result is not None
+        assert "if_begin_line" in result
         assert "if_insert_line" in result
+        assert "else_begin_line" in result
         assert "else_insert_line" in result
         assert result["if_insert_line"] < result["else_insert_line"]
 
@@ -232,11 +239,20 @@ endmodule
         assert "error" in result
         assert "else" in result["error"]
 
-    def test_already_assigned_warn(self):
+    def test_already_assigned_if_only_inserts_else(self):
+        # Signal in if-block only → insert in else-block, no warn
         src = FF_BASIC.replace("// reset", "r_sig <= '0;")
         state = _state(src)
         result = autoff(state, DECL_LINE)
-        assert "error" in result
+        assert "edits" in result
+        assert len(result["edits"]) == 1
+        assert "r_sig <= sig;" in result["edits"][0]["text"]
+
+    def test_already_assigned_both_blocks_warn(self):
+        # Signal in both blocks → warn
+        src = FF_BASIC.replace("// reset", "r_sig <= '0;").replace("// capture", "r_sig <= sig;")
+        state = _state(src)
+        result = autoff(state, DECL_LINE)
         assert result.get("warn") is True
 
     def test_custom_register_pattern(self):
@@ -278,3 +294,115 @@ endmodule
         result = autoff(state, 0)
         assert "error" in result
         assert "empty" in result["error"]
+
+
+# ---------------------------------------------------------------------------
+# find_all_ff_pairs
+# ---------------------------------------------------------------------------
+
+FF_MULTI = """\
+module foo (input logic clk, rst);
+    logic a, r_a;
+    logic b, r_b;
+    logic c_only;
+    logic x, y;
+    always_ff @(posedge clk) begin
+        if (rst) begin
+        end else begin
+        end
+    end
+endmodule
+"""
+
+
+class TestFindAllFfPairs:
+
+    def test_finds_two_pairs(self):
+        pairs = find_all_ff_pairs(_state(FF_MULTI), re.compile(r"^r_"))
+        assert ("a", "r_a") in pairs
+        assert ("b", "r_b") in pairs
+
+    def test_excludes_non_matching(self):
+        # x, y: neither matches r_ → excluded
+        pairs = find_all_ff_pairs(_state(FF_MULTI), re.compile(r"^r_"))
+        names = {n for p in pairs for n in p}
+        assert "x" not in names
+        assert "y" not in names
+
+    def test_empty_when_no_pairs(self):
+        src = "module foo;\nlogic a;\nendmodule\n"
+        assert find_all_ff_pairs(_state(src), re.compile(r"^r_")) == []
+
+    def test_declaration_order_preserved(self):
+        pairs = find_all_ff_pairs(_state(FF_MULTI), re.compile(r"^r_"))
+        assert pairs.index(("a", "r_a")) < pairs.index(("b", "r_b"))
+
+
+# ---------------------------------------------------------------------------
+# autoff_all
+# ---------------------------------------------------------------------------
+
+
+class TestAutoffAll:
+
+    def test_inserts_all_pairs(self):
+        result = autoff_all(_state(FF_MULTI))
+        assert "edits" in result
+        texts = [e["text"] for e in result["edits"]]
+        all_text = "".join(texts)
+        assert "r_a <= '0;" in all_text
+        assert "r_a <= a;" in all_text
+        assert "r_b <= '0;" in all_text
+        assert "r_b <= b;" in all_text
+
+    def test_skips_already_assigned(self):
+        src = """\
+module foo (input logic clk, rst);
+    logic a, r_a;
+    logic b, r_b;
+    always_ff @(posedge clk) begin
+        if (rst) begin
+            r_a <= '0;
+        end else begin
+            r_a <= a;
+        end
+    end
+endmodule
+"""
+        result = autoff_all(_state(src))
+        assert "edits" in result
+        texts = [e["text"] for e in result["edits"]]
+        all_text = "".join(texts)
+        # r_a already assigned → not re-inserted
+        assert "r_a" not in all_text
+        # r_b not assigned → inserted
+        assert "r_b <= '0;" in all_text
+        assert "r_b <= b;" in all_text
+
+    def test_warn_when_all_assigned(self):
+        src = """\
+module foo (input logic clk, rst);
+    logic a, r_a;
+    always_ff @(posedge clk) begin
+        if (rst) begin
+            r_a <= '0;
+        end else begin
+            r_a <= a;
+        end
+    end
+endmodule
+"""
+        result = autoff_all(_state(src))
+        assert result.get("warn") is True
+
+    def test_error_no_pairs(self):
+        src = "module foo;\nlogic a;\nendmodule\n"
+        result = autoff_all(_state(src))
+        assert "error" in result
+        assert result.get("warn") is True
+
+    def test_error_no_always_ff(self):
+        src = "module foo;\nlogic a, r_a;\nendmodule\n"
+        result = autoff_all(_state(src))
+        assert "error" in result
+        assert "always_ff" in result["error"]

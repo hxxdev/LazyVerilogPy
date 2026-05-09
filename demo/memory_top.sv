@@ -29,20 +29,11 @@ endtask
 parameter DEPTH = 8;
 
 module memory_top(
-    i_clk,
-    i_rst_n,
-    i_data,
-    i_data2,
-    i_data3,
-    i_dd,
-    i_dd22222,
-    dd22222,
-    i_d33333,
-    i_d44333,
-    i_dd44321,
-    i_d44334,
-    VDD,
-    VSS
+    i_clk, i_rst_n, i_data,
+    i_data2, i_data3, i_dd,
+    i_dd22222, dd22222, i_d33333,
+    i_d44333, i_dd44321, i_d44334,
+    VDD, VSS
 );
 input                                          i_clk                                   ;
 input                                          i_rst_n                                 ;
@@ -58,7 +49,7 @@ input                                          i_d44334                         
 output logic unsigned      [0:0]               VDD                                     , VSS                                     ;
 
 logic               [7:0]               dout                    = 8'hFF         ;
-lgic               [8:0]               douteeeeeeeeeeeeeeeeeee = 8'hFF         ;
+lgic                [8:0]               douteeeeeeeeeeeeeeeeeee = 8'hFF         ;
 logic               [`WIDTH-1:0]        data                                    ;
 
 logic               [2:0]               a                                       , b                                   ;
@@ -81,31 +72,36 @@ automatic int       [3:0]               b                                       
 
 wire                [1:0]               addr                                    ;
 logic                                   address                                 ;
+logic                                   test                                    , r_test                              ;
+logic                                   test3                                   , r_test2                             ;
+logic                                   r_test4                                 ;
 logic               [7:0]               ddtt                                    ;
 logic               [7:0]               dd                                      ;
 logic               [7:0]               holyshit                                ;
 logic               [7:0]               zzzry                                   ;
 logic               [7:0]               testxrp                                 ;
+logic               [7:0]               threeshit                               ;
+logic               [7:0]               intercontest                            ;
 assign d = a + 1;
 
 memory #(.MEM_SIZE(3)) u_memory (
     .address    (addr         ),
-    .data_in    (kj[2:0]      ),
+    .data_in    (intercontest ),
     .read_write (read_wsssrite),
     .chip_en    (tt           ),
     .www3test   (             ),
-    .data_out   (testxrp      )
+    .data_out   (threeshit    )
 );
 
 memory u_mem (
-    .i_clk         (testxrp     ),
-    .address       (addresssssss),
-    .data_in       (data_in     ),
-    .data_out      (data_out    ),
-    .read_writeddd (read_write  ),
-    .chip_en       (chip_en     ),
-    .www333        (www333      ),
-    .zzfuk         (zzfuk       ),
+    .i_clk      (testxrp     ),
+    .address    (addressss   ),
+    .data_in    (threeshit   ),
+    .data_out   (intercontest),
+    .read_write (read_write  ),
+    .chip_en    (chip_en     ),
+    .www333     (www333      ),
+    .zzfuk      (zzfuk       )
 );
 memory u_mem1 (
     .address   (          ),
@@ -182,8 +178,9 @@ always_comb begin
         $display("Tick at time %0t", $time);
     end
 
-    sum(3, 4);
-    add_numbers(.a(a), .b(b), .result(result));
+    sum(.i_a(i_a2), .i_b(i_b));
+    sum(1, 2);
+    add_numbers(.a(a2), .b(b), .result(result));
 end
 
 initial begin
@@ -192,9 +189,15 @@ initial begin
 end
 
 // Standard D-FF with synchronous active-low reset
-always_ff @(posedge i_clk) begin
-    if (data) data <= 32'b0;
-    else data      <= d;
+always_ff @(posedge i_clk or negedge i_rst_n) begin
+    if (!i_rst_n) begin
+        data   <= 32'b0;
+        r_test <= '0;
+    end
+    else begin
+        data   <= d;
+        r_test <= test;
+    end
 end
 
 endmodule

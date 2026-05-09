@@ -10,6 +10,8 @@ class PortEntry:
     name: str
     direction: str   # "input", "output", "inout", "unknown"
     type_text: str   # as written in source, e.g. "logic [7:0]"
+    decl_line: int = -1   # 0-based line of the port name token
+    decl_col: int = 0     # 0-based column of the port name token
 
 
 @dataclass
@@ -112,7 +114,12 @@ def _extract_ports(module_node, sm) -> list:
                     except Exception:
                         pass
                     if name:
-                        ports.append(PortEntry(name=name, direction=direction, type_text=type_text))
+                        try:
+                            dl = max(sm.getLineNumber(node.declarator.name.location) - 1, 0)
+                            dc = max(sm.getColumnNumber(node.declarator.name.location) - 1, 0)
+                        except Exception:
+                            dl, dc = -1, 0
+                        ports.append(PortEntry(name=name, direction=direction, type_text=type_text, decl_line=dl, decl_col=dc))
                 except Exception:
                     pass
             return True
@@ -180,6 +187,13 @@ def _extract_ports(module_node, sm) -> list:
                             port_map[nm].direction = direction
                             if type_text:
                                 port_map[nm].type_text = type_text
+                            try:
+                                dl = max(sm.getLineNumber(n.name.location) - 1, 0)
+                                dc = max(sm.getColumnNumber(n.name.location) - 1, 0)
+                                port_map[nm].decl_line = dl
+                                port_map[nm].decl_col = dc
+                            except Exception:
+                                pass
                     except Exception:
                         pass
                 return True

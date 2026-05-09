@@ -68,6 +68,121 @@ local function _show_rename_unresolved(locations)
     vim.keymap.set("n", "<Esc>",  "<cmd>close<cr>", { buffer = buf, silent = true })
 end
 
+--- Show AutoFF preview floating window. On [y], calls apply_cmd with apply_args.
+local function _autoff_show_preview(title, pairs, client, bufnr, apply_cmd, apply_args)
+    local lines = { title, "" }
+    local has_reset, has_capture = false, false
+    for _, p in ipairs(pairs) do
+        if p.missing_if   then has_reset   = true end
+        if p.missing_else then has_capture = true end
+    end
+    if has_reset then
+        table.insert(lines, "  Reset (if) block:")
+        for _, p in ipairs(pairs) do
+            if p.missing_if then
+                table.insert(lines, string.format("    %s <= '0;", p.dst))
+            end
+        end
+        table.insert(lines, "")
+    end
+    if has_capture then
+        table.insert(lines, "  Capture (else) block:")
+        for _, p in ipairs(pairs) do
+            if p.missing_else then
+                table.insert(lines, string.format("    %s <= %s;", p.dst, p.src))
+            end
+        end
+        table.insert(lines, "")
+    end
+    table.insert(lines, "  [y] Apply   [n/Esc/q] Cancel")
+
+    local width  = math.min(80, math.max(44, vim.o.columns - 20))
+    local height = math.min(30, math.max(5, #lines))
+    local row    = math.floor((vim.o.lines   - height) / 2)
+    local col    = math.floor((vim.o.columns - width)  / 2)
+
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_option(buf, "buftype",    "nofile")
+    vim.api.nvim_buf_set_option(buf, "bufhidden",  "wipe")
+    vim.api.nvim_buf_set_option(buf, "buflisted",  false)
+    vim.api.nvim_buf_set_option(buf, "swapfile",   false)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    vim.api.nvim_buf_set_option(buf, "modifiable", false)
+
+    local win = vim.api.nvim_open_win(buf, true, {
+        relative  = "editor",
+        row       = row,
+        col       = col,
+        width     = width,
+        height    = height,
+        style     = "minimal",
+        border    = "rounded",
+        title     = " AutoFF Preview ",
+        title_pos = "center",
+    })
+
+    local ns = vim.api.nvim_create_namespace("lazyverilogpy_autoff_preview")
+    vim.api.nvim_buf_add_highlight(buf, ns, "Title",         0, 0, -1)
+    vim.api.nvim_buf_add_highlight(buf, ns, "DiagnosticInfo", #lines - 1, 0, -1)
+
+    local function close()
+        if vim.api.nvim_win_is_valid(win) then vim.api.nvim_win_close(win, true) end
+    end
+
+    local function apply()
+        close()
+        client.request("workspace/executeCommand", {
+            command   = apply_cmd,
+            arguments = apply_args,
+        }, function(aerr, edit)
+            if aerr then
+                vim.notify("[LazyVerilogPy] AutoFF apply: " .. tostring(aerr.message),
+                    vim.log.levels.ERROR)
+                return
+            end
+            if edit and edit.changes then
+                vim.lsp.util.apply_workspace_edit(edit, client.offset_encoding or "utf-8")
+            end
+        end, bufnr)
+    end
+
+    local ko = { noremap = true, silent = true, buffer = buf }
+    vim.keymap.set("n", "y",     apply, ko)
+    vim.keymap.set("n", "n",     close, ko)
+    vim.keymap.set("n", "<Esc>", close, ko)
+    vim.keymap.set("n", "q",     close, ko)
+    _ = win
+end
+
+--- Shared handler body for autoff/autoffAll code action commands.
+local function _autoff_command_handler(preview_cmd, preview_args, apply_cmd, apply_args, ctx)
+    local client = vim.lsp.get_client_by_id(ctx.client_id)
+    if not client then return end
+    local uri   = preview_args[1]
+    local bufnr = vim.uri_to_bufnr(uri)
+    client.request("workspace/executeCommand", {
+        command   = preview_cmd,
+        arguments = preview_args,
+    }, function(err, result)
+        if err or not result or result.error then
+            local msg = (result and result.error) or tostring(err)
+            local lvl = (result and result.warn) and vim.log.levels.WARN or vim.log.levels.ERROR
+            vim.notify("[LazyVerilogPy] AutoFF: " .. (msg or "error"), lvl)
+            return
+        end
+        if not result.pairs or #result.pairs == 0 then
+            vim.notify("[LazyVerilogPy] AutoFF: nothing to insert", vim.log.levels.INFO)
+            return
+        end
+        vim.schedule(function()
+            _autoff_show_preview(
+                "AutoFF: Insert flip-flop assignments?",
+                result.pairs, client, bufnr, apply_cmd, apply_args
+            )
+        end)
+    end, bufnr)
+end
+
 ---@param user_config? table
 function M.setup(user_config)
     _cfg = config.resolve(user_config)
@@ -138,6 +253,28 @@ function M.setup(user_config)
     vim.lsp.handlers["lazyverilogpy/renameUnresolved"] = function(err, result, _ctx, _config)
         if err or not result or not result.locations or #result.locations == 0 then return end
         vim.schedule(function() _show_rename_unresolved(result.locations) end)
+    end
+
+    -- AutoFF: intercept code-action commands client-side to show floating preview.
+    vim.lsp.commands["lazyverilogpy.autoff"] = function(cmd, ctx)
+        local uri  = cmd.arguments and cmd.arguments[1]
+        local line = cmd.arguments and cmd.arguments[2]
+        if not uri then return end
+        _autoff_command_handler(
+            "lazyverilogpy.autoffPreview",    {uri, line},
+            "lazyverilogpy.autoffApply",      {uri, line},
+            ctx
+        )
+    end
+
+    vim.lsp.commands["lazyverilogpy.autoffAll"] = function(cmd, ctx)
+        local uri = cmd.arguments and cmd.arguments[1]
+        if not uri then return end
+        _autoff_command_handler(
+            "lazyverilogpy.autoffAllPreview", {uri},
+            "lazyverilogpy.autoffAllApply",   {uri},
+            ctx
+        )
     end
 
     -- Also register .sv / .svh / .v file-type detection if not already present.

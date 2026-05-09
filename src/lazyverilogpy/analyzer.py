@@ -597,16 +597,20 @@ class Analyzer:
         if macro_info is not None:
             return macro_info
 
-        # Fallback: word not found in compilation — if it is preceded by '.'
-        # it is likely an undeclared named port in an instantiation.
+        # Fallback: word not found — if preceded by '.' it is a named port connection.
+        # Try to resolve to the port declaration in the instantiated module.
         lines = state.text.splitlines()
         if line < len(lines):
             src_line = lines[line]
             col = word_range[0]  # start of word
             if col > 0 and src_line[col - 1] == ".":
+                resolved = self._resolve_named_port(uri, word, line)
+                if resolved is not None:
+                    return resolved
+                # Module not in index yet — return a stub so hover still shows something
                 return SymbolInfo(
                     name=word,
-                    kind="SymbolKind.Port",
+                    kind="port",
                     type_str="unknown",
                 )
         return None
@@ -645,10 +649,11 @@ class Analyzer:
             _target_text = self._get_file_text(target_def.uri) or state.text
         target_module = Analyzer._module_at_line(_target_text, target_def.start.line)
         cursor_ctx_module = Analyzer._module_at_line(state.text, line)
-        # Only enforce module-scope matching when the target is module-scoped.
-        # File-scope targets (struct fields, typedefs) can be referenced from inside
-        # any module, so skip the guard when target_module is empty.
-        if target_module and cursor_ctx_module != target_module:
+        # Only enforce module-scope matching when the target is module-scoped AND
+        # both cursor and target are in the same file.  Cross-file lookups (e.g.
+        # a named port connection in one file referencing a port defined in another)
+        # must not be blocked by this guard.
+        if target_module and cursor_ctx_module != target_module and target_def.uri == uri:
             return []
 
         results: list[SourceRange] = []
@@ -797,6 +802,53 @@ class Analyzer:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    def _resolve_named_port(
+        self, uri: str, port_name: str, cursor_line: int
+    ) -> Optional[SymbolInfo]:
+        """Resolve a .portname token in an instantiation to its module port declaration.
+
+        Finds the closest instantiation above cursor_line in uri, looks up the
+        module in the SyntaxIndex, and returns a SymbolInfo with definition_range
+        pointing to the port's declaration line.  SyntaxTree-only — no Compilation.
+        """
+        instances = self._syntax_index.instances_by_file.get(uri, [])
+        best = None
+        for inst in instances:
+            if inst.line <= cursor_line:
+                if best is None or inst.line > best.line:
+                    best = inst
+        if best is None:
+            return None
+
+        mod_entry = self._syntax_index.modules.get(best.module_type)
+        if mod_entry is None:
+            return None
+
+        port = next((p for p in mod_entry.ports if p.name == port_name), None)
+        if port is None:
+            return None
+
+        if port.decl_line >= 0:
+            def_range = SourceRange(
+                start=SourcePos(line=port.decl_line, character=port.decl_col),
+                end=SourcePos(line=port.decl_line, character=port.decl_col + len(port_name)),
+                uri=mod_entry.file_uri,
+            )
+        else:
+            # Port location not captured — point to module declaration as fallback
+            def_range = SourceRange(
+                start=SourcePos(line=mod_entry.decl_line, character=0),
+                end=SourcePos(line=mod_entry.decl_line, character=len(port_name)),
+                uri=mod_entry.file_uri,
+            )
+
+        return SymbolInfo(
+            name=port_name,
+            kind="port",
+            type_str=f"{port.direction} {port.type_text}".strip(),
+            definition_range=def_range,
+        )
 
     @staticmethod
     def _word_at(text: str, line: int, character: int) -> tuple[str, tuple[int, int]]:
@@ -998,6 +1050,12 @@ class Analyzer:
                     return result
             except Exception:
                 continue
+        # Buffer tree tokens report "buffer.sv" as their filename; _find_decl_in_tree
+        # maps "buffer.sv" → file_uri.  When we are verifying a token from a *different*
+        # file (file_uri != state.uri), that mapping is wrong — the declaration belongs
+        # to state.uri (e.g. params.svh), not to the reference file (e.g. memory.sv).
+        if file_uri != state.uri:
+            return self._find_decl_in_tree(tree, name, state.text, state.uri, -1)
         return self._find_decl_in_tree(tree, name, file_text, file_uri, cursor_line)
 
     def _find_decl_in_tree(

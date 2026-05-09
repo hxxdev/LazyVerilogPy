@@ -97,6 +97,44 @@ def parse_existing_args(content: str) -> list[str]:
     return args
 
 
+def parse_existing_connections(call_text: str) -> dict[str, str]:
+    """Parse ``.port(wire)`` connections from a function/task call text.
+
+    Returns a dict mapping port name → wire expression for every non-empty
+    connection found.  Handles arbitrarily nested parentheses inside the wire
+    expression (e.g. ``kj[2:0]``, ``func(a, b)``).
+    """
+    result: dict[str, str] = {}
+    i = 0
+    while i < len(call_text):
+        if call_text[i] != '.':
+            i += 1
+            continue
+        m = re.match(r'\.(\w+)\s*\(', call_text[i:])
+        if not m:
+            i += 1
+            continue
+        port = m.group(1)
+        start_paren = i + m.end() - 1  # position of '('
+        depth = 0
+        j = start_paren
+        while j < len(call_text):
+            if call_text[j] == '(':
+                depth += 1
+            elif call_text[j] == ')':
+                depth -= 1
+                if depth == 0:
+                    wire = call_text[start_paren + 1:j].strip()
+                    if wire:
+                        result[port] = wire
+                    i = j + 1
+                    break
+            j += 1
+        else:
+            i += 1
+    return result
+
+
 def merge_ports(ports: list[str], existing: list[str]) -> list[str]:
     """Merge *existing* args with *ports*, appending missing ones.
 
@@ -119,6 +157,7 @@ def generate_func_call(
     indent_size: int = 4,
     use_named_arguments: bool = True,
     existing_args: list[str] | None = None,
+    wire_map: dict[str, str] | None = None,
 ) -> str:
     """Return the replacement text for a function/task call.
 
@@ -128,6 +167,9 @@ def generate_func_call(
 
     If *existing_args* is given, ports are merged: existing args kept in
     place, missing ports appended.
+
+    If *wire_map* is given, existing wire connections are preserved:
+    ``.port(existing_wire)`` instead of ``.port(port)``.
 
     If *use_named_arguments* is True, generate named argument style:
         name(
@@ -150,7 +192,7 @@ def generate_func_call(
         return f"{name}();"
 
     if use_named_arguments:
-        # Named argument style: .port(port)
+        # Named argument style: .port(wire)
         # Compute indent for the arguments: snap (len(indent) + indent_size) to indent_size grid
         base_col = len(indent)
         arg_col = ((base_col + indent_size) // indent_size) * indent_size
@@ -160,8 +202,9 @@ def generate_func_call(
 
         lines: list[str] = []
         for i, p in enumerate(ports):
+            wire = wire_map.get(p, p) if wire_map else p
             comma = "," if i < len(ports) - 1 else ""
-            lines.append(f"{arg_indent}.{p}({p}){comma}")
+            lines.append(f"{arg_indent}.{p}({wire}){comma}")
         return f"{name}(\n" + "\n".join(lines) + f"\n{indent});"
     else:
         # Positional argument style (always multiline)
@@ -179,46 +222,53 @@ def generate_func_call(
         return f"{name}(\n" + "\n".join(lines) + f"\n{indent});"
 
 
-def find_func_or_task_ports(state, symbol_name: str) -> Optional[list[str]]:
-    """Find the input port names of function/task *symbol_name* in *state*.
+def find_func_or_task_ports(trees, symbol_name: str) -> Optional[list[str]]:
+    """Find the argument names of function/task *symbol_name* via SyntaxTree walk.
 
-    Returns an ordered list of argument names, or ``None`` if no matching
-    subroutine is found in the compilation.
+    *trees* is a list of pyslang SyntaxTree objects to search (buffer tree +
+    any extra-file trees).  Returns an ordered list of argument names, or
+    ``None`` if no matching declaration is found.
     """
-    compilation = state.compilation
-    if compilation is None or state.tree is None:
-        return None
+    _DECL_KINDS = {"SyntaxKind.FunctionDeclaration", "SyntaxKind.TaskDeclaration"}
 
-    candidates: list = []
+    for tree in trees:
+        if tree is None:
+            continue
+        found: list[list[str]] = []
 
-    def _collect(sym) -> bool:
-        try:
-            kind = str(sym.kind)
-            if "Subroutine" in kind and sym.name == symbol_name:
-                candidates.append(sym)
-        except Exception:
-            pass
-        return True
-
-    try:
-        compilation.getRoot().visit(_collect)
-    except Exception:
-        return None
-
-    if not candidates:
-        return None
-
-    sym = candidates[0]
-    ports: list[str] = []
-    try:
-        for arg in sym.arguments:
+        def _visit(node) -> bool:
             try:
-                arg_name = getattr(arg, "name", "")
-                if arg_name:
-                    ports.append(arg_name)
-            except Exception:
-                continue
-    except Exception:
-        return None
+                if str(node.kind) not in _DECL_KINDS:
+                    return True
+                name = str(node.prototype.name).strip()
+                if name != symbol_name:
+                    return True
+                ports: list[str] = []
 
-    return ports
+                def _port_visit(pnode) -> bool:
+                    if str(pnode.kind) == "SyntaxKind.FunctionPort":
+                        try:
+                            port_name = str(pnode.declarator.name).strip()
+                            if port_name:
+                                ports.append(port_name)
+                        except Exception:
+                            pass
+                    return True
+
+                try:
+                    node.prototype.portList.visit(_port_visit)
+                except Exception:
+                    pass
+                found.append(ports)
+            except Exception:
+                pass
+            return True
+
+        try:
+            tree.root.visit(_visit)
+        except Exception:
+            continue
+        if found:
+            return found[0]
+
+    return None

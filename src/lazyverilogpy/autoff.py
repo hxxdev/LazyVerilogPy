@@ -226,8 +226,10 @@ def _parse_ff_block(lines: list, ff_start: int) -> dict:
     else_indent = base_else_indent + "    "
 
     return {
+        "if_begin_line": if_begin,
         "if_insert_line": if_end,
         "if_indent": if_indent,
+        "else_begin_line": else_begin,
         "else_insert_line": else_end,
         "else_indent": else_indent,
     }
@@ -272,6 +274,231 @@ def find_always_ff_if_else(text: str) -> Optional[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Bulk helpers
+# ---------------------------------------------------------------------------
+
+
+def check_assigned_in_range(lines: list, signal: str, begin_line: int, end_line: int) -> bool:
+    """Return True if *signal* has a ``<=`` assignment in lines[begin_line+1 : end_line]."""
+    lhs_re = re.compile(r"^\s*" + re.escape(signal) + r"\s*<=")
+    return any(lhs_re.match(line) for line in lines[begin_line + 1:end_line])
+
+
+def find_all_ff_pairs(
+    state: DocumentState, register_re: "re.Pattern[str]"
+) -> list[tuple[str, str]]:
+    """Return all (src, reg) pairs from two-signal declarations in *state*.
+
+    Visits every ``DataDeclaration`` / ``NetDeclaration`` in the AST.
+    A declaration qualifies when it has exactly 2 names and exactly one
+    matches *register_re*.  Pairs are returned in declaration order.
+    """
+    tree = state.tree
+    if tree is None:
+        return []
+
+    pairs: list[tuple[str, str]] = []
+
+    def _visit(node) -> bool:
+        if str(node.kind) not in _DECL_KINDS:
+            return True
+        try:
+            names: list[str] = []
+            for d in node.declarators:
+                if str(d.kind) == "SyntaxKind.Declarator":
+                    name = str(d.name).strip()
+                    if name:
+                        names.append(name)
+            if len(names) == 2:
+                regs = [n for n in names if register_re.search(n)]
+                srcs = [n for n in names if not register_re.search(n)]
+                if len(regs) == 1 and len(srcs) == 1:
+                    pairs.append((srcs[0], regs[0]))
+        except Exception:
+            pass
+        return True
+
+    try:
+        tree.root.visit(_visit)
+    except Exception:
+        pass
+    return pairs
+
+
+def _autoff_build_ff_edits(
+    pairs: list[tuple[str, str]],
+    ff: dict,
+    lines: list[str],
+) -> tuple[list[dict], int]:
+    """Build insertion edits for (src, dst) pairs, skipping already-assigned blocks.
+
+    Returns ``(edits, pending_count)`` where *pending_count* is the number of
+    signals that needed at least one block insertion.
+    """
+    reset_texts: list[str] = []
+    capture_texts: list[str] = []
+    pending_count = 0
+
+    for src, dst in pairs:
+        in_if   = check_assigned_in_range(lines, dst, ff["if_begin_line"],   ff["if_insert_line"])
+        in_else = check_assigned_in_range(lines, dst, ff["else_begin_line"], ff["else_insert_line"])
+        if in_if and in_else:
+            continue
+        pending_count += 1
+        if not in_if:
+            reset_texts.append(f"{ff['if_indent']}{dst} <= '0;\n")
+        if not in_else:
+            capture_texts.append(f"{ff['else_indent']}{dst} <= {src};\n")
+
+    edits: list[dict] = []
+    if capture_texts:
+        edits.append({"line": ff["else_insert_line"], "character": 0,
+                       "text": "".join(capture_texts)})
+    if reset_texts:
+        edits.append({"line": ff["if_insert_line"], "character": 0,
+                       "text": "".join(reset_texts)})
+    edits.sort(key=lambda e: e["line"], reverse=True)
+    return edits, pending_count
+
+
+def _autoff_pending_pairs(
+    pairs: list[tuple[str, str]],
+    ff: dict,
+    lines: list[str],
+) -> list[dict]:
+    """Return pairs that need insertion in at least one block.
+
+    Each entry is ``{"src": str, "dst": str, "missing_if": bool, "missing_else": bool}``.
+    """
+    result = []
+    for src, dst in pairs:
+        in_if   = check_assigned_in_range(lines, dst, ff["if_begin_line"],   ff["if_insert_line"])
+        in_else = check_assigned_in_range(lines, dst, ff["else_begin_line"], ff["else_insert_line"])
+        if not (in_if and in_else):
+            result.append({"src": src, "dst": dst,
+                            "missing_if": not in_if, "missing_else": not in_else})
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Preview helpers (return data without applying edits)
+# ---------------------------------------------------------------------------
+
+
+def preview_autoff(
+    state: DocumentState,
+    cursor_line: int,
+    register_pattern: str = DEFAULT_REGISTER_PATTERN,
+) -> dict:
+    """Return ``{"pairs": [...]}`` showing what autoff would insert, or error dict."""
+    text = state.text
+    if not text:
+        return {"error": "AutoFF: document is empty"}
+    try:
+        names = parse_declaration_signals(state, cursor_line)
+    except ValueError as exc:
+        return {"error": str(exc)}
+    pat = register_pattern or DEFAULT_REGISTER_PATTERN
+    try:
+        register_re = re.compile(pat)
+    except re.error as exc:
+        return {"error": f"AutoFF: invalid register_pattern '{pat}': {exc}"}
+    src, dst = pair_signals(names, register_re)
+    try:
+        ff = find_always_ff_if_else(text)
+    except ValueError as exc:
+        return {"error": str(exc)}
+    if ff is None:
+        return {"error": "AutoFF: no always_ff block found in file"}
+    lines = text.splitlines()
+    pending = _autoff_pending_pairs([(src, dst)], ff, lines)
+    if not pending:
+        return {"warn": True, "error": f"AutoFF: '{dst}' already assigned in both blocks"}
+    return {"pairs": pending}
+
+
+def preview_autoff_all(
+    state: DocumentState,
+    register_pattern: str = DEFAULT_REGISTER_PATTERN,
+) -> dict:
+    """Return ``{"pairs": [...]}`` for all qualifying pairs, or error dict."""
+    text = state.text
+    if not text:
+        return {"error": "AutoFF: document is empty"}
+    pat = register_pattern or DEFAULT_REGISTER_PATTERN
+    try:
+        register_re = re.compile(pat)
+    except re.error as exc:
+        return {"error": f"AutoFF: invalid register_pattern '{pat}': {exc}"}
+    all_pairs = find_all_ff_pairs(state, register_re)
+    if not all_pairs:
+        return {"warn": True, "error": "AutoFF: no matching two-signal declarations found"}
+    try:
+        ff = find_always_ff_if_else(text)
+    except ValueError as exc:
+        return {"error": str(exc)}
+    if ff is None:
+        return {"error": "AutoFF: no always_ff block found in file"}
+    lines = text.splitlines()
+    pending = _autoff_pending_pairs(all_pairs, ff, lines)
+    if not pending:
+        return {"warn": True, "error": "AutoFF: all signals already assigned in both blocks"}
+    return {"pairs": pending}
+
+
+# ---------------------------------------------------------------------------
+# Bulk helpers
+# ---------------------------------------------------------------------------
+
+
+def autoff_all(
+    state: DocumentState,
+    register_pattern: str = DEFAULT_REGISTER_PATTERN,
+) -> dict:
+    """Run AutoFF on **all** qualifying two-signal declarations in the file.
+
+    Skips signals already assigned in **both** always_ff blocks; inserts only
+    the missing block(s) for each signal.
+
+    Returns ``{'edits': [...], 'pending_count': int}`` on success, or
+    ``{'error': str, 'warn': bool}`` on failure.
+    """
+    text = state.text
+    if not text:
+        return {"error": "AutoFF: document is empty"}
+
+    pat = register_pattern or DEFAULT_REGISTER_PATTERN
+    try:
+        register_re = re.compile(pat)
+    except re.error as exc:
+        return {"error": f"AutoFF: invalid register_pattern '{pat}': {exc}"}
+
+    all_pairs = find_all_ff_pairs(state, register_re)
+    if not all_pairs:
+        return {
+            "warn": True,
+            "error": "AutoFF: no two-signal declarations matching register pattern found",
+        }
+
+    try:
+        ff = find_always_ff_if_else(text)
+    except ValueError as exc:
+        return {"error": str(exc)}
+    if ff is None:
+        return {"error": "AutoFF: no always_ff block found in file"}
+
+    lines = text.splitlines()
+    edits, pending_count = _autoff_build_ff_edits(all_pairs, ff, lines)
+
+    if not edits:
+        return {
+            "warn": True,
+            "error": "AutoFF: all matching signals already assigned in both blocks",
+        }
+    return {"edits": edits, "pending_count": pending_count}
+
+
+# ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
@@ -281,24 +508,23 @@ def autoff(
     cursor_line: int,
     register_pattern: str = DEFAULT_REGISTER_PATTERN,
 ) -> dict:
-    """Run AutoFF logic.
+    """Run AutoFF logic for a single two-signal declaration at *cursor_line*.
+
+    Skips a block if the signal is already assigned there; inserts only in
+    missing block(s).  Warns only when **both** blocks already have the signal.
 
     Returns ``{'edits': [...]}`` on success, or ``{'error': str, 'warn': bool}``
-    on failure.  Each edit is ``{'line': int, 'character': int, 'text': str}``.
-    Edits are sorted in reverse line order so applying them sequentially keeps
-    line numbers valid.
+    on failure.  Edits are in reverse line order.
     """
     text = state.text
     if not text:
         return {"error": "AutoFF: document is empty"}
 
-    # Parse declaration at cursor (AST-based)
     try:
         names = parse_declaration_signals(state, cursor_line)
     except ValueError as exc:
         return {"error": str(exc)}
 
-    # Pair signals using register pattern
     pat = register_pattern or DEFAULT_REGISTER_PATTERN
     try:
         register_re = re.compile(pat)
@@ -307,14 +533,6 @@ def autoff(
 
     src, dst = pair_signals(names, register_re)
 
-    # Check for duplicate assignment
-    if check_already_assigned(text, dst):
-        return {
-            "warn": True,
-            "error": f"AutoFF: '{dst}' is already assigned inside always_ff — skipped",
-        }
-
-    # Find always_ff with if/else structure
     try:
         ff = find_always_ff_if_else(text)
     except ValueError as exc:
@@ -322,14 +540,12 @@ def autoff(
     if ff is None:
         return {"error": "AutoFF: no always_ff block found in file"}
 
-    # Build two insertion edits (insert before the closing 'end' of each block)
-    reset_text = f"{ff['if_indent']}{dst} <= '0;\n"
-    capture_text = f"{ff['else_indent']}{dst} <= {src};\n"
+    lines = text.splitlines()
+    edits, _ = _autoff_build_ff_edits([(src, dst)], ff, lines)
 
-    edits = [
-        {"line": ff["else_insert_line"], "character": 0, "text": capture_text},
-        {"line": ff["if_insert_line"], "character": 0, "text": reset_text},
-    ]
-    # Reverse order so lower line numbers aren't shifted by upper insertions
-    edits.sort(key=lambda e: e["line"], reverse=True)
+    if not edits:
+        return {
+            "warn": True,
+            "error": f"AutoFF: '{dst}' is already assigned in both blocks — skipped",
+        }
     return {"edits": edits}
