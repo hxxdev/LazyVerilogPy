@@ -186,7 +186,7 @@ def find_func_or_task_ports(state, symbol_name: str) -> Optional[list[str]]:
     subroutine is found in the compilation.
     """
     compilation = state.compilation
-    if compilation is None:
+    if compilation is None or state.tree is None:
         return None
 
     candidates: list = []

@@ -97,60 +97,16 @@ class AutoargOptions:
 
 
 
-def find_module_ports_ast(state, module_name: str) -> Optional[list[str]]:
-    """Find port names of *module_name* in *state* via pyslang AST.
-
-    Returns an ordered list of port names, or ``None`` if the module is not found.
-    """
-    compilation = state.compilation
-    if compilation is None:
-        return None
-
-    candidates: list = []
-
-    def _collect(sym) -> bool:
-        try:
-            kind = str(sym.kind)
-            if "InstanceBody" in kind and sym.name == module_name:
-                candidates.append(sym)
-        except Exception:
-            pass
-        return True
-
-    try:
-        compilation.getRoot().visit(_collect)
-    except Exception:
-        return None
-
-    if not candidates:
-        return None
-
-    body = candidates[0]
-    ports: list[str] = []
-    try:
-        for port in body.portList:
-            try:
-                port_name = getattr(port, "name", "")
-                if port_name:
-                    ports.append(port_name)
-            except Exception:
-                continue
-    except Exception:
-        return None
-
-    return ports if ports else None
-
-
 def autoarg(state, line: int, col: int) -> Optional[dict]:
     """Return auto-arg data for the module whose declaration encloses *(line, col)*.
 
-    Uses the pyslang AST to extract port names, and text scanning to find the
-    replacement range of the existing port-list header ``(...)``.
+    Uses text scanning to extract port names and find the replacement range of
+    the existing port-list header ``(...)``.  No Compilation needed.
 
     Returns a dict with keys ``port_names``, ``module_name``, ``open_line``,
     ``open_col``, ``end_line``, and ``end_col``, or ``None`` on failure.
     """
-    if state.compilation is None:
+    if state.tree is None:
         return None
 
     doc_lines = state.text.splitlines()

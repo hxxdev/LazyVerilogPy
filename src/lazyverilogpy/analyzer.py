@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import logging
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlparse, unquote
@@ -12,7 +13,22 @@ from typing import Optional
 
 import pyslang
 
+from lazyverilogpy.syntax_index import SyntaxIndex, ModuleEntry, PortEntry, InstanceEntry
+
 logger = logging.getLogger(__name__)
+_perf_logger = logging.getLogger("lazyverilogpy.perf")
+
+# Set by server.py when [perf] log_timing = true
+_log_timing: bool = False
+
+
+def _t(label: str, t0: float, uri: str = "") -> None:
+    """Emit a perf log line if timing is enabled."""
+    if not _log_timing:
+        return
+    elapsed_ms = (time.perf_counter() - t0) * 1000
+    basename = uri.rsplit("/", 1)[-1] if uri else ""
+    _perf_logger.info("[perf] %-32s %6.2f ms  %s", label, elapsed_ms, basename)
 
 @dataclass
 class SourcePos:
@@ -155,6 +171,8 @@ class Analyzer:
         self._path_to_uri: dict[Path, str] = {}  # resolved path → open document URI
         self._extra_mtimes: dict = {}      # Path → float mtime at last disk read
         self._extra_trees: dict[str, "pyslang.SyntaxTree"] = {}  # URI → cached SyntaxTree for extra files (bag=None only)
+        self._extra_syntax_index: SyntaxIndex = SyntaxIndex()  # built from extra files only, never rebuilt on keystroke
+        self._syntax_index: SyntaxIndex = SyntaxIndex()
 
     @staticmethod
     def _uri_to_path(uri: str) -> Path:
@@ -167,12 +185,14 @@ class Analyzer:
 
     def open(self, uri: str, text: str) -> None:
         state = DocumentState(uri=uri, text=text)
-        self._parse(state)
+        # Register state first so _rebuild_syntax_index can find it
         self._docs[uri] = state
         try:
             self._path_to_uri[self._uri_to_path(uri)] = uri
         except Exception:
             pass
+        self._parse(state)
+        self._rebuild_syntax_index()
 
     def change(self, uri: str, change: types.TextDocumentContentChangeEvent) -> None:
         state = self._docs.get(uri)
@@ -224,10 +244,8 @@ class Analyzer:
         """
         new_paths = list(paths)
         if new_paths == self._extra_files:
-            # File list unchanged — run _parse only for docs that have no compilation yet
-            for state in self._docs.values():
-                if state.compilation is None:
-                    self._parse(state)
+            # File list unchanged — nothing extra to do for SyntaxIndex
+            # (open() already called _rebuild_syntax_index for the open doc)
             return
         self._extra_files = new_paths
         self._extra_mtimes.clear()
@@ -235,7 +253,21 @@ class Analyzer:
         # Invalidate inlay caches in all open documents
         for state in self._docs.values():
             state._inlay_cache.clear()
-            self._parse(state)
+            state._compilation_dirty = True
+        # Pre-parse extra files into _extra_trees so the SyntaxIndex is populated
+        for path in self._extra_files:
+            path_uri = str(path.as_uri())
+            if path_uri not in self._extra_trees:
+                try:
+                    tree = pyslang.SyntaxTree.fromFile(str(path))
+                    self._extra_trees[path_uri] = tree
+                    try:
+                        self._extra_mtimes[path] = path.stat().st_mtime
+                    except Exception:
+                        pass
+                except Exception as exc:
+                    logger.debug("set_extra_files: skip %s: %s", path, exc)
+        self._rebuild_extra_syntax_index()
 
     def get_extra_file_paths(self) -> list:
         """Return a copy of the extra-file list (Path objects from the .f filelist)."""
@@ -255,19 +287,16 @@ class Analyzer:
             self._parse(state)
 
     def refresh_if_stale(self, uri: str) -> None:
-        """Re-parse *uri*'s state if compilation is dirty or extra files changed.
+        """Re-parse extra files into _extra_trees if any changed on disk.
 
-        Called before commands (autoinst, autoarg) so results reflect the latest
-        on-disk content of files that are not currently open in the editor.
+        Called before commands (autoinst, autoarg) so the SyntaxIndex reflects
+        the latest on-disk content of files not currently open in the editor.
         """
         state = self._docs.get(uri)
         if state is None:
             return
-        # Rebuild if text changes have invalidated the compilation.
-        if state._compilation_dirty or state.compilation is None:
-            self._parse(state)
-            return
         # Also rebuild if any disk-based extra file was modified externally.
+        changed = False
         for path in self._extra_files:
             if self._path_to_uri.get(path) is not None:
                 continue  # open in editor — changes arrive via did_change
@@ -276,8 +305,16 @@ class Analyzer:
             except Exception:
                 continue
             if mtime != self._extra_mtimes.get(path):
-                self._parse(state)
-                return
+                path_uri = str(path.as_uri())
+                try:
+                    tree = pyslang.SyntaxTree.fromFile(str(path))
+                    self._extra_trees[path_uri] = tree
+                    self._extra_mtimes[path] = mtime
+                    changed = True
+                except Exception as exc:
+                    logger.debug("refresh_if_stale: skip %s: %s", path, exc)
+        if changed:
+            self._rebuild_syntax_index()
 
     def _record_mtime(self, path: Path) -> None:
         """Cache the current mtime of *path* for staleness checks."""
@@ -293,6 +330,7 @@ class Analyzer:
         Sets state._compilation_dirty so the next ensure_compilation()
         call triggers a full rebuild.
         """
+        t0 = time.perf_counter()
         try:
             bag: object = None
             if self._defines:
@@ -310,6 +348,8 @@ class Analyzer:
             state.tree_filename = "buffer.sv"
         except Exception:
             state.tree = None
+        _t("parse_syntax", t0, state.uri)
+        self._rebuild_syntax_index()
 
     def ensure_compilation(self, uri: str) -> None:
         """Rebuild full compilation for *uri* if it is marked dirty.
@@ -324,14 +364,50 @@ class Analyzer:
             self._parse(state)
 
     def get_compiled_state(self, uri: str) -> Optional["DocumentState"]:
-        """Ensure compilation is current and return the document state.
+        """Return document state (SyntaxTree-based, no compilation needed).
 
-        Convenience wrapper used by semantic feature handlers (hover,
-        definition, completion, etc.) so each handler does not need its
-        own ensure_compilation() call.
+        Formerly called ensure_compilation() first; now features use
+        SyntaxTree + SyntaxIndex so compilation is not needed here.
         """
-        self.ensure_compilation(uri)
         return self._docs.get(uri)
+
+    def _rebuild_extra_syntax_index(self) -> None:
+        """Rebuild index from extra files only.  Called once in set_extra_files(),
+        never on every keystroke.  Walking 500 trees once is acceptable."""
+        t0 = time.perf_counter()
+        idx = SyntaxIndex()
+        for path_uri, tree in self._extra_trees.items():
+            try:
+                idx.add_tree(tree, path_uri)
+            except Exception:
+                pass
+        self._extra_syntax_index = idx
+        _t(f"rebuild_extra_syntax_index ({len(self._extra_trees)} extra files)", t0)
+        # Overlay open buffer contributions on top
+        self._rebuild_syntax_index()
+
+    def _rebuild_syntax_index(self) -> None:
+        """Overlay open buffer trees on top of _extra_syntax_index.
+        Fast — only walks currently open buffer trees (typically 1-5 files),
+        never re-walks the potentially large extra-file set."""
+        t0 = time.perf_counter()
+        # Shallow-copy the extra index so buffer entries override without mutation
+        idx = SyntaxIndex()
+        idx.modules = dict(self._extra_syntax_index.modules)
+        idx.instances_by_file = dict(self._extra_syntax_index.instances_by_file)
+        # Override/add open buffer tree entries
+        for uri, state in self._docs.items():
+            if state.tree is not None:
+                try:
+                    idx.add_tree(state.tree, uri)
+                except Exception:
+                    pass
+        self._syntax_index = idx
+        _t(f"rebuild_syntax_index (buffers only, {len(self._docs)} open)", t0)
+
+    def get_syntax_index(self) -> SyntaxIndex:
+        """Return the current SyntaxIndex (populated from SyntaxTrees only)."""
+        return self._syntax_index
 
     def _parse(self, state: DocumentState) -> None:
         # Resolve current document's path so we can skip it in the extra-files list.
@@ -341,6 +417,7 @@ class Analyzer:
         except Exception:
             pass
 
+        t0 = time.perf_counter()
         try:
             # Build a Bag with preprocessor defines if any are configured.
             bag: object = None
@@ -414,6 +491,7 @@ class Analyzer:
             state.tree = None
             state.compilation = None
             state._compilation_dirty = False  # don't retry broken state
+        _t(f"_parse/compilation ({len(self._extra_files)} extra files)", t0, state.uri)
 
     # ------------------------------------------------------------------
     # Symbol lookup
@@ -422,7 +500,7 @@ class Analyzer:
     def symbol_at(self, uri: str, line: int, character: int) -> Optional[SymbolInfo]:
         self.ensure_compilation(uri)
         state = self._docs.get(uri)
-        if state is None or state.compilation is None:
+        if state is None or state.compilation is None or state.tree is None:
             return None
 
         word, word_range = self._word_at(state.text, line, character)
@@ -466,6 +544,7 @@ class Analyzer:
         include_declaration: bool = True,
     ) -> list[SourceRange]:
         self.refresh_if_stale(uri)
+        self.ensure_compilation(uri)
         state = self._docs.get(uri)
         if state is None or state.compilation is None or state.tree is None:
             return []
@@ -1223,107 +1302,85 @@ class Analyzer:
         """Build the forward RTL module instantiation tree rooted at the module in *uri*."""
         self.refresh_if_stale(uri)
         state = self._docs.get(uri)
-        if state is None or state.compilation is None or state.tree is None:
+        if state is None or state.tree is None:
             return None
 
-        inst_data, buffer_paths = self._collect_inst_data(state, uri, self._path_to_uri)
-        if not buffer_paths:
+        # Use SyntaxIndex (no compilation needed)
+        idx = self._syntax_index
+
+        # Find root module(s) declared in this file
+        root_modules = [m for m in idx.modules.values() if m.file_uri == uri]
+        if not root_modules:
             return None
+        root_entry = min(root_modules, key=lambda m: m.decl_line)
 
-        # Use the shallowest (least-nested) buffer path as the tree root.
-        root_path = min(buffer_paths, key=lambda p: p.count("."))
-
-        # Build parent→children map from hierarchical paths.
-        parent_to_children: dict[str, list] = {p: [] for p in inst_data}
-        for path in inst_data:
-            if "." in path:
-                parent = path.rsplit(".", 1)[0]
-                parent_to_children.setdefault(parent, []).append(path)
-
-        def _build(path: str, seen_types: frozenset) -> dict:
-            data = inst_data.get(path, {"inst": path.rsplit(".", 1)[-1], "module": "<unknown>", "file": ""})
-            module_type = data["module"]
-            if module_type in seen_types:
-                return {
-                    "name": module_type, "inst": data["inst"],
-                    "file": data["file"], "children": [], "recursive": True,
-                }
-            new_seen = seen_types | {module_type}
+        def _build_idx(module_name: str, seen: frozenset) -> dict:
+            entry = idx.get_module(module_name)
+            file_uri = entry.file_uri if entry else ""
+            children = []
+            if module_name not in seen and entry is not None:
+                new_seen = seen | {module_name}
+                for inst in idx.get_instances(entry.file_uri):
+                    if inst.module_type == module_name:
+                        continue  # skip self-reference at same level
+                    child = _build_idx(inst.module_type, new_seen)
+                    child["inst"] = inst.inst_name
+                    children.append(child)
             return {
-                "name": module_type,
-                "inst": data["inst"],
-                "file": data["file"],
-                "children": [_build(c, new_seen) for c in sorted(parent_to_children.get(path, []))],
+                "name": module_name,
+                "inst": "",
+                "file": file_uri,
+                "children": children,
+                "recursive": module_name in seen,
             }
 
-        return _build(root_path, frozenset())
+        return _build_idx(root_entry.name, frozenset())
 
     # ------------------------------------------------------------------
     # Connect helpers
     # ------------------------------------------------------------------
 
     def get_connect_info(self, uri: str) -> dict:
-        """Return {modules: {name: {ports, instances}}} for all compiled modules."""
+        """Return {modules: {name: {ports, instances}}} for all known modules.
+
+        Uses SyntaxIndex (no Compilation needed).
+        """
         self.refresh_if_stale(uri)
         state = self._docs.get(uri)
-        if state is None or state.compilation is None or state.tree is None:
-            return {"error": "no compilation state"}
+        if state is None or state.tree is None:
+            return {"error": "no syntax tree"}
 
-        sm = state.tree.sourceManager
+        idx = self._syntax_index
         modules: dict = {}
 
-        def _collect(sym) -> bool:
-            try:
-                k = str(sym.kind)
-                if k == "SymbolKind.InstanceBody":
-                    mname = sym.name
-                    ports: list = []
-                    try:
-                        for port in sym.portList:
-                            try:
-                                ports.append({
-                                    "name": port.name,
-                                    "direction": Analyzer._port_direction(port),
-                                    "type_str": Analyzer._get_type_str(port),
-                                })
-                            except Exception:
-                                continue
-                    except Exception:
-                        pass
-                    if mname not in modules:
-                        modules[mname] = {"ports": ports, "instances": []}
-                    else:
-                        modules[mname]["ports"] = ports
-                elif "Instance" in k and "InstanceBody" not in k:
-                    try:
-                        mname = sym.body.name
-                    except Exception:
-                        return True
-                    path = sym.hierarchicalPath
-                    try:
-                        fname = sm.getFileName(sym.location)
-                        if fname == "buffer.sv":
-                            file_uri = uri
-                        else:
-                            resolved = Path(fname).resolve()
-                            file_uri = self._path_to_uri.get(resolved) or resolved.as_uri()
-                    except Exception:
-                        file_uri = uri
-                    if mname not in modules:
-                        modules[mname] = {"ports": [], "instances": []}
-                    modules[mname]["instances"].append({
-                        "inst_name": sym.name,
-                        "hierarchical_path": path,
-                        "file_uri": file_uri,
-                    })
-            except Exception:
-                pass
-            return True
-
-        try:
-            state.compilation.getRoot().visit(_collect)
-        except Exception as exc:
-            return {"error": str(exc)}
+        for mname, entry in idx.modules.items():
+            ports = [
+                {
+                    "name": p.name,
+                    "direction": p.direction,
+                    "type_str": p.type_text,
+                }
+                for p in entry.ports
+            ]
+            insts = [
+                {
+                    "inst_name": i.inst_name,
+                    "hierarchical_path": i.inst_name,  # flat name; no elaboration
+                    "file_uri": i.file_uri,
+                }
+                for i in idx.get_instances(entry.file_uri)
+                if i.module_type == mname
+            ]
+            # Also add instances of other modules inside this module's file
+            all_insts = [
+                {
+                    "inst_name": i.inst_name,
+                    "hierarchical_path": i.inst_name,
+                    "file_uri": i.file_uri,
+                }
+                for i in idx.get_instances(entry.file_uri)
+            ]
+            modules[mname] = {"ports": ports, "instances": all_insts}
 
         return {"modules": modules}
 
@@ -2456,30 +2513,50 @@ class Analyzer:
         """Build the reverse RTL hierarchy — who instantiates the module in *uri*."""
         self.refresh_if_stale(uri)
         state = self._docs.get(uri)
-        if state is None or state.compilation is None or state.tree is None:
+        if state is None or state.tree is None:
             return None
 
-        inst_data, buffer_paths = self._collect_inst_data(state, uri, self._path_to_uri)
-        if not buffer_paths:
+        idx = self._syntax_index
+
+        # Find modules declared in this file
+        file_modules = [m for m in idx.modules.values() if m.file_uri == uri]
+        if not file_modules:
             return None
+        target_module = min(file_modules, key=lambda m: m.decl_line)
+        target_name = target_module.name
 
-        root_path = min(buffer_paths, key=lambda p: p.count("."))
+        # Build reverse map: module_name → list of (parent_module_name, inst_name, file_uri)
+        # Walk all instances across all files to find who instantiates target_name
+        reverse_map: dict[str, list[tuple[str, str, str]]] = {}
+        for file_uri, insts in idx.instances_by_file.items():
+            for inst in insts:
+                if inst.module_type not in reverse_map:
+                    reverse_map[inst.module_type] = []
+                # Find which module this instance lives in by matching file module entries
+                for mentry in idx.modules.values():
+                    if mentry.file_uri == file_uri:
+                        reverse_map[inst.module_type].append(
+                            (mentry.name, inst.inst_name, file_uri)
+                        )
+                        break
 
-        def _build_reverse(path: str, visited: frozenset) -> dict:
-            data = inst_data.get(path, {"inst": path.rsplit(".", 1)[-1], "module": "<unknown>", "file": ""})
-            if path in visited:
-                return {"name": data["module"], "inst": data["inst"], "file": data["file"],
+        def _build_reverse_idx(module_name: str, visited: frozenset) -> dict:
+            entry = idx.get_module(module_name)
+            file_uri = entry.file_uri if entry else ""
+            if module_name in visited:
+                return {"name": module_name, "inst": "", "file": file_uri,
                         "children": [], "recursive": True}
-            new_visited = visited | {path}
+            new_visited = visited | {module_name}
             children = []
-            if "." in path:
-                parent_path = path.rsplit(".", 1)[0]
-                children = [_build_reverse(parent_path, new_visited)]
+            for parent_name, inst_name, parent_file in reverse_map.get(module_name, []):
+                child = _build_reverse_idx(parent_name, new_visited)
+                child["inst"] = inst_name
+                children.append(child)
             return {
-                "name": data["module"],
-                "inst": data["inst"],
-                "file": data["file"],
+                "name": module_name,
+                "inst": "",
+                "file": file_uri,
                 "children": children,
             }
 
-        return _build_reverse(root_path, frozenset())
+        return _build_reverse_idx(target_name, frozenset())

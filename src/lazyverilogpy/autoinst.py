@@ -1,4 +1,4 @@
-"""AutoInst — generate module instantiations from pyslang AST."""
+"""AutoInst — generate module instantiations from pyslang SyntaxTree."""
 from __future__ import annotations
 import logging
 import re
@@ -37,90 +37,91 @@ def _word_at(text: str, line: int, character: int) -> tuple[str, tuple[int, int]
 
 
 def find_instance_at_line(state, target_line: int):
-    """Find the Instance symbol (not InstanceBody) whose instantiation block contains
-    *target_line* (0-indexed).  The cursor may be on any line of the instantiation —
-    the module-type line, a port connection line, or the closing '};' line.
+    """Find HierarchyInstantiation syntax node whose range contains target_line.
+
+    Works from state.tree (SyntaxTree) — no Compilation needed.
     """
-    compilation = state.compilation
-    if compilation is None:
+    if state.tree is None:
         return None
     sm = state.tree.sourceManager
+    candidates = []
 
-    # Collect all unique sub-module instances (deduplicated by start line).
-    # Only consider instances that are nested inside another module (hierarchical
-    # path contains '.'), so we skip the top-level module pseudo-instance that
-    # pyslang emits for the module declaration itself.
-    # We only care about instances whose header line is at or above target_line.
-    seen_lines: set[int] = set()
-    above: list[tuple[int, object]] = []  # (sym_line, sym)
-
-    def _collect(sym) -> bool:
-        try:
-            k = str(sym.kind)
-            if "Instance" in k and "InstanceBody" not in k:
-                # Only consider instances declared in the current buffer, and
-                # skip the top-level module pseudo-instance (no '.' in path).
-                try:
-                    if sm.getFileName(sym.location) != "buffer.sv":
-                        return True
-                    if "." not in str(sym.hierarchicalPath):
-                        return True
-                except Exception:
-                    pass
-                sym_line = sm.getLineNumber(sym.location) - 1
-                if sym_line <= target_line and sym_line not in seen_lines:
-                    seen_lines.add(sym_line)
-                    above.append((sym_line, sym))
-        except Exception:
-            pass
+    def _visit(node) -> bool:
+        if str(node.kind) == "SyntaxKind.HierarchyInstantiation":
+            try:
+                ln = sm.getLineNumber(node.getFirstToken().location) - 1
+                if ln <= target_line:
+                    candidates.append((ln, node))
+            except Exception:
+                pass
         return True
 
     try:
-        compilation.getRoot().visit(_collect)
+        state.tree.root.visit(_visit)
     except Exception:
         return None
 
-    if not above:
+    if not candidates:
         return None
 
-    # Pick the candidate whose header is closest to (but not past) target_line.
-    above.sort(key=lambda t: t[0], reverse=True)
-    for sym_line, sym in above:
-        _, line_end = inst_line_range(state.text, sym, state.tree)
+    candidates.sort(key=lambda t: t[0], reverse=True)
+    for ln, node in candidates:
+        _, line_end = inst_line_range_node(state.text, node, sm)
         if target_line <= line_end:
-            return sym
+            return node
     return None
 
 
-def find_instance_symbol(state, name: str):
-    """Find an Instance symbol named *name* in the compilation."""
-    compilation = state.compilation
-    if compilation is None:
+def find_instance_node_by_type(state, module_type: str):
+    """Find the first HierarchyInstantiation node for module_type in state.tree."""
+    if state.tree is None:
         return None
+    sm = state.tree.sourceManager
+    result = []
 
-    candidates = []
-
-    def _collect(sym) -> bool:
-        try:
-            if sym.name == name and "Instance" in str(sym.kind) and "InstanceBody" not in str(sym.kind):
-                candidates.append(sym)
-        except Exception:
-            pass
+    def _visit(node) -> bool:
+        if result:
+            return False
+        if str(node.kind) == "SyntaxKind.HierarchyInstantiation":
+            try:
+                if str(node.type).strip() == module_type:
+                    result.append(node)
+            except Exception:
+                pass
         return True
 
     try:
-        compilation.getRoot().visit(_collect)
+        state.tree.root.visit(_visit)
     except Exception:
-        return None
+        pass
+    return result[0] if result else None
 
-    return candidates[0] if candidates else None
+
+def inst_line_range_node(text: str, node, sm) -> tuple[int, int]:
+    """Return 0-based (line_start, line_end) for a HierarchyInstantiation syntax node."""
+    try:
+        line_start = max(sm.getLineNumber(node.getFirstToken().location) - 1, 0)
+    except Exception:
+        line_start = 0
+
+    lines = text.splitlines()
+    line_end = line_start
+    for i in range(line_start, len(lines)):
+        if ";" in lines[i]:
+            line_end = i
+            break
+    else:
+        line_end = len(lines) - 1
+
+    return line_start, line_end
 
 
 def inst_line_range(text: str, sym, tree) -> tuple[int, int]:
-    """Return the 0-based (line_start, line_end) range of an instantiation.
+    """Return 0-based (line_start, line_end) range of an instantiation.
 
-    *line_start* is derived from ``sym.location``.  *line_end* is found by
-    scanning forward from that point to the first ``;``.
+    Kept for backward compatibility with inlay_hints.py and other callers that
+    pass a compiled symbol.  Delegates to _inst_line_range_from_sym if sym has
+    a .location attribute, otherwise falls back to a text scan.
     """
     sm = tree.sourceManager
     try:
@@ -141,62 +142,59 @@ def inst_line_range(text: str, sym, tree) -> tuple[int, int]:
     return line_start, line_end
 
 
-def autoinst(state, line: int, col: int) -> Optional[dict]:
-    """Return auto-instantiation data for the Instance symbol at *(line, col)*.
+def autoinst(state, line: int, col: int, syntax_index=None) -> Optional[dict]:
+    """Return auto-instantiation data for the HierarchyInstantiation at (line, col).
 
+    Uses SyntaxTree for location and SyntaxIndex for port list.
     Returns a dict with keys ``module_name``, ``instance_name``, ``ports``,
-    ``line_start``, and ``line_end``, or ``None`` when no Instance symbol is
-    found at the given position.
+    ``line_start``, and ``line_end``, or ``None`` when no instance is found.
     """
-    if state is None or state.compilation is None:
+    if state is None or state.tree is None:
         return None
 
-    # Find the Instance symbol on the cursor line (works regardless of
-    # whether the cursor is on the module type or the instance name).
-    sym = find_instance_at_line(state, line)
-    if sym is None:
-        # Fallback: search by word under cursor (instance name only)
-        word, _ = _word_at(state.text, line, col)
-        if word:
-            sym = find_instance_symbol(state, word)
-    if sym is None:
+    inst_node = find_instance_at_line(state, line)
+    if inst_node is None:
         return None
 
-    # Navigate to the InstanceBody to enumerate ports.
+    sm = state.tree.sourceManager
+    module_type = str(inst_node.type).strip()
+
+    # Get instance name from first HierarchicalInstance child
+    inst_name = module_type
     try:
-        body = sym.body
-    except Exception:
-        return None
-
-    ports: list[dict] = []
-    try:
-        for port in body.portList:
-            try:
-                ports.append({"name": port.name})
-            except Exception:
-                continue
+        for inst in inst_node.instances:
+            inst_name = str(inst.decl.name).strip()
+            break
     except Exception:
         pass
+
+    # Look up ports from SyntaxIndex
+    ports: list[dict] = []
+    if syntax_index is not None:
+        module_entry = syntax_index.get_module(module_type)
+        if module_entry is not None:
+            ports = [{"name": p.name} for p in module_entry.ports]
+        else:
+            return {"error": f"Module '{module_type}' not found in project files"}
+    else:
+        return {"error": f"Module '{module_type}' not found in project files"}
 
     if not ports:
         return None
 
-    # Determine the line range of the existing instantiation statement.
-    line_start, line_end = inst_line_range(state.text, sym, state.tree)
+    line_start, line_end = inst_line_range_node(state.text, inst_node, sm)
 
     # Validate: cursor must lie within [line_start, line_end].
-    # Bare/malformed instances (e.g. `inv;`) can have a wrong sym.location,
-    # producing a range that doesn't include the cursor.
     if not (line_start <= line <= line_end):
         logger.warning(
-            "autoinst: sym.location unreliable for '%s' (range %d-%d, cursor %d) — malformed instance?",
-            sym.name, line_start, line_end, line,
+            "autoinst: node range %d-%d doesn't include cursor %d for '%s'",
+            line_start, line_end, line, module_type,
         )
-        return {"error": f"AutoInst: cannot determine range for '{sym.name}' — instance may be malformed"}
+        return {"error": f"AutoInst: cannot determine range for '{module_type}'"}
 
     return {
-        "module_name": body.name,
-        "instance_name": sym.name,
+        "module_name": module_type,
+        "instance_name": inst_name,
         "ports": ports,
         "line_start": line_start,
         "line_end": line_end,

@@ -286,9 +286,37 @@ def _load_filelist_from_toml(path: Path) -> tuple[list[Path], list[str], str | N
     return paths, defines, None
 
 
+from dataclasses import dataclass as _dataclass
+
+
+@_dataclass
+class PerfOptions:
+    background_compilation: bool = False
+    nice_value: int = 10
+    log_timing: bool = False
+
+
+def _load_perf_options_from_toml(path: Path) -> PerfOptions:
+    """Parse *path* and return :class:`PerfOptions` from ``[perf]``."""
+    if tomllib is None:
+        return PerfOptions()
+    with path.open("rb") as fh:
+        data = tomllib.load(fh)
+    cfg = data.get("perf", {})
+    return PerfOptions(
+        background_compilation=bool(cfg.get("background_compilation", False)),
+        nice_value=int(cfg.get("nice_value", 10)),
+        log_timing=bool(cfg.get("log_timing", False)),
+    )
+
+
+# Default perf options
+_perf_options = PerfOptions()
+
+
 def _reload_config(start: Path, ls: LanguageServer | None = None) -> None:
     """Search for a config file starting at *start* and update ``_fmt_options``."""
-    global _fmt_options, _toml_fmt_options, _autowire_options, _autofunc_options, _autoarg_options, _autoinst_options, _lint_config
+    global _fmt_options, _toml_fmt_options, _autowire_options, _autofunc_options, _autoarg_options, _autoinst_options, _lint_config, _perf_options
     path = _find_config_toml(start)
     if path is not None:
         try:
@@ -324,6 +352,12 @@ def _reload_config(start: Path, ls: LanguageServer | None = None) -> None:
             _lint_config = _load_lint_config_from_toml(path)
         except Exception as exc:
             logger.warning("Failed to load lint config from %s: %s", path, exc)
+        try:
+            _perf_options = _load_perf_options_from_toml(path)
+            import lazyverilogpy.analyzer as _analyzer_mod
+            _analyzer_mod._log_timing = _perf_options.log_timing
+        except Exception as exc:
+            logger.warning("Failed to load perf options from %s: %s", path, exc)
     else:
         logger.debug("No %s found above %s; using current options.", CONFIG_FILENAME, start)
 
@@ -672,9 +706,9 @@ def execute_autoinst(
         uri, line, character = str(args[0]), int(args[1]), int(args[2])
         analyzer.refresh_if_stale(uri)
         state = analyzer.get_state(uri)
-        if state is None or state.compilation is None:
+        if state is None or state.tree is None:
             return None
-        result = autoinst_impl(state, line, character)
+        result = autoinst_impl(state, line, character, syntax_index=analyzer.get_syntax_index())
         if result is None:
             return None
         if "error" in result:
@@ -1354,8 +1388,8 @@ def code_action(
 
         # Phase 1: autoinst (cursor on module instance)
         # Embed edit directly — Neovim does not apply WorkspaceEdit returned by commands.
-        if state.compilation is not None:
-            if autoinst_impl(state, line, character) is not None:
+        if state.tree is not None:
+            if autoinst_impl(state, line, character, syntax_index=analyzer.get_syntax_index()) is not None:
                 we = execute_autoinst(ls, uri, line, character)
                 if we is not None:
                     actions.append(types.CodeAction(
@@ -1484,56 +1518,58 @@ def code_action(
 
 
 def _publish_diagnostics(ls: LanguageServer, uri: str) -> None:
-    analyzer.ensure_compilation(uri)
+    """Publish immediate syntax diagnostics from SyntaxTree, plus lint rules.
+
+    Semantic (compilation) diagnostics are only published when
+    background_compilation=True in [perf] config.
+    """
     state = analyzer.get_state(uri)
-    if state is None or state.compilation is None:
+    if state is None or state.tree is None:
         ls.text_document_publish_diagnostics(
             types.PublishDiagnosticsParams(uri=uri, diagnostics=[])
         )
         return
 
     diags: list[types.Diagnostic] = []
+
+    # Syntax diagnostics from SyntaxTree (fast — no elaboration)
     try:
-        if state.tree is not None:
-            sm = state.tree.sourceManager
-            engine = pyslang.DiagnosticEngine(sm)
-            for d in state.compilation.getAllDiagnostics():
+        sm = state.tree.sourceManager
+        engine = pyslang.DiagnosticEngine(sm)
+        for d in state.tree.diagnostics:
+            try:
+                loc = d.location
                 try:
-                    loc = d.location
-                    # Only report diagnostics that originate from the current
-                    # document's in-memory buffer ("buffer.sv").  Diagnostics
-                    # from extra filelist files would otherwise bleed through.
-                    try:
-                        fname = sm.getFileName(loc)
-                    except UnicodeDecodeError:
-                        fname = "buffer.sv"  # non-UTF-8 path; assume current buffer
-                    if fname != "buffer.sv":
-                        continue
-
-                    message = engine.formatMessage(d)
-
-                    line = max(sm.getLineNumber(loc) - 1, 0)
-                    col = max(sm.getColumnNumber(loc) - 1, 0)
-                    severity = _map_severity(d.isError())
-                    diags.append(
-                        types.Diagnostic(
-                            range=types.Range(
-                                start=types.Position(line=line, character=col),
-                                end=types.Position(line=line, character=col + 1),
-                            ),
-                            message=message,
-                            severity=severity,
-                            source=SERVER_NAME,
-                        )
-                    )
-                except Exception as exc:
-                    logger.debug("diagnostics process error: %s", exc)
+                    fname = sm.getFileName(loc)
+                except UnicodeDecodeError:
+                    fname = "buffer.sv"
+                if fname != "buffer.sv":
                     continue
-        else:
-            logger.error("fatal error, AST is None.")
+                try:
+                    message = engine.formatMessage(d)
+                except Exception:
+                    message = "syntax error"
+                line = max(sm.getLineNumber(loc) - 1, 0)
+                col = max(sm.getColumnNumber(loc) - 1, 0)
+                severity = types.DiagnosticSeverity.Error if d.isError() else types.DiagnosticSeverity.Warning
+                diags.append(
+                    types.Diagnostic(
+                        range=types.Range(
+                            start=types.Position(line=line, character=col),
+                            end=types.Position(line=line, character=col + 1),
+                        ),
+                        message=message,
+                        severity=severity,
+                        source=SERVER_NAME,
+                    )
+                )
+            except Exception as exc:
+                logger.debug("syntax diagnostics process error: %s", exc)
+                continue
     except Exception as exc:
-        logger.debug("diagnostics collection error: %s", exc)
+        logger.debug("syntax diagnostics collection error: %s", exc)
 
+    # Lint rules (text-based, no compilation needed)
     try:
         lint_diags = run_lint(state, _lint_config)
         diags.extend(lint_diags)
@@ -1543,6 +1579,111 @@ def _publish_diagnostics(ls: LanguageServer, uri: str) -> None:
     ls.text_document_publish_diagnostics(
         types.PublishDiagnosticsParams(uri=uri, diagnostics=diags)
     )
+
+    # Cache syntax+lint diags so background semantic results can be merged on top.
+    _syntax_lint_diags[uri] = diags
+
+    # Schedule semantic (compilation) diagnostics in background subprocess
+    # only when background_compilation is enabled in [perf] config.
+    if _perf_options.background_compilation:
+        _schedule_semantic_diagnostics(ls, uri)
+
+
+import multiprocessing
+import os
+import threading
+
+_pending_compilations: dict[str, multiprocessing.Process] = {}
+# Cache of syntax+lint diagnostics per URI, so semantic results can be merged on top.
+_syntax_lint_diags: dict[str, list] = {}
+
+
+def _compilation_worker(uri, file_paths, buffer_text, defines, nice_value, result_queue):
+    """Runs in separate process — full elaboration without blocking the LSP loop."""
+    try:
+        os.nice(nice_value)
+    except Exception:
+        pass
+    import pyslang as _pyslang
+    try:
+        tree = _pyslang.SyntaxTree.fromText(buffer_text, "buffer.sv")
+        compilation = _pyslang.Compilation()
+        compilation.addSyntaxTree(tree)
+        for p in file_paths:
+            try:
+                compilation.addSyntaxTree(_pyslang.SyntaxTree.fromFile(str(p)))
+            except Exception:
+                pass
+        diags = []
+        sm = tree.sourceManager
+        engine = _pyslang.DiagnosticEngine(sm)
+        for d in compilation.getAllDiagnostics():
+            try:
+                loc = d.location
+                try:
+                    fname = sm.getFileName(loc)
+                except UnicodeDecodeError:
+                    fname = "buffer.sv"
+                if fname != "buffer.sv":
+                    continue
+                msg = engine.formatMessage(d)
+                line = max(sm.getLineNumber(loc) - 1, 0)
+                col = max(sm.getColumnNumber(loc) - 1, 0)
+                sev = "error" if d.isError() else "warning"
+                diags.append((line, col, sev, msg))
+            except Exception:
+                continue
+        result_queue.put({"uri": uri, "diags": diags})
+    except Exception as e:
+        result_queue.put({"uri": uri, "diags": [], "error": str(e)})
+
+
+def _schedule_semantic_diagnostics(ls: LanguageServer, uri: str) -> None:
+    """Spawn subprocess for semantic diagnostics (background, non-blocking)."""
+    state = analyzer.get_state(uri)
+    if state is None:
+        return
+    # Cancel previous subprocess for this URI if still running
+    prev = _pending_compilations.pop(uri, None)
+    if prev and prev.is_alive():
+        prev.terminate()
+
+    q: multiprocessing.Queue = multiprocessing.Queue()
+    proc = multiprocessing.Process(
+        target=_compilation_worker,
+        args=(uri, analyzer.get_extra_file_paths(), state.text,
+              analyzer.get_defines(), _perf_options.nice_value, q),
+        daemon=True,
+    )
+    _pending_compilations[uri] = proc
+    proc.start()
+
+    def _wait_result():
+        try:
+            result = q.get(timeout=120)
+            diags_data = result.get("diags", [])
+            sem_diags = [
+                types.Diagnostic(
+                    range=types.Range(
+                        start=types.Position(line=ln, character=col),
+                        end=types.Position(line=ln, character=col + 1),
+                    ),
+                    message=msg,
+                    severity=_map_severity(sev == "error"),
+                    source=SERVER_NAME + " (semantic)",
+                )
+                for ln, col, sev, msg in diags_data
+            ]
+            # Merge syntax+lint diags with semantic diags so neither is lost.
+            base = _syntax_lint_diags.get(uri, [])
+            ls.text_document_publish_diagnostics(
+                types.PublishDiagnosticsParams(uri=uri, diagnostics=base + sem_diags)
+            )
+        except Exception:
+            pass
+
+    t = threading.Thread(target=_wait_result, daemon=True)
+    t.start()
 
 
 LINT_COMMAND = "lazyverilogpy.lint"

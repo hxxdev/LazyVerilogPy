@@ -19,15 +19,17 @@ def provide_inlay_hints(
 ) -> Optional[list[types.InlayHint]]:
     uri = params.text_document.uri
     state = analyzer.get_compiled_state(uri)
-    if state is None or state.compilation is None or state.tree is None:
+    if state is None or state.tree is None:
         return None
+
+    syntax_index = analyzer.get_syntax_index()
 
     range_start = params.range.start.line
     range_end = params.range.end.line
 
-    # Cache by (compilation identity, visible range) — cursor moves that don't
-    # change the visible range or trigger a recompile return instantly.
-    cache_key = (id(state.compilation), range_start, range_end)
+    # Cache by (tree identity, visible range) — cursor moves that don't
+    # change the visible range return instantly.
+    cache_key = (id(state.tree), range_start, range_end)
     cached = state._inlay_cache.get(cache_key)
     if cached is not None:
         return cached if cached else None
@@ -37,59 +39,42 @@ def provide_inlay_hints(
     sm = tree.sourceManager
     hints: list[types.InlayHint] = []
 
-    from lazyverilogpy.autoinst import find_instance_at_line, inst_line_range
+    from lazyverilogpy.autoinst import inst_line_range_node
 
-    seen: set[str] = set()
+    seen_nodes: set[int] = set()
 
     def _visit(node) -> bool:
         try:
-            if str(node.kind) != "SyntaxKind.HierarchicalInstance":
+            if str(node.kind) != "SyntaxKind.HierarchyInstantiation":
                 return True
-            inst_line = max(sm.getLineNumber(node.sourceRange.start) - 1, 0)
         except Exception:
             return True
 
-        try:
-            sym = find_instance_at_line(state, inst_line)
-        except Exception:
+        node_id = id(node)
+        if node_id in seen_nodes:
             return True
-        if sym is None:
-            return True
+        seen_nodes.add(node_id)
 
         try:
-            sym_key = str(sym.hierarchicalPath)
+            module_type = str(node.type).strip()
         except Exception:
             return True
-        if sym_key in seen:
-            return True
-        seen.add(sym_key)
 
-        # Collect port metadata from module definition
-        port_info: dict[str, tuple[str, str]] = {}  # name → (dir_str, type_str)
-        try:
-            body = sym.body
-            for port in body.portList:
-                try:
-                    name = str(port.name)
-                    direction = str(port.direction).split(".")[-1].lower()
-                    dir_str = _DIR_MAP.get(direction, direction)
-                    try:
-                        type_str = str(port.type).strip()
-                        if type_str.startswith("<") or type_str in ("None", "void", ""):
-                            type_str = ""
-                    except Exception:
-                        type_str = ""
-                    port_info[name] = (dir_str, type_str)
-                except Exception:
-                    continue
-        except Exception:
+        module_entry = syntax_index.get_module(module_type)
+        if module_entry is None:
             return True
+
+        # Build port_info dict: name → (dir_str, type_str)
+        port_info: dict[str, tuple[str, str]] = {}
+        for p in module_entry.ports:
+            dir_str = p.direction if p.direction != "unknown" else ""
+            port_info[p.name] = (dir_str, p.type_text)
 
         if not port_info:
             return True
 
         try:
-            inst_start, inst_end = inst_line_range(state.text, sym, tree)
+            inst_start, inst_end = inst_line_range_node(state.text, node, sm)
         except Exception:
             return True
 

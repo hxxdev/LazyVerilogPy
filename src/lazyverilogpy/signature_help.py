@@ -21,7 +21,9 @@ def provide_signature_help(
     character = params.position.character
 
     state = analyzer.get_compiled_state(uri)
-    if state is None or state.compilation is None:
+    if state is None or state.tree is None:
+        return None
+    if state.compilation is None:
         return None
 
     lines = state.text.splitlines()
