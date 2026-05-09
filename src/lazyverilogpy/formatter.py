@@ -264,15 +264,17 @@ class InstanceOptions:
     """Indent levels added for each port line inside an instance block."""
 
     instance_port_name_width: int = 1
-    """Minimum width for port name (between '.' and '(' in named connections)."""
+    """Total field width from '.' to '(' (port name + gap).  The gap after the
+    longest port name in an instance = max(1, instance_port_name_width - max_port)."""
 
     instance_port_between_paren_width: int = 0
-    """Minimum spacing between '(' and ')' (signal name column width)."""
+    """Total field width from '(' to ')' (signal name + trailing gap).  The trailing
+    gap after the longest signal = max(0, instance_port_between_paren_width - max_sig)."""
 
     align_instance_port_adaptive: bool = False
-    """If True, lines where port name exceeds instance_port_name_width get '(' placed
-    immediately after port name (not at fixed column). Same adaptive logic applies to
-    instance_port_between_paren_width for signal names."""
+    """If True, per-line gap = max(1, instance_port_name_width - len(port)) and
+    trailing gap = max(0, instance_port_between_paren_width - len(sig)) instead of
+    aligning all ports in the instance to a common column."""
 
 
 class SafeModeError(ValueError):
@@ -1923,12 +1925,14 @@ def _align_instance_ports_pass(text: str, opts: "FormatOptions") -> str:
         max_sig  = max(len(s) for _, s in ports)
 
         # Compute fixed alignment widths (non-adaptive defaults).
-        # In fixed mode: all ports align to max(m_before, ...) column.
-        # In adaptive mode: per-line decision based on individual port/sig length.
+        # m_before = total field width from '.' to '(' (port name + gap).
+        # m_inside = total field width from '(' to ')' (signal + trailing gap).
+        # In fixed mode all ports in an instance align their '(' and ')' columns.
         if not adaptive:
-            # Fixed mode: snap if tab_align requested.
-            eff_before = m_before
-            eff_inside = m_inside
+            # Gap after longest port name to reach the '(' column.
+            eff_before = max(1, m_before - max_port)
+            # Trailing gap after longest signal to reach the ')' column.
+            eff_inside = max(0, m_inside - max_sig)
             if opts.tab_align and opts.indent_size > 1:
                 def _snap(pos: int) -> int:
                     return math.ceil(pos / opts.indent_size) * opts.indent_size
@@ -1947,10 +1951,10 @@ def _align_instance_ports_pass(text: str, opts: "FormatOptions") -> str:
         for k, (port, sig) in enumerate(ports):
             comma = "" if k == len(ports) - 1 else ","
             if adaptive:
-                # Adaptive: if port name exceeds m_before, use 1 space; else pad to m_before.
-                spaces_before = 1 if len(port) >= m_before else (m_before - len(port))
-                # Adaptive: if signal exceeds m_inside, use 0 spaces inside; else pad.
-                spaces_inside = 0 if len(sig) >= m_inside and m_inside > 0 else m_inside
+                # Adaptive: gap after port name = max(1, m_before - len(port)).
+                spaces_before = max(1, m_before - len(port))
+                # Adaptive: trailing gap = max(0, m_inside - len(sig)).
+                spaces_inside = max(0, m_inside - len(sig))
                 pline = (
                     f"{indent}{port_indent}"
                     f".{port}"

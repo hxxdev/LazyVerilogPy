@@ -784,11 +784,15 @@ class TestAlignInstancePorts:
         assert FormatOptions().instance.align is False
 
     def test_spacing_options(self):
-        result = self._fmt(instance_port_spacing_before_paren=2,
-                           instance_port_spacing_inside_paren=1)
+        # Longest port "read_write" = 10 chars.
+        # instance_port_name_width=12 → eff_before = max(1, 12-10) = 2 spaces gap.
+        # instance_port_between_paren_width=11 → eff_inside = max(0, 11-10) = 1 trailing space
+        # (longest signal "read_write" = 10 chars).
+        result = self._fmt(instance_port_spacing_before_paren=12,
+                           instance_port_spacing_inside_paren=11)
         port_lines = [l for l in result.splitlines() if l.lstrip().startswith(".")]
-        # Each line: "  .port_name  (signal ),"
-        # Check 2 spaces before '(' and 1 space before ')' in each line
+        # All ports padded to max_port=10, then eff_before=2 spaces, then '('.
+        # Check exactly 2 spaces before '(' on every line.
         for l in port_lines:
             dot = l.index(".")
             p = l.index("(", dot)
