@@ -41,19 +41,12 @@ def provide_inlay_hints(
 
     from lazyverilogpy.autoinst import inst_line_range_node
 
-    seen_nodes: set[int] = set()
-
     def _visit(node) -> bool:
         try:
             if str(node.kind) != "SyntaxKind.HierarchyInstantiation":
                 return True
         except Exception:
             return True
-
-        node_id = id(node)
-        if node_id in seen_nodes:
-            return True
-        seen_nodes.add(node_id)
 
         try:
             module_type = str(node.type).strip()
@@ -127,17 +120,26 @@ def provide_inlay_hints(
         # Compute column widths for alignment across all ports in this instance
         max_dir = max(len(d) for _, _, d, _ in candidates)
         max_type = max(len(t) for _, _, _, t in candidates)
+        max_col = max(col for _, col, _, _ in candidates)
 
-        for ln, col, dir_str, type_str in candidates:
+        # First pass: build labels
+        labeled: list[tuple[int, str]] = []
+        for ln, _col, dir_str, type_str in candidates:
             parts = [dir_str.ljust(max_dir)]
             if max_type > 0:
                 parts.append(type_str.ljust(max_type))
             label = " ".join(p for p in parts if p.strip())
+            labeled.append((ln, label))
+
+        # Pad all labels to the same width so signal names align after hints
+        max_label = max((len(lbl) for _, lbl in labeled if lbl.strip()), default=0)
+
+        for ln, label in labeled:
             if not label.strip():
                 continue
             hints.append(types.InlayHint(
-                position=types.Position(line=ln, character=col),
-                label=label,
+                position=types.Position(line=ln, character=max_col),
+                label=label.ljust(max_label),
                 kind=types.InlayHintKind.Type,
                 padding_left=False,
                 padding_right=True,
