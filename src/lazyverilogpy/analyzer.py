@@ -910,10 +910,21 @@ class Analyzer:
         # 1. Check SyntaxIndex for module declaration (cross-file)
         mod_entry = self._syntax_index.modules.get(name)
         if mod_entry:
+            doc = ""
+            if mod_entry.ports:
+                max_dir = max(len(p.direction) for p in mod_entry.ports)
+                max_type = max(len(p.type_text) for p in mod_entry.ports)
+                lines = [f"module {name}"]
+                for p in mod_entry.ports:
+                    lines.append(
+                        f"  {p.direction.ljust(max_dir)}  {p.type_text.ljust(max_type)}  {p.name}"
+                    )
+                doc = "```systemverilog\n" + "\n".join(lines) + "\n```"
             return SymbolInfo(
                 name=name,
                 kind="module",
                 type_str="module",
+                doc=doc,
                 definition_range=SourceRange(
                     start=SourcePos(line=mod_entry.decl_line, character=0),
                     end=SourcePos(line=mod_entry.decl_line, character=len(name)),
@@ -1001,6 +1012,7 @@ class Analyzer:
                 ident_tok = None
                 kind_label = "variable"
                 type_str = ""
+                doc = ""
 
                 if nk == "SyntaxKind.Declarator":
                     ident_tok = node.name
@@ -1020,6 +1032,13 @@ class Analyzer:
                         ident_tok = node.prototype.name
                     except Exception:
                         return True
+                    try:
+                        ret = str(node.prototype.returnType).strip()
+                        ports = str(node.prototype.portList).strip()
+                        sig = f"function {ret} {name}{ports}"
+                        doc = f"```systemverilog\n{sig}\n```"
+                    except Exception:
+                        doc = ""
                 elif nk == "SyntaxKind.TaskDeclaration":
                     kind_label = "task"
                     type_str = "task"
@@ -1027,6 +1046,12 @@ class Analyzer:
                         ident_tok = node.prototype.name
                     except Exception:
                         return True
+                    try:
+                        ports = str(node.prototype.portList).strip()
+                        sig = f"task {name}{ports}"
+                        doc = f"```systemverilog\n{sig}\n```"
+                    except Exception:
+                        doc = ""
                 elif nk == "SyntaxKind.TypedefDeclaration":
                     kind_label = "typedef"
                     type_str = "typedef"
@@ -1062,6 +1087,7 @@ class Analyzer:
                     name=name,
                     kind=kind_label,
                     type_str=type_str,
+                    doc=doc,
                     definition_range=SourceRange(
                         start=SourcePos(line=ln, character=col),
                         end=SourcePos(line=ln, character=col + len(name)),
