@@ -345,13 +345,18 @@ class Analyzer:
                 po.predefines = list(self._defines)
                 bag = pyslang.Bag()
                 bag.preprocessorOptions = po
+            sm = pyslang.SourceManager()
+            # Add buffer's directory so `include directives resolve correctly.
+            try:
+                sm.addUserDirectories(str(self._uri_to_path(state.uri).parent))
+            except Exception:
+                pass
             if bag is not None:
-                sm = pyslang.SourceManager()
                 state.tree = pyslang.SyntaxTree.fromText(
                     state.text, sm, "buffer.sv", options=bag
                 )
             else:
-                state.tree = pyslang.SyntaxTree.fromText(state.text, "buffer.sv")
+                state.tree = pyslang.SyntaxTree.fromText(state.text, sm, "buffer.sv")
             state.tree_filename = "buffer.sv"
         except Exception:
             state.tree = None

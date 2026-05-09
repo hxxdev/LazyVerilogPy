@@ -1,16 +1,14 @@
-module memory(
-    address,
-    data_in,
-    data_out,
-    read_write,
-    chip_en,
-    www333, www333,
-    zzfuk, zzfuk
+module memory #(parameter int WIDTH = 4, parameter int DEPTH = 8) (
+    i_clk, address, data_in,
+    data_out, read_write, chip_en,
+    www333, zzfuk
 );
 `include "params.svh"
+
+localparam MEM_SIZE = 8;
 input                                           i_clk                                   ;
 input   wire                [7:0]               address                                 ;
-input                       [7:0]               data_in                                 ;
+input                       [MEM_SIZE-1:0]      data_in                                 ;
 output  logic               [7:0]               data_out                                ;
 input   wire                                    read_write                              , chip_en                                 ;
 output  fifo_entry_t        [3:0]               www333                                  ;
