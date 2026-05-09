@@ -201,9 +201,9 @@ local function start_lsp(cfg, cmd)
             },
         },
         handlers     = {
-            ["textDocument/hover"] = vim.lsp.with(vim.lsp.handlers.hover, {
-                border = "rounded",
-            }),
+            ["textDocument/hover"] = vim.lsp.with(
+                vim.lsp.handlers["textDocument/hover"], { border = "rounded" }
+            ),
             ["window/showMessage"] = function(_, result, ctx, _)
                 local client = vim.lsp.get_client_by_id(ctx.client_id)
                 local name = client and client.name or "lazyverilogpy"
