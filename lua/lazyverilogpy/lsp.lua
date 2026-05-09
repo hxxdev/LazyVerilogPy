@@ -168,6 +168,15 @@ local function _default_on_attach(client, bufnr)
     end
 end
 
+-- White border highlight (defined once; safe to call multiple times)
+vim.api.nvim_set_hl(0, "LvpyFloatBorder", { fg = "#ffffff" })
+
+local _BORDER = {
+    { "╭", "LvpyFloatBorder" }, { "─", "LvpyFloatBorder" }, { "╮", "LvpyFloatBorder" },
+    { "│", "LvpyFloatBorder" }, { "╯", "LvpyFloatBorder" }, { "─", "LvpyFloatBorder" },
+    { "╰", "LvpyFloatBorder" }, { "│", "LvpyFloatBorder" },
+}
+
 local function start_lsp(cfg, cmd)
     local ok, err = validate_cmd(cmd)
     if not ok then
@@ -202,7 +211,7 @@ local function start_lsp(cfg, cmd)
         },
         handlers     = {
             ["textDocument/hover"] = vim.lsp.with(
-                vim.lsp.handlers["textDocument/hover"], { border = "rounded" }
+                vim.lsp.handlers["textDocument/hover"], { border = _BORDER }
             ),
             ["window/showMessage"] = function(_, result, ctx, _)
                 local client = vim.lsp.get_client_by_id(ctx.client_id)
