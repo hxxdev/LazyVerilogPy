@@ -1433,25 +1433,17 @@ class Analyzer:
                 }
                 for p in entry.ports
             ]
-            insts = [
-                {
-                    "inst_name": i.inst_name,
-                    "hierarchical_path": i.inst_name,  # flat name; no elaboration
-                    "file_uri": i.file_uri,
-                }
-                for i in idx.get_instances(entry.file_uri)
-                if i.module_type == mname
-            ]
-            # Also add instances of other modules inside this module's file
-            all_insts = [
-                {
-                    "inst_name": i.inst_name,
-                    "hierarchical_path": i.inst_name,
-                    "file_uri": i.file_uri,
-                }
-                for i in idx.get_instances(entry.file_uri)
-            ]
-            modules[mname] = {"ports": ports, "instances": all_insts}
+            # Collect instances of this module type across ALL files in the index.
+            insts = []
+            for file_insts in idx.instances_by_file.values():
+                for i in file_insts:
+                    if i.module_type == mname:
+                        insts.append({
+                            "inst_name": i.inst_name,
+                            "hierarchical_path": i.inst_name,
+                            "file_uri": i.file_uri,
+                        })
+            modules[mname] = {"ports": ports, "instances": insts}
 
         return {"modules": modules}
 

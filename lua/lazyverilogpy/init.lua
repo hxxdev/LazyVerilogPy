@@ -132,7 +132,7 @@ function M.setup(user_config)
             return
         end
         M.connect(args[1], args[2])
-    end, { nargs = "+" })
+    end, { nargs = "*" })
 
     -- Register server→client notification for partial renames.
     vim.lsp.handlers["lazyverilogpy/renameUnresolved"] = function(err, result, _ctx, _config)
