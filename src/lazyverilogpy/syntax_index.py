@@ -117,18 +117,75 @@ def _extract_ports(module_node, sm) -> list:
         except Exception:
             pass
     else:
-        # Non-ANSI: extract names only from port list tokens
+        # Non-ANSI: extract names from port list tokens, then fill directions from body
+        port_map: dict[str, PortEntry] = {}
         def _nonansi_visitor(node) -> bool:
             if str(node.kind) == "TokenKind.Identifier":
                 try:
                     nm = str(node).strip()
-                    if nm:
-                        ports.append(PortEntry(name=nm, direction="unknown", type_text=""))
+                    if nm and nm not in port_map:
+                        entry = PortEntry(name=nm, direction="unknown", type_text="")
+                        port_map[nm] = entry
+                        ports.append(entry)
                 except Exception:
                     pass
             return True
         try:
             ports_node.visit(_nonansi_visitor)
+        except Exception:
+            pass
+
+        # Second pass: walk module body for PortDeclaration to get directions
+        _DIRECTION_KINDS = {
+            "TokenKind.InputKeyword": "input",
+            "TokenKind.OutputKeyword": "output",
+            "TokenKind.InOutKeyword": "inout",
+        }
+        def _port_decl_visitor(node) -> bool:
+            if str(node.kind) != "SyntaxKind.PortDeclaration":
+                return True
+            # Extract direction from header token
+            direction = "unknown"
+            type_text = ""
+            try:
+                header = node.header
+                # Walk header tokens for direction keyword
+                def _find_dir(tok) -> bool:
+                    nonlocal direction
+                    tk = str(tok.kind)
+                    if tk in _DIRECTION_KINDS:
+                        direction = _DIRECTION_KINDS[tk]
+                    return True
+                try:
+                    header.visit(_find_dir)
+                except Exception:
+                    pass
+                try:
+                    type_text = str(header.dataType).strip()
+                except Exception:
+                    pass
+            except Exception:
+                pass
+            # Extract port names from declarators
+            def _find_names(n) -> bool:
+                nk = str(n.kind)
+                if nk == "SyntaxKind.Declarator":
+                    try:
+                        nm = str(n.name).strip()
+                        if nm and nm in port_map:
+                            port_map[nm].direction = direction
+                            if type_text:
+                                port_map[nm].type_text = type_text
+                    except Exception:
+                        pass
+                return True
+            try:
+                node.visit(_find_names)
+            except Exception:
+                pass
+            return True
+        try:
+            module_node.visit(_port_decl_visitor)
         except Exception:
             pass
 
