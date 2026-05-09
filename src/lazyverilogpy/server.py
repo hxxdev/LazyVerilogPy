@@ -1578,42 +1578,6 @@ def _publish_diagnostics(ls: LanguageServer, uri: str) -> None:
     except Exception as exc:
         logger.debug("lint diagnostics error: %s", exc)
 
-    # Semantic (compilation) diagnostics — reuse already-computed compilation.
-    try:
-        if state.compilation is not None and state.tree is not None:
-            sem_sm = state.tree.sourceManager
-            sem_engine = pyslang.DiagnosticEngine(sem_sm)
-            for d in state.compilation.getAllDiagnostics():
-                try:
-                    loc = d.location
-                    try:
-                        fname = sem_sm.getFileName(loc)
-                    except UnicodeDecodeError:
-                        fname = "buffer.sv"
-                    if fname != "buffer.sv":
-                        continue
-                    try:
-                        message = sem_engine.formatMessage(d)
-                    except Exception:
-                        message = "semantic error"
-                    line = max(sem_sm.getLineNumber(loc) - 1, 0)
-                    col = max(sem_sm.getColumnNumber(loc) - 1, 0)
-                    severity = types.DiagnosticSeverity.Error if d.isError() else types.DiagnosticSeverity.Warning
-                    diags.append(types.Diagnostic(
-                        range=types.Range(
-                            start=types.Position(line=line, character=col),
-                            end=types.Position(line=line, character=col + 1),
-                        ),
-                        message=message,
-                        severity=severity,
-                        source=SERVER_NAME,
-                    ))
-                except Exception as exc:
-                    logger.debug("semantic diagnostics process error: %s", exc)
-                    continue
-    except Exception as exc:
-        logger.debug("semantic diagnostics collection error: %s", exc)
-
     ls.text_document_publish_diagnostics(
         types.PublishDiagnosticsParams(uri=uri, diagnostics=diags)
     )
