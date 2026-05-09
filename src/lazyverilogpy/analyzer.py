@@ -173,6 +173,8 @@ class Analyzer:
         self._extra_trees: dict[str, "pyslang.SyntaxTree"] = {}  # URI → cached SyntaxTree for extra files (bag=None only)
         self._extra_syntax_index: SyntaxIndex = SyntaxIndex()  # built from extra files only, never rebuilt on keystroke
         self._syntax_index: SyntaxIndex = SyntaxIndex()
+        self._shared_compilation: Optional[pyslang.Compilation] = None
+        self._shared_compilation_dirty: bool = True
 
     @staticmethod
     def _uri_to_path(uri: str) -> Path:
@@ -191,8 +193,8 @@ class Analyzer:
             self._path_to_uri[self._uri_to_path(uri)] = uri
         except Exception:
             pass
-        self._parse(state)
-        self._rebuild_syntax_index()
+        self._parse_syntax(state)
+        self._shared_compilation_dirty = True
 
     def change(self, uri: str, change: types.TextDocumentContentChangeEvent) -> None:
         state = self._docs.get(uri)
@@ -207,6 +209,7 @@ class Analyzer:
         # ensure_compilation() when a semantic feature actually needs it.
         self._parse_syntax(state)
         state._compilation_dirty = True
+        self._shared_compilation_dirty = True
         # Mark other open documents dirty if the changed file is part of the
         # extra-files compilation so their next semantic request reflects the edit.
         try:
@@ -226,6 +229,7 @@ class Analyzer:
         except Exception:
             pass
         self._docs.pop(uri, None)
+        self._shared_compilation_dirty = True
 
     def get_state(self, uri: str) -> Optional[DocumentState]:
         return self._docs.get(uri)
@@ -267,6 +271,7 @@ class Analyzer:
                         pass
                 except Exception as exc:
                     logger.debug("set_extra_files: skip %s: %s", path, exc)
+        self._shared_compilation_dirty = True
         self._rebuild_extra_syntax_index()
 
     def get_extra_file_paths(self) -> list:
@@ -284,7 +289,9 @@ class Analyzer:
         """
         self._defines = list(defines)
         for state in self._docs.values():
-            self._parse(state)
+            self._parse_syntax(state)
+        self._rebuild_syntax_index()
+        self._shared_compilation_dirty = True
 
     def refresh_if_stale(self, uri: str) -> None:
         """Re-parse extra files into _extra_trees if any changed on disk.
@@ -493,14 +500,45 @@ class Analyzer:
             state._compilation_dirty = False  # don't retry broken state
         _t(f"_parse/compilation ({len(self._extra_files)} extra files)", t0, state.uri)
 
+    def _get_shared_compilation(self, uri: str) -> Optional[pyslang.Compilation]:
+        """Single shared Compilation for all open docs + extra files.
+        Built lazily; only used by Connect features (not interactive hot paths).
+        """
+        if not self._shared_compilation_dirty and self._shared_compilation is not None:
+            return self._shared_compilation
+        state = self._docs.get(uri)
+        if state is None or state.tree is None:
+            return None
+        buffer_path: Optional[Path] = None
+        try:
+            buffer_path = self._uri_to_path(uri)
+        except Exception:
+            pass
+        t0 = time.perf_counter()
+        comp = pyslang.Compilation()
+        comp.addSyntaxTree(state.tree)
+        for path in self._extra_files:
+            if buffer_path is not None and path == buffer_path:
+                continue
+            path_uri = str(path.as_uri())
+            tree = self._extra_trees.get(path_uri)
+            if tree is not None:
+                try:
+                    comp.addSyntaxTree(tree)
+                except Exception:
+                    pass
+        self._shared_compilation = comp
+        self._shared_compilation_dirty = False
+        _t(f"_get_shared_compilation ({len(self._extra_files)} extra files)", t0, uri)
+        return comp
+
     # ------------------------------------------------------------------
     # Symbol lookup
     # ------------------------------------------------------------------
 
     def symbol_at(self, uri: str, line: int, character: int) -> Optional[SymbolInfo]:
-        self.ensure_compilation(uri)
         state = self._docs.get(uri)
-        if state is None or state.compilation is None or state.tree is None:
+        if state is None or state.tree is None:
             return None
 
         word, word_range = self._word_at(state.text, line, character)
@@ -544,9 +582,8 @@ class Analyzer:
         include_declaration: bool = True,
     ) -> list[SourceRange]:
         self.refresh_if_stale(uri)
-        self.ensure_compilation(uri)
         state = self._docs.get(uri)
-        if state is None or state.compilation is None or state.tree is None:
+        if state is None or state.tree is None:
             return []
 
         target_info = self.symbol_at(uri, line, character)
@@ -838,141 +875,175 @@ class Analyzer:
         #     )
         return None
 
-    def _find_symbol(self, state: DocumentState, name: str, uri: str, cursor_line: int = -1) -> Optional[SymbolInfo]:
-        """Find a symbol named *name* by visiting the full compiled instance hierarchy.
-
-        Uses pyslang's ``visit()`` API for a depth-first walk that correctly
-        crosses file boundaries when extra files are loaded via the filelist.
-        When *cursor_line* is provided, Variable/Net candidates are narrowed to
-        those in the same module as the cursor (via ``sym.hierarchicalPath``).
-        """
-        compilation = state.compilation
+    def _find_symbol(self, state: "DocumentState", name: str, uri: str, cursor_line: int = -1) -> Optional[SymbolInfo]:
+        """SyntaxTree-based symbol search — no Compilation needed."""
         tree = state.tree
-        if compilation is None or tree is None:
+        if tree is None:
             return None
 
-        candidates: list = []
+        # 1. Check SyntaxIndex for module declaration (cross-file)
+        mod_entry = self._syntax_index.modules.get(name)
+        if mod_entry:
+            return SymbolInfo(
+                name=name,
+                kind="module",
+                type_str="module",
+                definition_range=SourceRange(
+                    start=SourcePos(line=mod_entry.decl_line, character=0),
+                    end=SourcePos(line=mod_entry.decl_line, character=len(name)),
+                    uri=mod_entry.file_uri,
+                ),
+            )
 
-        def _collect(sym) -> bool:
+        # 2. Walk buffer tree for local declarations
+        result = self._find_decl_in_tree(tree, name, state.text, uri, cursor_line)
+        if result is not None:
+            return result
+
+        # 4. Walk extra trees
+        for path_uri, extra_tree in self._extra_trees.items():
             try:
-                if sym.name == name:
-                    candidates.append(sym)
+                extra_text = self._get_file_text(path_uri) or ""
+                result = self._find_decl_in_tree(extra_tree, name, extra_text, path_uri, -1)
+                if result is not None:
+                    return result
             except Exception:
-                pass
-            return True  # continue visiting
+                continue
 
-        try:
-            compilation.getRoot().visit(_collect)
-        except Exception:
-            return None
-
-        if not candidates:
-            return None
-
-        # When cursor line is known, scope Variable/Net candidates to the
-        # module that contains the cursor.  This prevents cross-module leakage
-        # when two modules have identically-named local signals.
-        _MODULE_LOCAL_KINDS = {"SymbolKind.Variable", "SymbolKind.Net"}
-        if cursor_line >= 0:
-            cursor_module = self._module_at_line(state.text, cursor_line)
-            if cursor_module:
-                def _sym_module(sym) -> str:
-                    try:
-                        path = str(sym.hierarchicalPath)
-                        return path.split(".")[0]
-                    except Exception:
-                        return ""
-
-                local = [s for s in candidates if _sym_module(s) == cursor_module]
-                if local:
-                    candidates = local
-                else:
-                    # No candidates in the cursor's module.  Keep only non-local
-                    # kinds (typedefs, subroutines, packages) that are legitimately
-                    # cross-scope.  Suppress Variable/Net — they belong to a module
-                    # scope and finding one from a different module is misleading.
-                    cross_scope = [s for s in candidates if str(s.kind) not in _MODULE_LOCAL_KINDS]
-                    if cross_scope:
-                        candidates = cross_scope
-                    else:
-                        return None
-            else:
-                # Cursor is at file scope (not inside any module).
-                # Module-local/interface symbols (Variable, Net) cannot be the
-                # target.  If no non-local candidates exist, refuse to resolve.
-                non_local = [s for s in candidates if str(s.kind) not in _MODULE_LOCAL_KINDS]
-                if non_local:
-                    candidates = non_local
-                else:
-                    return None
-
-        best = min(candidates, key=lambda s: self._KIND_PRIORITY.get(str(s.kind), 50))
-        return self._build_info(best, tree, state.uri)
+        return None
 
     def _find_symbol_with_text(
         self,
-        state: DocumentState,
+        state: "DocumentState",
         name: str,
         file_uri: str,
         file_text: str,
         cursor_line: int = -1,
     ) -> Optional[SymbolInfo]:
-        """Like _find_symbol but uses file_text (not state.text) for _module_at_line.
-
-        Required for cross-file reference verification: state.text is the buffer file,
-        but the candidate token may be in an extra file with different content.
-        """
-        compilation = state.compilation
+        """Like _find_symbol but with explicit file_uri/file_text for cross-file use."""
         tree = state.tree
-        if compilation is None or tree is None:
+        if tree is None:
             return None
-
-        candidates: list = []
-
-        def _collect(sym) -> bool:
+        # Check SyntaxIndex first
+        mod_entry = self._syntax_index.modules.get(name)
+        if mod_entry:
+            return SymbolInfo(
+                name=name, kind="module", type_str="module",
+                definition_range=SourceRange(
+                    start=SourcePos(line=mod_entry.decl_line, character=0),
+                    end=SourcePos(line=mod_entry.decl_line, character=len(name)),
+                    uri=mod_entry.file_uri,
+                ),
+            )
+        # Walk extra trees for declaration
+        for path_uri, extra_tree in self._extra_trees.items():
             try:
-                if sym.name == name:
-                    candidates.append(sym)
+                et = self._get_file_text(path_uri) or ""
+                result = self._find_decl_in_tree(extra_tree, name, et, path_uri, -1)
+                if result is not None:
+                    return result
+            except Exception:
+                continue
+        return self._find_decl_in_tree(tree, name, file_text, file_uri, cursor_line)
+
+    def _find_decl_in_tree(
+        self,
+        tree,
+        name: str,
+        file_text: str,
+        file_uri: str,
+        cursor_line: int = -1,
+    ) -> Optional[SymbolInfo]:
+        """Walk a SyntaxTree to find a declaration of `name`. No Compilation needed."""
+        sm = tree.sourceManager
+        found: list[SymbolInfo] = []
+
+        _DECL_KINDS = {
+            "SyntaxKind.ImplicitAnsiPort",
+            "SyntaxKind.Declarator",
+            "SyntaxKind.FunctionDeclaration",
+            "SyntaxKind.TaskDeclaration",
+            "SyntaxKind.SubroutineDeclaration",
+        }
+
+        def _visit(node) -> bool:
+            nk = str(node.kind)
+            if nk not in _DECL_KINDS:
+                return True
+            try:
+                ident_tok = None
+                kind_label = "variable"
+                type_str = ""
+
+                if nk == "SyntaxKind.Declarator":
+                    ident_tok = node.name
+                elif nk == "SyntaxKind.ImplicitAnsiPort":
+                    ident_tok = node.declarator.name
+                    kind_label = "port"
+                    try:
+                        dir_str = str(node.header.direction).strip()
+                        dt = str(node.header.dataType).strip()
+                        type_str = f"{dir_str} {dt}".strip()
+                    except Exception:
+                        pass
+                elif nk in ("SyntaxKind.FunctionDeclaration", "SyntaxKind.SubroutineDeclaration"):
+                    kind_label = "function"
+                    type_str = "function"
+                    try:
+                        ident_tok = node.prototype.name
+                    except Exception:
+                        return True
+                elif nk == "SyntaxKind.TaskDeclaration":
+                    kind_label = "task"
+                    type_str = "task"
+                    try:
+                        ident_tok = node.prototype.name
+                    except Exception:
+                        return True
+
+                if ident_tok is None:
+                    return True
+                if str(ident_tok).strip() != name:
+                    return True
+
+                loc = ident_tok.location
+                ln = max(sm.getLineNumber(loc) - 1, 0)
+                col = max(sm.getColumnNumber(loc) - 1, 0)
+                found.append(SymbolInfo(
+                    name=name,
+                    kind=kind_label,
+                    type_str=type_str,
+                    definition_range=SourceRange(
+                        start=SourcePos(line=ln, character=col),
+                        end=SourcePos(line=ln, character=col + len(name)),
+                        uri=file_uri,
+                    ),
+                ))
             except Exception:
                 pass
             return True
 
         try:
-            compilation.getRoot().visit(_collect)
+            tree.root.visit(_visit)
         except Exception:
+            pass
+
+        if not found:
             return None
 
-        if not candidates:
-            return None
-
-        _MODULE_LOCAL_KINDS = {"SymbolKind.Variable", "SymbolKind.Net"}
-        if cursor_line >= 0:
+        # Prefer declarations in cursor's module scope
+        if cursor_line >= 0 and file_text:
             cursor_module = self._module_at_line(file_text, cursor_line)
             if cursor_module:
-                def _sym_module(sym) -> str:
-                    try:
-                        path = str(sym.hierarchicalPath)
-                        return path.split(".")[0]
-                    except Exception:
-                        return ""
+                in_scope = [
+                    s for s in found
+                    if s.definition_range and
+                    self._module_at_line(file_text, s.definition_range.start.line) == cursor_module
+                ]
+                if in_scope:
+                    return in_scope[0]
 
-                local = [s for s in candidates if _sym_module(s) == cursor_module]
-                if local:
-                    candidates = local
-                else:
-                    cross_scope = [s for s in candidates if str(s.kind) not in _MODULE_LOCAL_KINDS]
-                    if cross_scope:
-                        candidates = cross_scope
-                    else:
-                        return None
-            else:
-                # Cursor at file scope: suppress module-local symbols.
-                non_local = [s for s in candidates if str(s.kind) not in _MODULE_LOCAL_KINDS]
-                if non_local:
-                    candidates = non_local
-
-        best = min(candidates, key=lambda s: self._KIND_PRIORITY.get(str(s.kind), 50))
-        return self._build_info(best, tree, state.uri)
+        return found[0]
 
     @staticmethod
     def _module_at_line(text: str, line: int) -> str:
@@ -1601,13 +1672,18 @@ class Analyzer:
     ) -> "ConnectPlan | str":
         """Build ConnectPlan for cross-hierarchy port wiring. Returns error string on failure."""
         self.refresh_if_stale(uri)
+        comp = self._get_shared_compilation(uri)
         state = self._docs.get(uri)
-        if state is None or state.compilation is None or state.tree is None:
+        if state is None or state.tree is None or comp is None:
             return "no compilation state"
 
         sm = state.tree.sourceManager
 
+        # Temporarily assign shared compilation so _collect_inst_data can use it
+        _old_comp = state.compilation
+        state.compilation = comp
         inst_data, _ = self._collect_inst_data(state, uri, self._path_to_uri)
+        state.compilation = _old_comp
 
         if source_path not in inst_data:
             return f"instance '{source_path}' not found"
@@ -1627,7 +1703,7 @@ class Analyzer:
             return True
 
         try:
-            state.compilation.getRoot().visit(_collect_syms)
+            comp.getRoot().visit(_collect_syms)
         except Exception:
             return "failed to collect instance symbols"
 
@@ -1958,8 +2034,9 @@ class Analyzer:
         ``inst2_extra_ports``, or a dict with an ``error`` key on failure.
         """
         self.refresh_if_stale(uri)
+        comp = self._get_shared_compilation(uri)
         state = self._docs.get(uri)
-        if state is None or state.compilation is None or state.tree is None:
+        if state is None or state.tree is None or comp is None:
             return None
 
         # --- find Instance symbols for both names ---
@@ -1976,7 +2053,7 @@ class Analyzer:
             return True
 
         try:
-            state.compilation.getRoot().visit(_collect_inst)
+            comp.getRoot().visit(_collect_inst)
         except Exception:
             return None
 
@@ -2084,7 +2161,7 @@ class Analyzer:
             return True
 
         try:
-            state.compilation.getRoot().visit(_collect_sigs)
+            comp.getRoot().visit(_collect_sigs)
         except Exception:
             pass
 
@@ -2130,8 +2207,9 @@ class Analyzer:
         multiple) other instances in the same parent module that share the wire.
         """
         self.refresh_if_stale(uri)
+        comp = self._get_shared_compilation(uri)
         state = self._docs.get(uri)
-        if state is None or state.compilation is None or state.tree is None:
+        if state is None or state.tree is None or comp is None:
             return None
 
         sm = state.tree.sourceManager
@@ -2149,7 +2227,7 @@ class Analyzer:
             return True
 
         try:
-            state.compilation.getRoot().visit(_collect_target)
+            comp.getRoot().visit(_collect_target)
         except Exception:
             return None
 
@@ -2224,7 +2302,7 @@ class Analyzer:
             return True
 
         try:
-            state.compilation.getRoot().visit(_collect_others)
+            comp.getRoot().visit(_collect_others)
         except Exception:
             pass
 
@@ -2264,7 +2342,7 @@ class Analyzer:
             return True
 
         try:
-            state.compilation.getRoot().visit(_collect_sigs)
+            comp.getRoot().visit(_collect_sigs)
         except Exception:
             pass
 
@@ -2314,7 +2392,7 @@ class Analyzer:
     # Interface helpers
     # ------------------------------------------------------------------
 
-    def _find_two_instances(self, state, inst1_name: str, inst2_name: str):
+    def _find_two_instances(self, state, inst1_name: str, inst2_name: str, comp=None):
         """Return (sym1, sym2) for two named instances, or (None, None)."""
         found: dict[str, list] = {inst1_name: [], inst2_name: []}
 
@@ -2327,8 +2405,9 @@ class Analyzer:
                 pass
             return True
 
+        _comp = comp if comp is not None else state.compilation
         try:
-            state.compilation.getRoot().visit(_collect)
+            _comp.getRoot().visit(_collect)
         except Exception:
             return None, None
 
@@ -2388,11 +2467,12 @@ class Analyzer:
     ) -> list[types.TextEdit]:
         """Wire two instance ports together; declare the wire using autowire format."""
         self.refresh_if_stale(uri)
+        comp = self._get_shared_compilation(uri)
         state = self._docs.get(uri)
-        if state is None or state.compilation is None or state.tree is None:
+        if state is None or state.tree is None or comp is None:
             return []
 
-        sym1, sym2 = self._find_two_instances(state, inst1_name, inst2_name)
+        sym1, sym2 = self._find_two_instances(state, inst1_name, inst2_name, comp=comp)
         if sym1 is None or sym2 is None:
             return []
 
@@ -2459,11 +2539,12 @@ class Analyzer:
     ) -> list[types.TextEdit]:
         """Clear port connections and remove the wire declaration for *signal_name*."""
         self.refresh_if_stale(uri)
+        comp = self._get_shared_compilation(uri)
         state = self._docs.get(uri)
-        if state is None or state.compilation is None or state.tree is None:
+        if state is None or state.tree is None or comp is None:
             return []
 
-        sym1, sym2 = self._find_two_instances(state, inst1_name, inst2_name)
+        sym1, sym2 = self._find_two_instances(state, inst1_name, inst2_name, comp=comp)
         if sym1 is None or sym2 is None:
             return []
 

@@ -1084,6 +1084,19 @@ def run_lint(state: "DocumentState", config: LintConfig) -> list[types.Diagnosti
     """
     if not config.enable:
         return []
+
+    # Ensure compilation is available for semantic naming checks.
+    # When the server uses shared/lazy compilation, state.compilation may be None
+    # after open() — build a minimal one from the buffer tree if so.
+    if state.compilation is None and state.tree is not None:
+        try:
+            import pyslang as _pyslang
+            _comp = _pyslang.Compilation()
+            _comp.addSyntaxTree(state.tree)
+            state.compilation = _comp
+        except Exception:
+            pass
+
     diags: list[types.Diagnostic] = []
 
     # Single syntax-tree walk covers: port_style, one_module_per_file,

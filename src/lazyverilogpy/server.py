@@ -1569,8 +1569,10 @@ def _publish_diagnostics(ls: LanguageServer, uri: str) -> None:
     except Exception as exc:
         logger.debug("syntax diagnostics collection error: %s", exc)
 
-    # Lint rules (text-based, no compilation needed)
+    # Lint rules — need compilation for symbol-name checks; use shared lazy compilation.
     try:
+        if state.compilation is None:
+            state.compilation = analyzer._get_shared_compilation(uri)
         lint_diags = run_lint(state, _lint_config)
         diags.extend(lint_diags)
     except Exception as exc:
