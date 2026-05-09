@@ -96,7 +96,7 @@ def _extract_ports(module_node, sm) -> list:
         return ports
     ports_kind = str(ports_node.kind)
 
-    if "AnsiPortList" in ports_kind:
+    if ports_kind == "SyntaxKind.AnsiPortList":
         def _port_visitor(node) -> bool:
             if str(node.kind) == "SyntaxKind.ImplicitAnsiPort":
                 try:
