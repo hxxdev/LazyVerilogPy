@@ -245,9 +245,8 @@ def _port_direction(sym) -> str:
 
 def _tree_module_names(state: "DocumentState") -> set[str]:
     """Return set of module names defined in this buffer."""
-    compilation = state.compilation
     tree = state.tree
-    if compilation is None or tree is None:
+    if tree is None:
         return set()
 
     buffer_modules: set[str] = set()
@@ -647,17 +646,17 @@ def _walk_syntax_tree(state: "DocumentState", config: LintConfig) -> tuple[list[
 
 
 # ---------------------------------------------------------------------------
-# Single-pass semantic walk
+# Single-pass naming walk (SyntaxTree-based, no compilation needed)
 # ---------------------------------------------------------------------------
 
 
-def _walk_semantic(
+def _walk_naming_tree(
     state: "DocumentState",
     config: LintConfig,
     localparam_names: set[str],
     interface_names: set[str],
 ) -> list[types.Diagnostic]:
-    """Single semantic-layer walk for naming checks on compiled symbols."""
+    """Naming checks via SyntaxTree walk — no compilation required."""
     naming = config.naming
     if not any([
         naming.module_pattern,
@@ -673,181 +672,128 @@ def _walk_semantic(
     ]):
         return []
 
-    compilation = state.compilation
     tree = state.tree
-    if compilation is None or tree is None:
+    if tree is None:
         return []
 
     sm = tree.sourceManager
     current_file = _tree_filename(state)
     diags: list[types.Diagnostic] = []
 
-    # Collect module names defined in this buffer via syntax tree.
-    buffer_modules: set[str] = set()
-    def _find_mods(node) -> bool:
-        if str(node.kind) == "SyntaxKind.ModuleDeclaration":
-            try:
-                buffer_modules.add(str(node.header.name).strip())
-            except Exception:
-                pass
-        return True
-    try:
-        tree.root.visit(_find_mods)
-    except Exception as exc:
-        logger.debug("naming rule: module scan error: %s", exc)
+    _DIR_MAP = {
+        "TokenKind.InputKeyword": "input",
+        "TokenKind.OutputKeyword": "output",
+        "TokenKind.InOutKeyword": "inout",
+    }
 
-    # Use pre-compiled regexes
-    module_re = naming._module_re
-    signal_re = naming._signal_re
-    interface_re = naming._interface_re
-    struct_re = naming._struct_re
-    union_re = naming._union_re
-    enum_re = naming._enum_re
-    parameter_re = naming._parameter_re
-    localparam_re = naming._localparam_re
-
-    def _visit(sym) -> bool:
+    def _same_buf(node) -> bool:
         try:
-            kind = str(sym.kind)
-            name = str(sym.name) if sym.name else ""
-            if not name:
-                return True
+            return _same_file(str(sm.getFileName(node.sourceRange.start)), current_file)
+        except Exception:
+            return False
 
-            # Filter to direct members of modules defined in this buffer.
-            try:
-                hp = str(sym.hierarchicalPath)
-                parts = hp.split(".") if hp else []
-                parent_module = parts[0] if parts else ""
-            except Exception:
-                return True
-            _UNIT_SCOPE_KINDS = (
-                "SymbolKind.Parameter", "SymbolKind.LocalParam", "SymbolKind.TypeAlias",
-            )
-            is_unit_scope = len(parts) == 1 and (
-                kind in _UNIT_SCOPE_KINDS
-                or (kind == "SymbolKind.InstanceBody" and parent_module == "$unit")
-            )
-            if is_unit_scope:
-                try:
-                    src_file = str(sm.getFileName(sym.location))
-                    if not _same_file(src_file, current_file):
-                        return True
-                except Exception:
-                    return True
-            else:
-                if parent_module not in buffer_modules:
-                    return True
-                if kind != "SymbolKind.InstanceBody" and len(parts) != 2:
-                    return True
-
-            loc = sym.location
+    def _chk(name: str, loc, pat_re, pat_str: str, category: str) -> None:
+        if not pat_re or not name:
+            return
+        if not pat_re.fullmatch(name):
             line = max(sm.getLineNumber(loc) - 1, 0)
             col = max(sm.getColumnNumber(loc) - 1, 0)
+            diags.append(_make_diagnostic(
+                line, col,
+                f"[naming] {category} '{name}' does not match pattern '{pat_str}'",
+                naming.severity,
+            ))
 
-            if kind == "SymbolKind.InstanceBody" and name in interface_names:
-                if interface_re and not interface_re.fullmatch(name):
-                    diags.append(_make_diagnostic(
-                        line, col,
-                        f"[naming] interface '{name}' does not match pattern '{naming.interface_pattern}'",
-                        naming.severity,
-                    ))
-            elif kind == "SymbolKind.InstanceBody" and module_re:
-                if not module_re.fullmatch(name):
-                    diags.append(_make_diagnostic(
-                        line, col,
-                        f"[naming] module '{name}' does not match pattern '{naming.module_pattern}'",
-                        naming.severity,
-                    ))
+    def _visit(node) -> bool:
+        k = str(node.kind)
+        try:
+            if k == "SyntaxKind.ModuleDeclaration":
+                if naming._module_re and _same_buf(node):
+                    name = str(node.header.name).strip()
+                    _chk(name, node.header.name.location, naming._module_re, naming.module_pattern, "module")
 
-            elif kind == "SymbolKind.Port":
-                direction = _port_direction(sym)
-                if naming._input_port_re and direction == "input":
-                    if not naming._input_port_re.fullmatch(name):
-                        diags.append(_make_diagnostic(
-                            line, col,
-                            f"[naming] input port '{name}' does not match pattern '{naming.input_port_pattern}'",
-                            naming.severity,
-                        ))
-                if naming._output_port_re and direction == "output":
-                    if not naming._output_port_re.fullmatch(name):
-                        diags.append(_make_diagnostic(
-                            line, col,
-                            f"[naming] output port '{name}' does not match pattern '{naming.output_port_pattern}'",
-                            naming.severity,
-                        ))
+            elif k == "SyntaxKind.InterfaceDeclaration":
+                if naming._interface_re and _same_buf(node):
+                    name = str(node.header.name).strip()
+                    _chk(name, node.header.name.location, naming._interface_re, naming.interface_pattern, "interface")
 
-            elif kind in ("SymbolKind.Variable", "SymbolKind.Net") and signal_re:
-                if not signal_re.fullmatch(name):
-                    diags.append(_make_diagnostic(
-                        line, col,
-                        f"[naming] signal '{name}' does not match pattern '{naming.signal_pattern}'",
-                        naming.severity,
-                    ))
+            elif k == "SyntaxKind.ImplicitAnsiPort":
+                if _same_buf(node):
+                    name = str(node.declarator.name).strip()
+                    loc = node.declarator.name.location
+                    direction = str(node.header.direction).strip().lower()
+                    if direction == "input":
+                        _chk(name, loc, naming._input_port_re, naming.input_port_pattern, "input port")
+                    elif direction == "output":
+                        _chk(name, loc, naming._output_port_re, naming.output_port_pattern, "output port")
 
-            elif kind == "SymbolKind.TypeAlias":
-                try:
-                    ct_kind = str(sym.canonicalType.kind)
-                except Exception:
-                    ct_kind = ""
-                if "Struct" in ct_kind and struct_re:
-                    if not struct_re.fullmatch(name):
-                        diags.append(_make_diagnostic(
-                            line, col,
-                            f"[naming] struct '{name}' does not match pattern '{naming.struct_pattern}'",
-                            naming.severity,
-                        ))
-                elif "Union" in ct_kind and union_re:
-                    if not union_re.fullmatch(name):
-                        diags.append(_make_diagnostic(
-                            line, col,
-                            f"[naming] union '{name}' does not match pattern '{naming.union_pattern}'",
-                            naming.severity,
-                        ))
-                elif "Enum" in ct_kind and enum_re:
-                    if not enum_re.fullmatch(name):
-                        diags.append(_make_diagnostic(
-                            line, col,
-                            f"[naming] enum '{name}' does not match pattern '{naming.enum_pattern}'",
-                            naming.severity,
-                        ))
-            elif kind == "SymbolKind.Interface" and interface_re:
-                if not interface_re.fullmatch(name):
-                    diags.append(_make_diagnostic(
-                        line, col,
-                        f"[naming] interface '{name}' does not match pattern '{naming.interface_pattern}'",
-                        naming.severity,
-                    ))
-            elif kind == "SymbolKind.Parameter":
-                if name in localparam_names:
-                    if localparam_re and not localparam_re.fullmatch(name):
-                        diags.append(_make_diagnostic(
-                            line, col,
-                            f"[naming] localparam '{name}' does not match pattern '{naming.localparam_pattern}'",
-                            naming.severity,
-                        ))
-                else:
-                    if parameter_re and not parameter_re.fullmatch(name):
-                        diags.append(_make_diagnostic(
-                            line, col,
-                            f"[naming] parameter '{name}' does not match pattern '{naming.parameter_pattern}'",
-                            naming.severity,
-                        ))
-            elif kind == "SymbolKind.LocalParam" and localparam_re:
-                if not localparam_re.fullmatch(name):
-                    diags.append(_make_diagnostic(
-                        line, col,
-                        f"[naming] localparam '{name}' does not match pattern '{naming.localparam_pattern}'",
-                        naming.severity,
-                    ))
+            elif k == "SyntaxKind.PortDeclaration":
+                if _same_buf(node):
+                    direction = "unknown"
+                    def _get_dir(tok) -> bool:
+                        nonlocal direction
+                        tk = str(tok.kind)
+                        if tk in _DIR_MAP:
+                            direction = _DIR_MAP[tk]
+                        return True
+                    try:
+                        node.header.visit(_get_dir)
+                    except Exception:
+                        pass
+                    for d in node.declarators:
+                        if str(d.kind) == "SyntaxKind.Declarator":
+                            name = str(d.name).strip()
+                            if name:
+                                loc = d.name.location
+                                if direction == "input":
+                                    _chk(name, loc, naming._input_port_re, naming.input_port_pattern, "input port")
+                                elif direction == "output":
+                                    _chk(name, loc, naming._output_port_re, naming.output_port_pattern, "output port")
+
+            elif k in ("SyntaxKind.DataDeclaration", "SyntaxKind.NetDeclaration"):
+                if naming._signal_re and _same_buf(node):
+                    for d in node.declarators:
+                        if str(d.kind) == "SyntaxKind.Declarator":
+                            name = str(d.name).strip()
+                            if name:
+                                _chk(name, d.name.location, naming._signal_re, naming.signal_pattern, "signal")
+
+            elif k == "SyntaxKind.ParameterDeclaration":
+                if (naming._parameter_re or naming._localparam_re) and _same_buf(node):
+                    for d in node.declarators:
+                        if str(d.kind) == "SyntaxKind.Declarator":
+                            name = str(d.name).strip()
+                            if name:
+                                loc = d.name.location
+                                if name in localparam_names:
+                                    _chk(name, loc, naming._localparam_re, naming.localparam_pattern, "localparam")
+                                else:
+                                    _chk(name, loc, naming._parameter_re, naming.parameter_pattern, "parameter")
+
+            elif k == "SyntaxKind.TypedefDeclaration":
+                if (naming._struct_re or naming._union_re or naming._enum_re) and _same_buf(node):
+                    name = str(node.name).strip()
+                    if name:
+                        loc = node.name.location
+                        try:
+                            type_kind = str(node.type.kind)
+                        except Exception:
+                            type_kind = ""
+                        if "Struct" in type_kind:
+                            _chk(name, loc, naming._struct_re, naming.struct_pattern, "struct")
+                        elif "Union" in type_kind:
+                            _chk(name, loc, naming._union_re, naming.union_pattern, "union")
+                        elif "Enum" in type_kind:
+                            _chk(name, loc, naming._enum_re, naming.enum_pattern, "enum")
 
         except Exception:
             pass
         return True
 
     try:
-        compilation.getRoot().visit(_visit)
+        tree.root.visit(_visit)
     except Exception as exc:
-        logger.debug("naming rule visit error: %s", exc)
+        logger.debug("naming tree walk error: %s", exc)
 
     return diags
 
@@ -1085,18 +1031,6 @@ def run_lint(state: "DocumentState", config: LintConfig) -> list[types.Diagnosti
     if not config.enable:
         return []
 
-    # Ensure compilation is available for semantic naming checks.
-    # When the server uses shared/lazy compilation, state.compilation may be None
-    # after open() — build a minimal one from the buffer tree if so.
-    if state.compilation is None and state.tree is not None:
-        try:
-            import pyslang as _pyslang
-            _comp = _pyslang.Compilation()
-            _comp.addSyntaxTree(state.tree)
-            state.compilation = _comp
-        except Exception:
-            pass
-
     diags: list[types.Diagnostic] = []
 
     # Single syntax-tree walk covers: port_style, one_module_per_file,
@@ -1118,10 +1052,10 @@ def run_lint(state: "DocumentState", config: LintConfig) -> list[types.Diagnosti
         except Exception as exc:
             logger.debug("syntax tree walk failed: %s", exc)
 
-    # Single semantic walk for naming checks.
+    # Naming walk — SyntaxTree-based, no compilation needed.
     if config.naming.enable:
         try:
-            diags.extend(_walk_semantic(state, config, localparam_names, interface_names))
+            diags.extend(_walk_naming_tree(state, config, localparam_names, interface_names))
         except Exception as exc:
             logger.debug("naming rule failed: %s", exc)
 
