@@ -516,18 +516,29 @@ class Analyzer:
         except Exception:
             pass
         t0 = time.perf_counter()
+        # All trees in a Compilation must share the same SourceManager.
+        # When defines are active, _parse_syntax creates a private SM for the buffer;
+        # re-parse extra files into that same SM here.
+        sm = state.tree.sourceManager
+        bag: object = None
+        if self._defines:
+            po = pyslang.PreprocessorOptions()
+            po.predefines = list(self._defines)
+            bag = pyslang.Bag()
+            bag.preprocessorOptions = po
         comp = pyslang.Compilation()
         comp.addSyntaxTree(state.tree)
         for path in self._extra_files:
             if buffer_path is not None and path == buffer_path:
                 continue
-            path_uri = str(path.as_uri())
-            tree = self._extra_trees.get(path_uri)
-            if tree is not None:
-                try:
-                    comp.addSyntaxTree(tree)
-                except Exception:
-                    pass
+            try:
+                if bag is not None:
+                    extra_tree = pyslang.SyntaxTree.fromFile(str(path), sm, options=bag)
+                else:
+                    extra_tree = pyslang.SyntaxTree.fromFile(str(path), sm)
+                comp.addSyntaxTree(extra_tree)
+            except Exception:
+                pass
         self._shared_compilation = comp
         self._shared_compilation_dirty = False
         _t(f"_get_shared_compilation ({len(self._extra_files)} extra files)", t0, uri)
@@ -1681,8 +1692,10 @@ class Analyzer:
         state.compilation = _old_comp
 
         if source_path not in inst_data:
+            logger.debug("build_connect_plan: inst_data keys=%s", list(inst_data.keys()))
             return f"instance '{source_path}' not found"
         if dest_path not in inst_data:
+            logger.debug("build_connect_plan: inst_data keys=%s", list(inst_data.keys()))
             return f"instance '{dest_path}' not found"
 
         # Collect instance symbols by hierarchical path
