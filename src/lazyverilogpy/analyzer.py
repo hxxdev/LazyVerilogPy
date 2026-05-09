@@ -919,7 +919,7 @@ class Analyzer:
                     lines.append(
                         f"  {p.direction.ljust(max_dir)}  {p.type_text.ljust(max_type)}  {p.name}"
                     )
-                doc = "```systemverilog\n" + "\n".join(lines) + "\n```"
+                doc = "```\n" + "\n".join(lines) + "\n```"
             return SymbolInfo(
                 name=name,
                 kind="module",
@@ -1036,7 +1036,7 @@ class Analyzer:
                         ret = str(node.prototype.returnType).strip()
                         ports = str(node.prototype.portList).strip()
                         sig = f"function {ret} {name}{ports}"
-                        doc = f"```systemverilog\n{sig}\n```"
+                        doc = f"```\n{sig}\n```"
                     except Exception:
                         doc = ""
                 elif nk == "SyntaxKind.TaskDeclaration":
@@ -1049,7 +1049,7 @@ class Analyzer:
                     try:
                         ports = str(node.prototype.portList).strip()
                         sig = f"task {name}{ports}"
-                        doc = f"```systemverilog\n{sig}\n```"
+                        doc = f"```\n{sig}\n```"
                     except Exception:
                         doc = ""
                 elif nk == "SyntaxKind.TypedefDeclaration":
