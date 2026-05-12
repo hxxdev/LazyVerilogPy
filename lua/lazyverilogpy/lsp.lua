@@ -210,9 +210,14 @@ local function start_lsp(cfg, cmd)
                     [4] = vim.log.levels.DEBUG,
                 }
                 local level = level_map[result.type] or vim.log.levels.INFO
+                local hl = (result.type == 1) and "ErrorMsg" or "WarningMsg"
                 -- Defer past the "N bytes written" cmdline message that fires after BufWritePre.
                 vim.schedule(function()
                     vim.notify(("[%s] %s"):format(name, result.message), level)
+                    vim.api.nvim_echo(
+                        { { ("[%s] %s"):format(name, result.message), hl } },
+                        true, {}
+                    )
                 end)
             end,
         },
